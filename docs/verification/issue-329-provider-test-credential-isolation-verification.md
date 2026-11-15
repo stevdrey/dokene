@@ -46,9 +46,30 @@ The same pattern was found in four stub-phase drivers that exported `DOKENE_AI_O
 | ShellCheck 0.11.0 on both new files; `bash -n` on every changed shell script; `node --check` on `res07.mjs` | automated | Pass |
 | `scripts/tests/dev-env-smoke.sh` (ShellCheck gate with the two new targets) | automated | Pass, "shell scripts are ShellCheck-clean" included |
 
+## Spring relaxed binding (second commit)
+
+The independent verifier of round 1 reported optional finding F1: the override filter and the backend check compared two exact variable names, while Spring also binds other spellings of the same property (`DOKENE_AI_OPENAI_APIKEY`, lower case names, doubled separators) and can load configuration from `SPRING_APPLICATION_JSON`, `SPRING_CONFIG_*` or `-D` options in JVM option variables. A hand-written override could have set a second spelling next to the synthetic key. Nothing in the repository did. The fix is in the second commit:
+
+- `provider_test_override` accepts extra environment only as one `      NAME: "value"` line per upper-case variable. It refuses a name that, with case and separators ignored, mentions `OPENAI`, `APIKEY`, `BASEURL` or `TRUSTEDHOSTS`, starts with `DOKENEAIPROVIDER`, `SPRINGAPPLICATIONJSON` or `SPRINGCONFIG`, or is a JVM option variable.
+- `provider_test_assert_backend` reads every environment entry and mount of the backend:
+  - Every spelling of the key must hold the synthetic key, and every spelling of the base URL must be a loopback URL.
+  - Each canonical name must appear exactly once.
+  - It fails closed on a set `SPRING_APPLICATION_JSON` or `SPRING_CONFIG_*`, on JVM options that set a `dokene.ai` or configuration property, and on a mounted secret file named for the provider.
+  - The image's own `JAVA_TOOL_OPTIONS` and the Spring security settings still pass.
+
+Checks on the working tree that became the second commit:
+
+| Check | Kind | Outcome |
+| --- | --- | --- |
+| `scripts/tests/provider-test-double-test.sh` | automated | 82 checks pass. The new ones cover 13 refused alias and configuration names, 5 malformed extra lines, a real-looking key under three key spellings, a base URL alias on the real endpoint, `SPRING_APPLICATION_JSON`, `SPRING_CONFIG_*`, `JDK_JAVA_OPTIONS` with a `-D` key, a mounted key file and a duplicated canonical key. All of them fail closed, and the backend's own secret mount and an alias that holds the synthetic key pass |
+| Negative control: the new tests run against the first commit's library | automated | 30 checks fail, one for each alias case |
+| The `docker inspect` template run against a local container, only the line prefixes counted | live, local | environment entries and mounts are listed as `ENV` and `MOUNT` lines; the trailing blank line is ignored |
+| ShellCheck 0.11.0 (`-x`) on both files; `scripts/tests/dev-env-smoke.sh` | automated | Pass |
+
 ## Limitations
 
 - The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.
 - Whether the key reached the stub in the original runs was not established, as the Issue notes: the stub never logged headers, and the refused and blackholed destinations had no listener. This record proves that a rerun cannot send it, not what was sent before.
 - The backend still sends whatever key is configured to an allowed base URL, loopback included. A local gateway on loopback that forwards to a provider is a legitimate deployment, so the backend cannot refuse a real key there; the guard is in the test harness, where the destination is chosen.
+- Spring's handling of each alias was not exercised against a running backend. The checks follow the relaxed binding rules (case and separators ignored) and fail closed beyond them; a property source the library does not know, such as a config file baked into a custom image, is outside what a harness check can see.
 - `res11.mjs` and the live cases of `res01.sh` use the real provider on purpose and are out of scope; `res01.sh` already sets its key per case.
