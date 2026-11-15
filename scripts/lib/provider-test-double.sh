@@ -112,9 +112,11 @@ _provider_test_backend_state() {
 # Every spelling of the key and the base URL that Spring binds is checked, not only the canonical name: each key
 # alias must hold the synthetic key and each base URL alias a loopback URL, and both canonical names must be present.
 # Configuration a test double cannot vouch for fails closed: SPRING_APPLICATION_JSON or SPRING_CONFIG_* set at all,
-# JVM options that set a provider or configuration property, and a mount that shadows or adds to the config tree
-# (/run, /run/secrets, /run/secrets/dokene, any file there but the signing key, an application file or a reserved
-# name under /run/secrets).
+# JVM options that set a provider or configuration property or read a JVM argument file (@file, -XX:VMOptionsFile,
+# -XX:Flags), a mount that shadows or adds to the config tree (/run, /run/secrets, /run/secrets/dokene, any file
+# there but the signing key, a reserved name under /run/secrets), and a mount where Spring Boot loads configuration
+# by default from the image's working directory /app (/app, /app/config and below, /config) or any mounted
+# application*.yml, .yaml or .properties file.
 provider_test_assert_backend() {
     local state line kind entry name value n reason='' key_seen='' url_seen=''
     state="$(_provider_test_backend_state)" || reason='no running backend container'
@@ -122,18 +124,20 @@ provider_test_assert_backend() {
     while [ -z "$reason" ] && IFS= read -r line; do
         kind="${line%% *}"; entry="${line#* }"
         if [ "$kind" = MOUNT ]; then
+            case "${entry##*/}" in
+                application*.yml | application*.yaml | application*.properties)
+                    reason="a mounted application file can configure the provider ($entry)"; continue ;;
+            esac
             case "$entry" in
+                /app | /app/ | /app/config | /app/config/* | /config | /config/*)
+                    reason="a mount is where Spring Boot loads configuration ($entry)" ;;
                 /run | /run/ | /run/secrets | /run/secrets/ | /run/secrets/dokene | /run/secrets/dokene/)
                     reason="a mount shadows the config tree ($entry)" ;;
                 /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY) ;;
                 /run/secrets/dokene/*) reason="a mount adds to the config tree ($entry)" ;;
                 /run/secrets/*)
-                    case "${entry##*/}" in
-                        application*.yml | application*.yaml | application*.properties)
-                            reason="a mounted application file can configure the provider ($entry)" ;;
-                        *) _provider_test_reserved "${entry##*/}" \
-                            && reason="a mounted secret file can set the provider configuration ($entry)" ;;
-                    esac ;;
+                    _provider_test_reserved "${entry##*/}" \
+                        && reason="a mounted secret file can set the provider configuration ($entry)" ;;
             esac
             continue
         fi
@@ -150,10 +154,14 @@ provider_test_assert_backend() {
             SPRINGAPPLICATIONJSON* | SPRINGCONFIG*)
                 [ -n "$value" ] && reason="$name is set on the backend and could configure the provider" ;;
             *JAVAOPTIONS* | *JAVATOOLOPTIONS*)
+                case " $value" in
+                    *" @"* | *"	@"*) reason="$name of the backend reads a JVM argument file" ;;
+                esac
                 _provider_test_norm_into n "$value"
                 case "$n" in
                     *DOKENEAI* | *SPRINGAPPLICATIONJSON* | *SPRINGCONFIG*)
                         reason="$name of the backend sets provider or configuration properties" ;;
+                    *VMOPTIONSFILE* | *XXFLAGS*) reason="$name of the backend reads a JVM argument file" ;;
                 esac ;;
         esac
     done <<< "$state"

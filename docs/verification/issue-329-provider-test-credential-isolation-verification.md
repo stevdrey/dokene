@@ -7,7 +7,17 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 ## Environment
 
 - **Run:** 2026-11-14, branch `329-security-isolate-credentials-in-provider-failure-tests`, based on `main` at `dc0d27a`. The analysed revision of the Issue was `a328848`; every analysed location was rechecked on `dc0d27a`, with the result below.
-- **Tested revision:** the working tree that became the first commit of this branch on top of `dc0d27a` (a commit cannot name its own hash). Every check in the table ran on that tree.
+- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The fifth commit is identified by the blob ids of the files it changes, apart from this record.
+
+  | Commit | Tree | Checks |
+  | --- | --- | --- |
+  | `e2f7f60` | `7fda08fae337a2a7bf9324b5f119618691015be8` | Checks |
+  | `4df6167` | `8e001482096f47a285b374e43f393ee3fdbce7ee` | Spring relaxed binding |
+  | `5df920b` | `b11e16772c8bb22cf3721e00f0ef52f7cb1fbc10` | Code review fixes |
+  | `3177a27` | `6dad74005107c28aba5e9f458d62d3ca4e37641a` | F4 fix |
+  | fifth commit | `scripts/lib/provider-test-double.sh` `59a0449e1525bc4533e6e803b10fd748f2cb5bb8`, `scripts/tests/provider-test-double-test.sh` `f79f877250e63d32adc840219059da6673df858b`, `docs/security/security-invariants.md` `aa9a1b88aa93742b1e546a40568f659ae8a83fa5` | F2, F3 and F5 fixes |
+
+  An independent verifier checked each of these candidates (rounds 1 to 5).
 - **Toolchain:** Linux 7.3 (Fedora 45), GNU bash 5, ShellCheck 0.11.0, curl 8.21.0, OpenJDK 27 compiling the stub with `javac --release 26`, Node `--check` for the `.mjs` script.
 - **Not run:** `./gradlew check` and the frontend suite, because no backend or frontend file changed. The local stack was not started and the changed evidence scripts were not rerun end to end; see Limitations.
 
@@ -57,7 +67,7 @@ The independent verifier of round 1 reported optional finding F1: the override f
   - It fails closed on a set `SPRING_APPLICATION_JSON` or `SPRING_CONFIG_*`, on JVM options that set a `dokene.ai` or configuration property, and on a mounted secret file named for the provider.
   - The image's own `JAVA_TOOL_OPTIONS` and the Spring security settings still pass.
 
-Checks on the working tree that became the second commit:
+Checks on the working tree that became the second commit (`4df6167`, see Tested revisions):
 
 | Check | Kind | Outcome |
 | --- | --- | --- |
@@ -68,7 +78,7 @@ Checks on the working tree that became the second commit:
 
 ## Code review fixes (third commit)
 
-A code review of the pull request found eight non-blocking issues. They were fixed in the third commit and checked on the working tree that became that commit:
+A code review of the pull request found eight non-blocking issues. They were fixed in the third commit and checked on the working tree that became that commit (`5df920b`, see Tested revisions):
 
 | Finding | Fix | Check | Outcome |
 | --- | --- | --- | --- |
@@ -92,6 +102,18 @@ Round 3 of the independent verification reported optional finding F4, introduced
 | `scripts/tests/provider-test-double-test.sh` with three new refusals (`${…}`, `$NAME`, `$$`) | automated | 102 checks pass under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only) |
 | Negative control: the third commit's value expression | automated | 4 checks fail: the three `$` cases and the untouched-override check |
 | ShellCheck (`-x`) on both files; `scripts/tests/dev-env-smoke.sh` | automated | Pass |
+
+## F2, F3 and F5 fixes (fifth commit)
+
+The fourth verification round left three optional findings open. They were fixed in the fifth commit and checked on its working tree (blob ids under Tested revisions):
+
+| Finding | Fix | Check | Outcome |
+| --- | --- | --- | --- |
+| F2: the record named the tested revisions without ids | The Tested revisions table above: the commit and tree id of each verified candidate, and the blob ids of the fifth commit's files | Manual comparison with `git log --format='%h %T'` | Each commit's tree id matches |
+| F3: a config file mounted where Spring Boot loads one, and JVM argument files, passed the backend check | The check fails closed on mounts at `/app`, `/app/config` and below, `/config` and below, and on any mounted `application*.yml`, `.yaml` or `.properties` file. It also fails closed on JVM options that read an argument file (`@file`, `-XX:VMOptionsFile`, `-XX:Flags`). The image works from `/app` | 9 new mount cases and 5 JVM option cases; negative control with the fourth commit's library | All fail closed. The signing-key mount, mounts away from those locations and ordinary JVM options pass. The control fails 14 checks |
+| F5: the guard against hand-set base URLs passed when it could not scan, and missed URLs set through a variable, a printf template or in upper case | The guard returns 0 only after scanning at least one script with no `find` or `grep` error. It catches any non-empty value given to the base URL, in any case; an empty reset and reads are allowed | 10 sample forms that must be caught; a sample of resets and reads that must not be; a missing and an empty directory; the repository tree; negative control with the old guard | All as expected. The repository's only match is the allowed synthetic-key line of issues 246-253. The control fails 6 checks |
+
+`scripts/tests/provider-test-double-test.sh` passes 125 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
 
 ## Limitations
 

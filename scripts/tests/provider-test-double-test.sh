@@ -206,6 +206,28 @@ backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
 printf '/var/lib/dokene\n/run/secrets/other/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
 check_backend; rc=$?
 assert "mounts outside the config tree with unreserved names pass" test "$rc" = 0
+# Spring Boot also loads configuration from the image's working directory /app (./ and ./config/).
+for mount in /app/config /app/config/ /app/config/application.yml /app/config/extra/x.yml /app/application.properties \
+    /app /config /config/application-local.yaml /opt/application.yml; do
+    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
+    printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n%s\n' "$mount" > "$DOCKER_STATE/mounts"
+    check_backend; rc=$?
+    assert "a mount at $mount fails closed" test "$rc" = 3
+done
+backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
+printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n/var/lib/dokene\n/app-data\n/opt/config.txt\n' > "$DOCKER_STATE/mounts"
+check_backend; rc=$?
+assert "the signing key and mounts away from Spring's config locations pass" test "$rc" = 0
+# A JVM argument file can hold -D properties the check cannot read.
+for opts in 'JDK_JAVA_OPTIONS=@/tmp/args' 'JDK_JAVA_OPTIONS=-Xmx1g @/tmp/args' 'JAVA_TOOL_OPTIONS=-XX:VMOptionsFile=/x' \
+    'JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:Flags=/x' '_JAVA_OPTIONS=-XX:VMOptionsFile=/x'; do
+    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "$opts"
+    check_backend; rc=$?
+    assert "JVM options with an argument file fail closed: $opts" test "$rc" = 3
+done
+backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" 'JDK_JAVA_OPTIONS=-Xmx1g -Dfile.encoding=UTF-8'
+check_backend; rc=$?
+assert "ordinary JVM options next to the image's own pass" test "$rc" = 0
 
 : > "$DOCKER_STATE/env"
 check_backend; rc=$?
@@ -231,21 +253,47 @@ for script in \
 done
 # No script may point the backend at a test double by hand any more: that is how the configured key went along.
 # A line that sets a synthetic key next to the base URL (the evaluation harness of issues 246-253) is allowed.
-# hand_set_stub_urls DIR: prints every line under DIR that sets a loopback base URL by hand, in any quoting.
-hand_set_stub_urls() {
-    find "$1" -type f \( -name '*.sh' -o -name '*.mjs' \) -exec grep -HnE \
-        "DOKENE_AI_OPENAI_BASE_URL[[:space:]]*[:=][[:space:]]*[\"']?https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])" {} + \
-        | grep -vE 'DOKENE_AI_OPENAI_API_KEY=sk-[a-z-]*not-a-real-key'
+# stub_urls_clean DIR: 0 when no .sh or .mjs file under DIR sets a non-empty provider base URL by hand (a literal URL
+# in any spelling, a variable, a printf template), 1 when one does (the lines go to stdout), 2 when DIR could not be
+# scanned: missing, holding no such file, or find or grep reported an error. An empty reset and reads do not count.
+stub_urls_clean() {
+    local dir="$1" count
+    [ -d "$dir" ] || return 2
+    : > "$TMP/scan.err"
+    count="$(find "$dir" -type f \( -name '*.sh' -o -name '*.mjs' \) -print 2>> "$TMP/scan.err" | wc -l)"
+    [ "$count" -gt 0 ] && [ ! -s "$TMP/scan.err" ] || return 2
+    # grep exits 1 when a file has no match, so find's status says nothing here; errors show up on stderr instead.
+    find "$dir" -type f \( -name '*.sh' -o -name '*.mjs' \) -exec grep -HniE \
+        "DOKENE_AI_OPENAI_BASE_URL[[:space:]]*[:=][[:space:]]*[\"']?[^[:space:]\"';)]" {} + \
+        > "$TMP/scan.hits" 2>> "$TMP/scan.err"
+    [ ! -s "$TMP/scan.err" ] || return 2
+    if grep -vE 'DOKENE_AI_OPENAI_API_KEY=sk-[a-z-]*not-a-real-key' "$TMP/scan.hits"; then
+        return 1
+    fi
+    return 0
 }
+guard_status() { stub_urls_clean "$1" > /dev/null; echo "$?"; }
 SAMPLES="$TMP/samples"; mkdir -p "$SAMPLES"
 i=0
+# The `$` forms below are literal on purpose: they are the script text the guard must catch.
+# shellcheck disable=SC2016
 for form in 'export DOKENE_AI_OPENAI_BASE_URL="http://127.0.0.1:18080/v1"' "DOKENE_AI_OPENAI_BASE_URL='http://localhost:18080/v1'" \
     'DOKENE_AI_OPENAI_BASE_URL=http://[::1]:18080/v1' 'DOKENE_AI_OPENAI_BASE_URL=https://localhost:8443/v1' \
-    '      DOKENE_AI_OPENAI_BASE_URL: "http://127.0.0.1:18080/v1"' 'env.DOKENE_AI_OPENAI_BASE_URL = "http://127.0.0.1:18080/v1"'; do
-    i=$((i + 1)); printf '%s\n' "$form" > "$SAMPLES/s$i.sh"
-    assert "the hand-set URL guard catches: $form" test -n "$(hand_set_stub_urls "$SAMPLES/s$i.sh")"
+    '      DOKENE_AI_OPENAI_BASE_URL: "http://127.0.0.1:18080/v1"' 'env.DOKENE_AI_OPENAI_BASE_URL = "http://127.0.0.1:18080/v1"' \
+    'DOKENE_AI_OPENAI_BASE_URL="$STUBURL"' "printf '      DOKENE_AI_OPENAI_BASE_URL: \"%s\"\\n' \"\$1\"" \
+    'DOKENE_AI_OPENAI_BASE_URL=HTTP://LOCALHOST:1/v1' 'docker run -e DOKENE_AI_OPENAI_BASE_URL=x image'; do
+    i=$((i + 1)); mkdir -p "$SAMPLES/s$i"; printf '%s\n' "$form" > "$SAMPLES/s$i/script.sh"
+    assert "the hand-set URL guard catches: $form" test "$(guard_status "$SAMPLES/s$i")" = 1
 done
-refute "no evidence script sets a stub base URL without the library" hand_set_stub_urls "$ROOT_DIR/docs/verification"
+mkdir -p "$SAMPLES/ok"
+# shellcheck disable=SC2016
+printf '%s\n' 'export DOKENE_AI_OPENAI_BASE_URL=' 'export DOKENE_AI_OPENAI_BASE_URL=;' \
+    '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && exit 2' "grep '^DOKENE_AI_OPENAI_BASE_URL=' env.txt" > "$SAMPLES/ok/script.sh"
+assert "an empty reset and reads of the base URL are not hand-set URLs" test "$(guard_status "$SAMPLES/ok")" = 0
+assert "a missing directory cannot pass the guard" test "$(guard_status "$SAMPLES/missing")" = 2
+mkdir -p "$SAMPLES/empty"
+assert "a directory with no script cannot pass the guard" test "$(guard_status "$SAMPLES/empty")" = 2
+assert "no evidence script sets a provider base URL without the library" test "$(guard_status "$ROOT_DIR/docs/verification")" = 0
 assert "the stub accepts only the synthetic key" grep -qF "\"Bearer $PROVIDER_TEST_API_KEY\"" "$ROOT_DIR/docs/verification/issue-121-evidence/scripts/Stub.java"
 refute "no setting can change the key the stub accepts" grep -q STUB_EXPECTED_API_KEY "$ROOT_DIR/docs/verification/issue-121-evidence/scripts/Stub.java"
 
