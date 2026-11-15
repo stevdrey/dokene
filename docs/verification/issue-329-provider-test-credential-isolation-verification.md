@@ -181,7 +181,14 @@ The eighth verification round reported three optional findings. They were fixed 
 - The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.
 - Whether the key reached the stub in the original runs was not established, as the Issue notes: the stub never logged headers, and the refused and blackholed destinations had no listener. This record proves that a rerun cannot send it, not what was sent before.
 - The backend still sends whatever key is configured to an allowed base URL, loopback included. A local gateway on loopback that forwards to a provider is a legitimate deployment, so the backend cannot refuse a real key there; the guard is in the test harness, where the destination is chosen.
-- The hand-set URL guard is a text scan: a name built at run time (for example by joining strings) would not be seen. Scripts that use the library are still checked at run time by `provider_test_assert_backend`.
+- The hand-set URL guard is a text scan: a name built at run time (for example by joining strings) would not be seen.
+- Accepted limitation F14 (ninth verification round, low confidence): the guard does not catch these forms:
+  - YAML flow form (`openai: {base-url: …}`), a dotted partial key (`openai.base-url:`) or a quoted key (`"base-url":`);
+  - a nested `SPRING_APPLICATION_JSON` object inside a shell script;
+  - files it does not scan (`.kt`, `.gradle`, `.zsh`, `.toml`, `Containerfile`, `*.dockerfile`, scripts without an extension);
+  - an added `.patch` line starting with `++` directly after a removed line starting with `--`.
+
+  The repository has none of these today. It was accepted rather than chased further because it affects only this text guard: a script that uses the library is still refused at run time, since the backend check fails closed on `SPRING_APPLICATION_JSON` and on every name outside the baseline. Scripts that use the library are still checked at run time by `provider_test_assert_backend`.
 - The baseline is this tree's compose file and backend Dockerfile; a change to either is reviewed like any other code. The image's base variables (`PATH`, `JAVA_HOME`, `JAVA_VERSION` and the locale) are taken from the digest-pinned base image (invariant 34) without comparing their values. A driver whose own override adds names must declare them in `PROVIDER_TEST_EXTRA_NAMES`, otherwise the check stops the backend.
 - Spring's handling of each alias was not exercised against a running backend. The checks follow the relaxed binding rules (case and separators ignored) and fail closed beyond them; a property source the library does not know, such as a config file baked into a custom image, is outside what a harness check can see.
 - `res11.mjs` and the live cases of `res01.sh` use the real provider on purpose and are out of scope; `res01.sh` already sets its key per case.
