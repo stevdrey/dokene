@@ -206,9 +206,12 @@ backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
 printf '/var/lib/dokene\n/run/secrets/other/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
 check_backend; rc=$?
 assert "mounts outside the config tree with unreserved names pass" test "$rc" = 0
-# Spring Boot also loads configuration from the image's working directory /app (./ and ./config/).
+# Spring Boot also loads configuration from the image's working directory /app (./ and ./config/), and a mount
+# there or over the JRE and system directories replaces code the backend runs.
 for mount in /app/config /app/config/ /app/config/application.yml /app/config/extra/x.yml /app/application.properties \
-    /app /config /config/application-local.yaml /opt/application.yml; do
+    /app /config /config/application-local.yaml /opt/application.yml \
+    /app/dokene.jar /app/entrypoint.sh /opt/java/openjdk /opt/java/openjdk/lib/security/java.security \
+    /usr/local/bin/java /bin /sbin/x /lib/x.so /lib64; do
     backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
     printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n%s\n' "$mount" > "$DOCKER_STATE/mounts"
     check_backend; rc=$?
@@ -253,46 +256,68 @@ for script in \
 done
 # No script may point the backend at a test double by hand any more: that is how the configured key went along.
 # A line that sets a synthetic key next to the base URL (the evaluation harness of issues 246-253) is allowed.
-# stub_urls_clean DIR: 0 when no .sh or .mjs file under DIR sets a non-empty provider base URL by hand (a literal URL
-# in any spelling, a variable, a printf template), 1 when one does (the lines go to stdout), 2 when DIR could not be
-# scanned: missing, holding no such file, or find or grep reported an error. An empty reset and reads do not count.
+# stub_urls_clean DIR: 0 when no evidence script or config under DIR sets a non-empty provider base URL by hand (a
+# literal URL in any spelling, a variable, a printf template, an object key, a bracket assignment such as
+# process.env['…'] or os.environ["…"]), 1 when one does (the lines go to stdout), 2 when DIR could not be scanned:
+# missing, holding no such file, or find or grep reported an error. An empty reset, reads and comparisons do not count.
+# The only allowed hit is the exact line of the issue 246-253 evaluation harness, which sets a synthetic key with it.
+STUB_URL_SCAN_TYPES=(-name '*.sh' -o -name '*.bash' -o -name '*.mjs' -o -name '*.js' -o -name '*.py' -o -name '*.java'
+    -o -name '*.yaml' -o -name '*.yml' -o -name '*.conf' -o -name '*.patch')
+STUB_URL_ALLOWED_FILE='/issue-246-253-evidence/scripts/run-eval-against-stub.sh'
+STUB_URL_ALLOWED_LINE='export DOKENE_AI_OPENAI_API_KEY=sk-qa-stub-not-a-real-key DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1'
 stub_urls_clean() {
-    local dir="$1" count
+    local dir="$1" count hit file rest content found=0
     [ -d "$dir" ] || return 2
     : > "$TMP/scan.err"
-    count="$(find "$dir" -type f \( -name '*.sh' -o -name '*.mjs' \) -print 2>> "$TMP/scan.err" | wc -l)"
+    count="$(find "$dir" -type f \( "${STUB_URL_SCAN_TYPES[@]}" \) -print 2>> "$TMP/scan.err" | wc -l)"
     [ "$count" -gt 0 ] && [ ! -s "$TMP/scan.err" ] || return 2
     # grep exits 1 when a file has no match, so find's status says nothing here; errors show up on stderr instead.
-    find "$dir" -type f \( -name '*.sh' -o -name '*.mjs' \) -exec grep -HniE \
-        "DOKENE_AI_OPENAI_BASE_URL[[:space:]]*[:=][[:space:]]*[\"']?[^[:space:]\"';)]" {} + \
+    find "$dir" -type f \( "${STUB_URL_SCAN_TYPES[@]}" \) -exec grep -HniE \
+        "DOKENE_AI_OPENAI_BASE_URL[]\"']*[[:space:]]*[:=][[:space:]]*[\"']?[^[:space:]\"';)=]" {} + \
         > "$TMP/scan.hits" 2>> "$TMP/scan.err"
     [ ! -s "$TMP/scan.err" ] || return 2
-    if grep -vE 'DOKENE_AI_OPENAI_API_KEY=sk-[a-z-]*not-a-real-key' "$TMP/scan.hits"; then
-        return 1
-    fi
+    while IFS= read -r hit; do
+        file="${hit%%:*}"; rest="${hit#*:}"; content="${rest#*:}"
+        case "$file" in
+            *"$STUB_URL_ALLOWED_FILE") [ "$content" = "$STUB_URL_ALLOWED_LINE" ] && continue ;;
+        esac
+        printf '%s\n' "$hit"; found=1
+    done < "$TMP/scan.hits"
+    [ "$found" = 0 ] || return 1
     return 0
 }
 guard_status() { stub_urls_clean "$1" > /dev/null; echo "$?"; }
 SAMPLES="$TMP/samples"; mkdir -p "$SAMPLES"
 i=0
+SAMPLE_EXTS=(sh py mjs js yml)  # each sample form lands in a different scanned file type
 # The `$` forms below are literal on purpose: they are the script text the guard must catch.
 # shellcheck disable=SC2016
 for form in 'export DOKENE_AI_OPENAI_BASE_URL="http://127.0.0.1:18080/v1"' "DOKENE_AI_OPENAI_BASE_URL='http://localhost:18080/v1'" \
     'DOKENE_AI_OPENAI_BASE_URL=http://[::1]:18080/v1' 'DOKENE_AI_OPENAI_BASE_URL=https://localhost:8443/v1' \
     '      DOKENE_AI_OPENAI_BASE_URL: "http://127.0.0.1:18080/v1"' 'env.DOKENE_AI_OPENAI_BASE_URL = "http://127.0.0.1:18080/v1"' \
     'DOKENE_AI_OPENAI_BASE_URL="$STUBURL"' "printf '      DOKENE_AI_OPENAI_BASE_URL: \"%s\"\\n' \"\$1\"" \
-    'DOKENE_AI_OPENAI_BASE_URL=HTTP://LOCALHOST:1/v1' 'docker run -e DOKENE_AI_OPENAI_BASE_URL=x image'; do
-    i=$((i + 1)); mkdir -p "$SAMPLES/s$i"; printf '%s\n' "$form" > "$SAMPLES/s$i/script.sh"
+    'DOKENE_AI_OPENAI_BASE_URL=HTTP://LOCALHOST:1/v1' 'docker run -e DOKENE_AI_OPENAI_BASE_URL=x image' \
+    "process.env['DOKENE_AI_OPENAI_BASE_URL'] = url;" 'os.environ["DOKENE_AI_OPENAI_BASE_URL"] = url' \
+    '{ DOKENE_AI_OPENAI_BASE_URL: url }' \
+    'DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1  # DOKENE_AI_OPENAI_API_KEY=sk-qa-stub-not-a-real-key'; do
+    i=$((i + 1)); mkdir -p "$SAMPLES/s$i"; printf '%s\n' "$form" > "$SAMPLES/s$i/script.${SAMPLE_EXTS[$((i % 5))]}"
     assert "the hand-set URL guard catches: $form" test "$(guard_status "$SAMPLES/s$i")" = 1
 done
 mkdir -p "$SAMPLES/ok"
 # shellcheck disable=SC2016
 printf '%s\n' 'export DOKENE_AI_OPENAI_BASE_URL=' 'export DOKENE_AI_OPENAI_BASE_URL=;' \
-    '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && exit 2' "grep '^DOKENE_AI_OPENAI_BASE_URL=' env.txt" > "$SAMPLES/ok/script.sh"
+    '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && exit 2' "grep '^DOKENE_AI_OPENAI_BASE_URL=' env.txt" \
+    "if (process.env.DOKENE_AI_OPENAI_BASE_URL === 'x') {}" "url = os.environ['DOKENE_AI_OPENAI_BASE_URL']" \
+    > "$SAMPLES/ok/script.sh"
 assert "an empty reset and reads of the base URL are not hand-set URLs" test "$(guard_status "$SAMPLES/ok")" = 0
 assert "a missing directory cannot pass the guard" test "$(guard_status "$SAMPLES/missing")" = 2
 mkdir -p "$SAMPLES/empty"
 assert "a directory with no script cannot pass the guard" test "$(guard_status "$SAMPLES/empty")" = 2
+mkdir -p "$SAMPLES/allowed$STUB_URL_ALLOWED_FILE" && rmdir "$SAMPLES/allowed$STUB_URL_ALLOWED_FILE"
+printf '%s\n' "$STUB_URL_ALLOWED_LINE" > "$SAMPLES/allowed$STUB_URL_ALLOWED_FILE"
+assert "the exact allowed harness line passes" test "$(guard_status "$SAMPLES/allowed")" = 0
+printf '%s\n' "$STUB_URL_ALLOWED_LINE" > "$SAMPLES/allowed/elsewhere.sh"
+assert "the allowed line in another file is caught" test "$(guard_status "$SAMPLES/allowed")" = 1
 assert "no evidence script sets a provider base URL without the library" test "$(guard_status "$ROOT_DIR/docs/verification")" = 0
 assert "the stub accepts only the synthetic key" grep -qF "\"Bearer $PROVIDER_TEST_API_KEY\"" "$ROOT_DIR/docs/verification/issue-121-evidence/scripts/Stub.java"
 refute "no setting can change the key the stub accepts" grep -q STUB_EXPECTED_API_KEY "$ROOT_DIR/docs/verification/issue-121-evidence/scripts/Stub.java"

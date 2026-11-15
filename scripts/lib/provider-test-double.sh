@@ -114,9 +114,10 @@ _provider_test_backend_state() {
 # Configuration a test double cannot vouch for fails closed: SPRING_APPLICATION_JSON or SPRING_CONFIG_* set at all,
 # JVM options that set a provider or configuration property or read a JVM argument file (@file, -XX:VMOptionsFile,
 # -XX:Flags), a mount that shadows or adds to the config tree (/run, /run/secrets, /run/secrets/dokene, any file
-# there but the signing key, a reserved name under /run/secrets), and a mount where Spring Boot loads configuration
-# by default from the image's working directory /app (/app, /app/config and below, /config) or any mounted
-# application*.yml, .yaml or .properties file.
+# there but the signing key, a reserved name under /run/secrets), a mount where Spring Boot loads configuration by
+# default (/app, the image's working directory, and /config) or any mounted application*.yml, .yaml or .properties
+# file, and a mount that replaces code the backend runs (anything under /app such as dokene.jar or entrypoint.sh, the
+# JRE under /opt/java, /usr, /bin, /sbin, /lib, /lib64).
 provider_test_assert_backend() {
     local state line kind entry name value n reason='' key_seen='' url_seen=''
     state="$(_provider_test_backend_state)" || reason='no running backend container'
@@ -129,8 +130,11 @@ provider_test_assert_backend() {
                     reason="a mounted application file can configure the provider ($entry)"; continue ;;
             esac
             case "$entry" in
-                /app | /app/ | /app/config | /app/config/* | /config | /config/*)
-                    reason="a mount is where Spring Boot loads configuration ($entry)" ;;
+                /app | /app/* | /config | /config/*)
+                    reason="a mount is where the backend loads its code or Spring Boot its configuration ($entry)" ;;
+                /opt/java | /opt/java/* | /usr | /usr/* | /bin | /bin/* | /sbin | /sbin/* | /lib | /lib/* \
+                    | /lib64 | /lib64/*)
+                    reason="a mount replaces code the backend runs ($entry)" ;;
                 /run | /run/ | /run/secrets | /run/secrets/ | /run/secrets/dokene | /run/secrets/dokene/)
                     reason="a mount shadows the config tree ($entry)" ;;
                 /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY) ;;

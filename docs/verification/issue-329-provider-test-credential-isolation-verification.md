@@ -7,7 +7,7 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 ## Environment
 
 - **Run:** 2026-11-14, branch `329-security-isolate-credentials-in-provider-failure-tests`, based on `main` at `dc0d27a`. The analysed revision of the Issue was `a328848`; every analysed location was rechecked on `dc0d27a`, with the result below.
-- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The fifth commit is identified by the blob ids of the files it changes, apart from this record.
+- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The sixth commit is identified by the blob ids of the files it changes, apart from this record.
 
   | Commit | Tree | Checks |
   | --- | --- | --- |
@@ -15,9 +15,10 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
   | `4df6167` | `8e001482096f47a285b374e43f393ee3fdbce7ee` | Spring relaxed binding |
   | `5df920b` | `b11e16772c8bb22cf3721e00f0ef52f7cb1fbc10` | Code review fixes |
   | `3177a27` | `6dad74005107c28aba5e9f458d62d3ca4e37641a` | F4 fix |
-  | fifth commit | `scripts/lib/provider-test-double.sh` `59a0449e1525bc4533e6e803b10fd748f2cb5bb8`, `scripts/tests/provider-test-double-test.sh` `f79f877250e63d32adc840219059da6673df858b`, `docs/security/security-invariants.md` `aa9a1b88aa93742b1e546a40568f659ae8a83fa5` | F2, F3 and F5 fixes |
+  | `6ee51bb` | `1e897348ac3c700508f79b3de953d0574eb5a326` | F2, F3 and F5 fixes |
+  | sixth commit | `scripts/lib/provider-test-double.sh` `d363b9c79525c7967a4c294bbff3609242b7aa16`, `scripts/tests/provider-test-double-test.sh` `62494c06bec2ff76a082cd88597259af47d39d9c`, `docs/security/security-invariants.md` `c98a811505aebcd82371d120cc303cf5061e4ef6` | F6 and F7 fixes |
 
-  An independent verifier checked each of these candidates (rounds 1 to 5).
+  An independent verifier checked each of these candidates (rounds 1 to 6).
 - **Toolchain:** Linux 7.3 (Fedora 45), GNU bash 5, ShellCheck 0.11.0, curl 8.21.0, OpenJDK 27 compiling the stub with `javac --release 26`, Node `--check` for the `.mjs` script.
 - **Not run:** `./gradlew check` and the frontend suite, because no backend or frontend file changed. The local stack was not started and the changed evidence scripts were not rerun end to end; see Limitations.
 
@@ -105,7 +106,7 @@ Round 3 of the independent verification reported optional finding F4, introduced
 
 ## F2, F3 and F5 fixes (fifth commit)
 
-The fourth verification round left three optional findings open. They were fixed in the fifth commit and checked on its working tree (blob ids under Tested revisions):
+The fourth verification round left three optional findings open. They were fixed in the fifth commit (`6ee51bb`, see Tested revisions) and checked on its working tree:
 
 | Finding | Fix | Check | Outcome |
 | --- | --- | --- | --- |
@@ -114,6 +115,17 @@ The fourth verification round left three optional findings open. They were fixed
 | F5: the guard against hand-set base URLs passed when it could not scan, and missed URLs set through a variable, a printf template or in upper case | The guard returns 0 only after scanning at least one script with no `find` or `grep` error. It catches any non-empty value given to the base URL, in any case; an empty reset and reads are allowed | 10 sample forms that must be caught; a sample of resets and reads that must not be; a missing and an empty directory; the repository tree; negative control with the old guard | All as expected. The repository's only match is the allowed synthetic-key line of issues 246-253. The control fails 6 checks |
 
 `scripts/tests/provider-test-double-test.sh` passes 125 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
+
+## F6 and F7 fixes (sixth commit)
+
+The fifth verification round reported two new optional findings. They were fixed in the sixth commit and checked on its working tree (blob ids under Tested revisions):
+
+| Finding | Fix | Check | Outcome |
+| --- | --- | --- | --- |
+| F6: the hand-set base URL guard missed bracket assignments such as `process.env['…'] = …`. It dropped any hit line that merely contained the allowed key text, and did not scan `.py` scripts | The expression accepts a closing quote or bracket after the name and refuses comparisons (`===`). The allowed hit must be the exact harness line in its own file. The scan covers `.sh`, `.bash`, `.mjs`, `.js`, `.py`, `.java`, `.yaml`, `.yml`, `.conf` and `.patch` files | Four new sample forms (bracket assignment in JS and Python, an object key, the allowed text in a trailing comment), samples spread over five file types, comparisons and reads that must pass, the exact allowed line, the same line in another file; negative control with the fifth commit's guard | All as expected. Across every scanned type, the repository's only match is the allowed line. The control fails 12 checks |
+| F7: a mount that replaces the application, such as `/app/dokene.jar` or `/app/entrypoint.sh`, passed the backend check | The check fails closed on any mount under `/app` and on mounts over the JRE (`/opt/java`) and `/usr`, `/bin`, `/sbin`, `/lib` and `/lib64` | 9 new mount cases; negative control with the fifth commit's library | All fail closed. The signing-key mount and mounts such as `/var/lib/dokene`, `/app-data` and `/opt/config.txt` pass. The control fails 9 checks |
+
+`scripts/tests/provider-test-double-test.sh` passes 140 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
 
 ## Limitations
 
