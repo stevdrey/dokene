@@ -61,7 +61,8 @@ assert "extra environment cannot replace the base URL (status 2)" test "$?" = 2
 assert "the override file was not rewritten by a refused call" grep -qx previous "$OV"
 for alias in DOKENE_AI_OPENAI_APIKEY DOKENE_AI_OPENAIAPI_KEY DOKENEAIOPENAIAPIKEY DOKENE_AI_OPENAI_BASEURL \
     DOKENE_AI_OPENAI_ADDITIONAL_TRUSTED_HOSTS DOKENE_AI_PROVIDER_ DOKENE__AI__PROVIDER SPRING_APPLICATION_JSON \
-    SPRING_CONFIG_IMPORT SPRING_CONFIG_ADDITIONAL_LOCATION JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS; do
+    SPRING_CONFIG_IMPORT SPRING_CONFIG_ADDITIONAL_LOCATION JAVA_TOOL_OPTIONS JDK_JAVA_OPTIONS _JAVA_OPTIONS \
+    LD_PRELOAD LD_LIBRARY_PATH LOADER_PATH CLASSPATH BASH_ENV ENV PATH JAVA_HOME; do
     provider_test_override "$OV" "http://127.0.0.1:18080/v1" "      $alias: \"x\"" 2>> "$TMP/err"
     assert "extra environment cannot set $alias (status 2)" test "$?" = 2
 done
@@ -103,152 +104,181 @@ assert "export replaces the key with the synthetic one; unexport clears both" te
 )
 assert "a refused export changes nothing" test "$?" = 0
 
-# --- the running backend is checked, and stopped when it could send a real key
+# --- the running backend is compared with its baseline, and stopped when it could send a real key
+# The baseline is the repository's own compose.yaml, so a drift between the library and the compose file shows here.
+export PROVIDER_TEST_COMPOSE_FILE="$ROOT_DIR/compose.yaml"
+COMPOSE_NAMES="$(_provider_test_compose_names "$PROVIDER_TEST_COMPOSE_FILE")"
+assert "the compose file's backend environment is read" test "$(printf '%s\n' "$COMPOSE_NAMES" | grep -c .)" -gt 30
+assert "the compose baseline includes the provider key" grep -qx DOKENE_AI_OPENAI_API_KEY <<< "$COMPOSE_NAMES"
+assert "the compose baseline's only mount is the signing key" \
+    test "$(_provider_test_compose_mounts "$PROVIDER_TEST_COMPOSE_FILE")" = /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY
+
 BIN="$TMP/bin"; mkdir -p "$BIN"
 cat > "$BIN/docker" <<'STUB'
 #!/usr/bin/env bash
+# Stands in for docker: the container's and the image's configuration come from files in $DOCKER_STATE. Environment
+# entries are NUL-separated, so a value may hold a newline exactly as docker would print it.
 printf '%s\n' "$*" >> "$DOCKER_LOG"
+st="$DOCKER_STATE"
+env_lines() { local e; while IFS= read -r -d '' e; do printf '%s %s\n' "$1" "$e"; done < "$2"; }
 case "$1 $2" in
-    "compose ps") [ -s "$DOCKER_STATE/env" ] && echo backend-container-id ;;
-    "compose stop") : > "$DOCKER_STATE/env"; echo stopped >> "$DOCKER_STATE/events" ;;
-    "inspect --format") sed 's/^/ENV /' "$DOCKER_STATE/env"; [ -f "$DOCKER_STATE/mounts" ] && sed 's/^/MOUNT /' "$DOCKER_STATE/mounts" ;;
+    "compose ps") [ -s "$st/env" ] && echo backend-container-id ;;
+    "compose stop") : > "$st/env"; echo stopped >> "$st/events" ;;
+    "inspect --format")
+        if [ "$3" = '{{.Image}}' ]; then echo sha256:backend-image; exit 0; fi
+        printf 'ENTRYPOINT %s\nCMD %s\nWORKDIR %s\n' "$(cat "$st/entrypoint")" "$(cat "$st/cmd")" "$(cat "$st/workdir")"
+        env_lines ENV "$st/env"
+        [ -f "$st/mounts" ] && sed 's/^/MOUNT /' "$st/mounts" ;;
+    "image inspect")
+        printf 'ENTRYPOINT ["/app/entrypoint.sh"]\nCMD null\nWORKDIR "/app"\n'
+        env_lines ENV "$st/image_env" ;;
 esac
 exit 0
 STUB
 chmod +x "$BIN/docker"
 export DOCKER_LOG="$TMP/docker.log" DOCKER_STATE="$TMP/state"
 mkdir -p "$DOCKER_STATE"
+IMAGE_ENV=('PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' 'JAVA_HOME=/opt/java/openjdk'
+    'LANG=en_US.UTF-8' 'LANGUAGE=en_US:en' 'LC_ALL=en_US.UTF-8' 'JAVA_VERSION=jdk-26.0.2+8'
+    'JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError')
+printf '%s\0' "${IMAGE_ENV[@]}" > "$DOCKER_STATE/image_env"
 
-# backend_env URL KEY [EXTRA_ENTRY...]: the backend's environment, with the image's own JVM options and a Spring
-# security setting that mentions PROVIDER, both of which must pass.
+# backend_env URL KEY [ENTRY...]: a backend like the real one. Every compose name holds a placeholder, the image's
+# variables keep the image's values, the key and base URL are the arguments, and each ENTRY (NAME=value) replaces or
+# adds that variable. The entrypoint, command, working directory and mounts are the baseline's.
 backend_env() {
-    local url="$1" key="$2"; shift 2
-    {
-        printf 'PATH=/usr/bin\nJAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError\n'
-        printf 'SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_PROVIDER=dokene\nDOKENE_AI_PROVIDER=openai\n'
-        printf 'DOKENE_AI_OPENAI_BASE_URL=%s\nDOKENE_AI_OPENAI_API_KEY=%s\n' "$url" "$key"
-        [ "$#" -gt 0 ] && printf '%s\n' "$@"
-    } > "$DOCKER_STATE/env"
-    : > "$DOCKER_STATE/events"; rm -f "$DOCKER_STATE/mounts"
+    local url="$1" key="$2" name entry skip extra
+    shift 2
+    : > "$DOCKER_STATE/env"
+    while IFS= read -r name; do
+        case "$name" in
+            DOKENE_AI_OPENAI_API_KEY) entry="$name=$key" ;;
+            DOKENE_AI_OPENAI_BASE_URL) entry="$name=$url" ;;
+            *) entry="$name=placeholder" ;;
+        esac
+        skip=''
+        for extra in "$@"; do [ "${extra%%=*}" = "$name" ] && skip=1; done
+        [ -n "$skip" ] || printf '%s\0' "$entry" >> "$DOCKER_STATE/env"
+    done <<< "$COMPOSE_NAMES"
+    for entry in "${IMAGE_ENV[@]}"; do
+        skip=''
+        for extra in "$@"; do [ "${extra%%=*}" = "${entry%%=*}" ] && skip=1; done
+        [ -n "$skip" ] || printf '%s\0' "$entry" >> "$DOCKER_STATE/env"
+    done
+    for extra in "$@"; do printf '%s\0' "$extra" >> "$DOCKER_STATE/env"; done
+    printf '["/app/entrypoint.sh"]' > "$DOCKER_STATE/entrypoint"
+    printf 'null' > "$DOCKER_STATE/cmd"
+    printf '"/app"' > "$DOCKER_STATE/workdir"
+    printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
+    : > "$DOCKER_STATE/events"
 }
 check_backend() { PATH="$BIN:$PATH" provider_test_assert_backend 2> "$TMP/assert.err"; }
 stopped() { grep -qx stopped "$DOCKER_STATE/events"; }
+ok_url="http://127.0.0.1:18080/v1"
+expect_backend() { # NAME RC: runs the check on the prepared backend and expects RC
+    local rc
+    check_backend; rc=$?
+    assert "$1" test "$rc" = "$2"
+    cat "$TMP/assert.err" >> "$TMP/err"
+}
 
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
-check_backend; rc=$?
-assert "a loopback backend with the synthetic key passes" test "$rc" = 0
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+expect_backend "a backend like the real one, on a loopback double with the synthetic key, passes" 0
 refute "a passing backend is not stopped" stopped
 
-backend_env "http://127.0.0.1:18080/v1" "$REAL_LOOKING_KEY"
-check_backend; rc=$?
-assert "a real-looking key on the test double fails closed with status 3" test "$rc" = 3
+backend_env "$ok_url" "$REAL_LOOKING_KEY"
+expect_backend "a real-looking key on the test double fails closed with status 3" 3
 assert "the backend holding that key is stopped" stopped
 assert "the failure names the key variable" grep -qF DOKENE_AI_OPENAI_API_KEY "$TMP/assert.err"
-cat "$TMP/assert.err" >> "$TMP/err"
-
 backend_env "" "$REAL_LOOKING_KEY"
-check_backend; rc=$?
-assert "the default (real) OpenAI endpoint fails closed with status 3" test "$rc" = 3
+expect_backend "the default (real) OpenAI endpoint fails closed" 3
 assert "that backend is stopped" stopped
-cat "$TMP/assert.err" >> "$TMP/err"
-
 backend_env "http://10.255.255.1:81/v1" "$PROVIDER_TEST_API_KEY"
-check_backend; rc=$?
-assert "a non-loopback base URL fails closed even with the synthetic key" test "$rc" = 3
-cat "$TMP/assert.err" >> "$TMP/err"
+expect_backend "a non-loopback base URL fails closed even with the synthetic key" 3
+backend_env "$ok_url" ""
+expect_backend "a blank key fails closed" 3
 
-backend_env "http://127.0.0.1:18080/v1" ""
-check_backend; rc=$?
-assert "a blank key fails closed" test "$rc" = 3
-
-# Spring binds other spellings of the same property; each must hold the test double's values.
-for alias in DOKENE_AI_OPENAI_APIKEY dokene_ai_openai_api_key DOKENE_AI_OPENAI_API__KEY; do
-    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "$alias=$REAL_LOOKING_KEY"
-    check_backend; rc=$?
-    assert "a real-looking key under the alias $alias fails closed" test "$rc" = 3
-    assert "the backend with the $alias alias is stopped" stopped
-    cat "$TMP/assert.err" >> "$TMP/err"
+# Anything the compose file and the image do not define fails closed, whatever it would do: other spellings of the
+# key or base URL, configuration sources, JVM option variables, the dynamic linker, launchers and shells.
+# The `$` forms are literal script text on purpose.
+# shellcheck disable=SC2016
+for extra in "DOKENE_AI_OPENAI_APIKEY=$REAL_LOOKING_KEY" "dokene_ai_openai_api_key=$REAL_LOOKING_KEY" \
+    "DOKENE_AI_OPENAI_API__KEY=$REAL_LOOKING_KEY" "DOKENE_AI_OPENAI_APIKEY=$PROVIDER_TEST_API_KEY" \
+    'DOKENE_AI_OPENAI_BASEURL=https://api.openai.com/v1' \
+    "SPRING_APPLICATION_JSON={\"dokene\":{\"ai\":{\"openai\":{\"api-key\":\"$REAL_LOOKING_KEY\"}}}}" \
+    'SPRING_CONFIG_ADDITIONAL_LOCATION=file:/extra/' "JDK_JAVA_OPTIONS=-Ddokene.ai.openai.api-key=$REAL_LOOKING_KEY" \
+    'JDK_JAVA_OPTIONS=-Xmx1g -Dfile.encoding=UTF-8' 'JDK_JAVA_OPTIONS=@/tmp/args' '_JAVA_OPTIONS=-XX:VMOptionsFile=/x' \
+    'LD_PRELOAD=/tmp/libx.so' 'LD_PRELOAD=' 'LD_LIBRARY_PATH=/tmp' 'LD_AUDIT=/tmp/libx.so' 'LOADER_PATH=/tmp/lib' \
+    'CLASSPATH=/tmp/x.jar' 'BASH_ENV=/tmp/rc' 'MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=*'; do
+    backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" "$extra"
+    expect_backend "a variable outside the baseline fails closed: ${extra%%=*}" 3
 done
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "DOKENE_AI_OPENAI_APIKEY=$PROVIDER_TEST_API_KEY"
-check_backend; rc=$?
-assert "an alias that also holds the synthetic key passes" test "$rc" = 0
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "DOKENE_AI_OPENAI_BASEURL=https://api.openai.com/v1"
-check_backend; rc=$?
-assert "a base URL alias on the real endpoint fails closed" test "$rc" = 3
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" \
-    "SPRING_APPLICATION_JSON={\"dokene\":{\"ai\":{\"openai\":{\"api-key\":\"$REAL_LOOKING_KEY\"}}}}"
-check_backend; rc=$?
-assert "SPRING_APPLICATION_JSON on the backend fails closed" test "$rc" = 3
-cat "$TMP/assert.err" >> "$TMP/err"
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "SPRING_CONFIG_ADDITIONAL_LOCATION=file:/extra/"
-check_backend; rc=$?
-assert "SPRING_CONFIG_* on the backend fails closed" test "$rc" = 3
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "JDK_JAVA_OPTIONS=-Ddokene.ai.openai.api-key=$REAL_LOOKING_KEY"
-check_backend; rc=$?
-assert "JVM options that set a provider property fail closed" test "$rc" = 3
-cat "$TMP/assert.err" >> "$TMP/err"
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
-printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n/run/secrets/dokene/DOKENE_AI_OPENAI_API_KEY\n' > "$DOCKER_STATE/mounts"
-check_backend; rc=$?
-assert "a mounted config tree file for the key fails closed" test "$rc" = 3
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
-printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
-check_backend; rc=$?
-assert "the backend's own secret mount passes" test "$rc" = 0
-for mount in /run/secrets/dokene /run/secrets/dokene/ /run/secrets /run /run/secrets/dokene/OTHER_FILE \
-    /run/secrets/application.yml /run/secrets/extra/application-local.properties; do
-    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
+# The image's own variables must keep the image's values.
+for extra in 'PATH=/tmp/bin:/usr/bin' 'JAVA_HOME=/tmp/jre' 'LANG=C.UTF-8' \
+    'JAVA_TOOL_OPTIONS=-javaagent:/tmp/agent.jar' 'JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket' \
+    'JAVA_TOOL_OPTIONS=-Xrunjdwp:transport=dt_socket' 'JAVA_TOOL_OPTIONS=-XX:OnError=/tmp/x' \
+    'JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:Flags=/x' 'JAVA_TOOL_OPTIONS=-Dloader.path=/tmp/lib'; do
+    backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" "$extra"
+    expect_backend "an image variable with another value fails closed: $extra" 3
+done
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" "${IMAGE_ENV[@]}"
+expect_backend "the image's own variables with the image's values pass" 0
+# Names a script's own override adds are declared, and must pass the same reserved-name rules as override extras.
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" 'MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE=metrics' \
+    'MANAGEMENT_ENDPOINT_METRICS_ACCESS=read-only'
+PROVIDER_TEST_EXTRA_NAMES='MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE MANAGEMENT_ENDPOINT_METRICS_ACCESS' check_backend; rc=$?
+assert "declared extra names (res10's metrics exposure) pass" test "$rc" = 0
+for declared in LD_PRELOAD CLASSPATH BASH_ENV PATH DOKENE_AI_OPENAI_APIKEY SPRING_APPLICATION_JSON JDK_JAVA_OPTIONS 'A-B'; do
+    backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+    PROVIDER_TEST_EXTRA_NAMES="$declared" check_backend; rc=$?
+    assert "a reserved or malformed declared name fails closed: $declared" test "$rc" = 3
+done
+# Mounts: only the compose file's secret targets.
+for mount in /run/secrets/dokene/DOKENE_AI_OPENAI_API_KEY /run/secrets/dokene /run/secrets /run \
+    /run/secrets/dokene/OTHER_FILE /run/secrets/application.yml /app/config /app/config/application.yml \
+    /app/application.properties /app /config /app/dokene.jar /app/entrypoint.sh /opt/java/openjdk /opt /etc \
+    /etc/ld.so.preload /usr/local/bin/java /bin /lib64 /var/lib/dokene /app-data /opt/config.txt /tmp/x; do
+    backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
     printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n%s\n' "$mount" > "$DOCKER_STATE/mounts"
-    check_backend; rc=$?
-    assert "a mount at $mount fails closed" test "$rc" = 3
+    expect_backend "a mount outside the baseline fails closed: $mount" 3
 done
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
-printf '/var/lib/dokene\n/run/secrets/other/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
-check_backend; rc=$?
-assert "mounts outside the config tree with unreserved names pass" test "$rc" = 0
-# Spring Boot also loads configuration from the image's working directory /app (./ and ./config/), and a mount
-# there or over the JRE and system directories replaces code the backend runs.
-for mount in /app/config /app/config/ /app/config/application.yml /app/config/extra/x.yml /app/application.properties \
-    /app /config /config/application-local.yaml /opt/application.yml \
-    /app/dokene.jar /app/entrypoint.sh /opt/java/openjdk /opt/java/openjdk/lib/security/java.security \
-    /usr/local/bin/java /bin /sbin/x /lib/x.so /lib64 /etc/ld.so.preload /etc/ld.so.conf.d/x.conf; do
-    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
-    printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n%s\n' "$mount" > "$DOCKER_STATE/mounts"
-    check_backend; rc=$?
-    assert "a mount at $mount fails closed" test "$rc" = 3
-done
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
-printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n/var/lib/dokene\n/app-data\n/opt/config.txt\n' > "$DOCKER_STATE/mounts"
-check_backend; rc=$?
-assert "the signing key and mounts away from Spring's config locations pass" test "$rc" = 0
-# A JVM argument file can hold -D properties the check cannot read.
-for opts in 'JDK_JAVA_OPTIONS=@/tmp/args' 'JDK_JAVA_OPTIONS=-Xmx1g @/tmp/args' 'JAVA_TOOL_OPTIONS=-XX:VMOptionsFile=/x' \
-    'JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:Flags=/x' '_JAVA_OPTIONS=-XX:VMOptionsFile=/x'; do
-    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "$opts"
-    check_backend; rc=$?
-    assert "JVM options with an argument file fail closed: $opts" test "$rc" = 3
-done
-# Agents, the dynamic linker and other class paths can load code that reads or replaces the key.
-for code in 'JAVA_TOOL_OPTIONS=-javaagent:/tmp/agent.jar' 'JDK_JAVA_OPTIONS=-agentpath:/tmp/libx.so' \
-    'JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket' 'JDK_JAVA_OPTIONS=-Xbootclasspath/a:/tmp/x.jar' \
-    'JDK_JAVA_OPTIONS=--patch-module java.base=/tmp/x' 'JAVA_TOOL_OPTIONS=-Dloader.path=/tmp/lib' \
-    'LD_PRELOAD=/tmp/libx.so' 'LD_LIBRARY_PATH=/tmp' 'LD_AUDIT=/tmp/libx.so' 'LOADER_PATH=/tmp/lib' 'CLASSPATH=/tmp/x.jar'; do
-    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "$code"
-    check_backend; rc=$?
-    assert "code loading fails closed: $code" test "$rc" = 3
-done
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" 'LANG=C.UTF-8' 'LC_ALL=C.UTF-8' 'LD_PRELOAD=' \
-    'JAVA_HOME=/opt/java/openjdk' 'JAVA_VERSION=jdk-26'
-check_backend; rc=$?
-assert "the image's locale and JRE variables and an empty LD_PRELOAD pass" test "$rc" = 0
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" 'JDK_JAVA_OPTIONS=-Xmx1g -Dfile.encoding=UTF-8'
-check_backend; rc=$?
-assert "ordinary JVM options next to the image's own pass" test "$rc" = 0
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+: > "$DOCKER_STATE/mounts"
+expect_backend "a backend without the signing-key mount still passes the provider check" 0
+# Entrypoint, command and working directory must be the image's.
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+printf '["java","-Ddokene.ai.openai.api-key=x","-jar","/app/dokene.jar"]' > "$DOCKER_STATE/entrypoint"
+expect_backend "a changed entrypoint fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+printf '["--dokene.ai.openai.base-url=https://example.com/v1"]' > "$DOCKER_STATE/cmd"
+expect_backend "a command added to the image's fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+printf '"/tmp"' > "$DOCKER_STATE/workdir"
+expect_backend "a changed working directory fails closed" 3
+# A value spanning several lines hides its continuation from any rule, so it fails closed.
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" $'DOKENE_AI_OPENAI_MODEL=gpt-test\n-javaagent:/tmp/agent.jar'
+expect_backend "a multi-line value fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" $'DOKENE_AI_OPENAI_MODEL=gpt-test\nENV LD_PRELOAD=/tmp/libx.so'
+expect_backend "a multi-line value that forges another entry fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" $'JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75\n-javaagent:/tmp/a.jar'
+expect_backend "a multi-line JVM option fails closed" 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY" 'NO_SEPARATOR'
+expect_backend "an environment entry without '=' fails closed" 3
+# The baseline itself must be readable.
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+PROVIDER_TEST_COMPOSE_FILE="$TMP/missing.yaml" check_backend; rc=$?
+assert "a missing compose file fails closed" test "$rc" = 3
+printf 'services:\n  other:\n    image: x\n' > "$TMP/no-backend.yaml"
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+PROVIDER_TEST_COMPOSE_FILE="$TMP/no-backend.yaml" check_backend; rc=$?
+assert "a compose file without a backend environment fails closed" test "$rc" = 3
+backend_env "$ok_url" "$PROVIDER_TEST_API_KEY"
+: > "$DOCKER_STATE/image_env"
+expect_backend "a backend whose image cannot be read fails closed" 3
+printf '%s\0' "${IMAGE_ENV[@]}" > "$DOCKER_STATE/image_env"
 
 : > "$DOCKER_STATE/env"
-check_backend; rc=$?
-assert "no running backend fails closed" test "$rc" = 3
-cat "$TMP/assert.err" >> "$TMP/err"
+expect_backend "no running backend fails closed" 3
 
 refute "no docker argument list held the key" contains_literal "$DOCKER_LOG" "$REAL_LOOKING_KEY"
 refute "no message printed the key" contains_literal "$TMP/err" "$REAL_LOOKING_KEY"
@@ -271,54 +301,52 @@ done
 # A line that sets a synthetic key next to the base URL (the evaluation harness of issues 246-253) is allowed.
 # stub_urls_clean DIR: 0 when no evidence script or config under DIR mentions the provider base URL setting outside a
 # reviewed line, 1 when one does (the lines go to stdout), 2 when DIR could not be scanned: missing, holding no such
-# file, or find or grep reported an error. Every mention counts, in any spelling Spring binds (DOKENE_AI_OPENAI_BASE_URL,
+# file, or grep reported an error. Every mention counts, in any spelling Spring binds (DOKENE_AI_OPENAI_BASE_URL,
 # DOKENE_AI_OPENAI_BASEURL, dokene.ai.openai.base-url, baseUrl) and in any form (assignment, setter call, -D option,
-# object key), so no assignment syntax can slip past. The reviewed lines are reads and the issue 246-253 evaluation
-# harness, which sets a synthetic key next to it; each is matched by file and exact content.
+# object key), so no assignment syntax can slip past. Exempt are reads in the reviewed files that carry the
+# REVIEWED_READ marker, and the exact line of the issue 246-253 evaluation harness, which sets a synthetic key next
+# to it. Recorded data (.json) is not scanned; in a recorded diff (.patch) only added lines count. Files are scanned
+# one at a time, so a ':' in a path cannot be mistaken for the end of the file name.
 STUB_URL_SCAN_TYPES=(-name '*.sh' -o -name '*.bash' -o -name '*.mjs' -o -name '*.js' -o -name '*.ts' -o -name '*.py'
-    -o -name '*.java' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.conf' -o -name '*.properties'
-    -o -name '*.patch')
+    -o -name '*.java' -o -name '*.yaml' -o -name '*.yml' -o -name '*.conf' -o -name '*.properties' -o -name '*.patch')
 STUB_URL_ALLOWED_FILE='/issue-246-253-evidence/scripts/run-eval-against-stub.sh'
 STUB_URL_ALLOWED_LINE='export DOKENE_AI_OPENAI_API_KEY=sk-qa-stub-not-a-real-key DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1'
-# shellcheck disable=SC2016  # the reviewed lines are script text, not expansions
-STUB_URL_REVIEWED=(
-    "$STUB_URL_ALLOWED_FILE"
-    "$STUB_URL_ALLOWED_LINE"
-    '/issue-121-evidence/scripts/sec121-d.sh'
-    '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && { echo "ABORT: base URL override present, not a live run"; exit 2; }'
-    '/issue-120-evidence/scripts/ai120-c.sh'
-    'echo "INFO  config: DOKENE_AI_PROVIDER=$(docker inspect $(docker compose ps -q backend) --format '"'"'{{range .Config.Env}}{{println .}}{{end}}'"'"' | grep '"'"'^DOKENE_AI_PROVIDER='"'"' | cut -d= -f2) base-url=$(docker inspect $(docker compose ps -q backend) --format '"'"'{{range .Config.Env}}{{println .}}{{end}}'"'"' | grep '"'"'^DOKENE_AI_OPENAI_BASE_URL='"'"' | cut -d= -f2)"'
-)
-stub_url_reviewed() { # FILE CONTENT: true when the pair is one of STUB_URL_REVIEWED
-    local k=0
-    while [ "$k" -lt "${#STUB_URL_REVIEWED[@]}" ]; do
-        case "$1" in *"${STUB_URL_REVIEWED[$k]}") [ "$2" = "${STUB_URL_REVIEWED[$((k + 1))]}" ] && return 0 ;; esac
-        k=$((k + 2))
+REVIEWED_READ='# provider-test-double: reviewed read'
+STUB_URL_REVIEWED_FILES=('/issue-121-evidence/scripts/sec121-d.sh' '/issue-120-evidence/scripts/ai120-c.sh')
+stub_url_exempt() { # FILE CONTENT: true when this mention is a reviewed read or the exact harness line
+    local reviewed
+    case "$1" in *"$STUB_URL_ALLOWED_FILE") [ "$2" = "$STUB_URL_ALLOWED_LINE" ] && return 0 ;; esac
+    for reviewed in "${STUB_URL_REVIEWED_FILES[@]}"; do
+        case "$1" in *"$reviewed") case "$2" in *"$REVIEWED_READ") return 0 ;; esac ;; esac
     done
     return 1
 }
 stub_urls_clean() {
-    local dir="$1" count hit file rest content found=0
+    local dir="$1" file hits hit content scanned=0 found=0 rc
     [ -d "$dir" ] || return 2
     : > "$TMP/scan.err"
-    count="$(find "$dir" -type f \( "${STUB_URL_SCAN_TYPES[@]}" \) -print 2>> "$TMP/scan.err" | wc -l)"
-    [ "$count" -gt 0 ] && [ ! -s "$TMP/scan.err" ] || return 2
-    # grep exits 1 when a file has no match, so find's status says nothing here; errors show up on stderr instead.
-    find "$dir" -type f \( "${STUB_URL_SCAN_TYPES[@]}" \) -exec grep -HniE \
-        'dokene[._-]?ai[._-]?openai[._-]?base[._-]?url' {} + > "$TMP/scan.hits" 2>> "$TMP/scan.err"
-    [ ! -s "$TMP/scan.err" ] || return 2
-    while IFS= read -r hit; do
-        file="${hit%%:*}"; rest="${hit#*:}"; content="${rest#*:}"
-        stub_url_reviewed "$file" "$content" && continue
-        printf '%s\n' "$hit"; found=1
-    done < "$TMP/scan.hits"
+    while IFS= read -r -d '' file; do
+        scanned=1
+        hits="$(grep -niE 'dokene[._-]?ai[._-]?openai[._-]?base[._-]?url' "$file" 2>> "$TMP/scan.err")"; rc=$?
+        [ "$rc" -le 1 ] || return 2
+        [ -n "$hits" ] || continue
+        while IFS= read -r hit; do
+            content="${hit#*:}"
+            case "$file" in
+                *.patch) case "$content" in '+++'* | [!+]* | '') continue ;; esac ;;
+            esac
+            stub_url_exempt "$file" "$content" && continue
+            printf '%s:%s\n' "$file" "$hit"; found=1
+        done <<< "$hits"
+    done < <(find "$dir" -type f \( "${STUB_URL_SCAN_TYPES[@]}" \) -print0 2>> "$TMP/scan.err")
+    [ "$scanned" = 1 ] && [ ! -s "$TMP/scan.err" ] || return 2
     [ "$found" = 0 ] || return 1
     return 0
 }
 guard_status() { stub_urls_clean "$1" > /dev/null; echo "$?"; }
 SAMPLES="$TMP/samples"; mkdir -p "$SAMPLES"
 i=0
-SAMPLE_EXTS=(sh py mjs js yml ts json java)  # each sample form lands in a different scanned file type
+SAMPLE_EXTS=(sh py mjs js yml ts properties java)  # each sample form lands in a different scanned file type
 # The `$` forms below are literal on purpose: they are the script text the guard must catch. Every mention counts, so
 # empty resets and comparisons outside the reviewed lines are caught too.
 # shellcheck disable=SC2016
@@ -342,10 +370,32 @@ mkdir -p "$SAMPLES/ok"
 printf '%s\n' 'echo "no provider setting here"' 'DOKENE_AI_OPENAI_MODEL=gpt-test' > "$SAMPLES/ok/script.sh"
 assert "scripts that never mention the base URL pass" test "$(guard_status "$SAMPLES/ok")" = 0
 mkdir -p "$SAMPLES/reviewed/issue-121-evidence/scripts"
-printf '%s\n' "${STUB_URL_REVIEWED[3]}" > "$SAMPLES/reviewed/issue-121-evidence/scripts/sec121-d.sh"
-assert "a reviewed read in its own file passes" test "$(guard_status "$SAMPLES/reviewed")" = 0
-printf '%s\n' "${STUB_URL_REVIEWED[3]}" > "$SAMPLES/reviewed/other.sh"
-assert "the same read in another file is caught" test "$(guard_status "$SAMPLES/reviewed")" = 1
+# shellcheck disable=SC2016
+printf '%s  %s\n' '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && echo edited' "$REVIEWED_READ" \
+    > "$SAMPLES/reviewed/issue-121-evidence/scripts/sec121-d.sh"
+assert "an edited read with the marker in a reviewed file passes" test "$(guard_status "$SAMPLES/reviewed")" = 0
+cp "$SAMPLES/reviewed/issue-121-evidence/scripts/sec121-d.sh" "$SAMPLES/reviewed/other.sh"
+assert "the marker outside the reviewed files is caught" test "$(guard_status "$SAMPLES/reviewed")" = 1
+rm "$SAMPLES/reviewed/other.sh"
+# shellcheck disable=SC2016
+printf '%s\n' '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && echo edited' > "$SAMPLES/reviewed/issue-121-evidence/scripts/sec121-d.sh"
+assert "a reviewed file's mention without the marker is caught" test "$(guard_status "$SAMPLES/reviewed")" = 1
+mkdir -p "$SAMPLES/colon/run:2026-11-15/issue-120-evidence/scripts"
+# shellcheck disable=SC2016
+printf 'echo "$(env | grep ^DOKENE_AI_OPENAI_BASE_URL=)"  %s\n' "$REVIEWED_READ" \
+    > "$SAMPLES/colon/run:2026-11-15/issue-120-evidence/scripts/ai120-c.sh"
+assert "a reviewed read in a path holding ':' passes" test "$(guard_status "$SAMPLES/colon")" = 0
+mkdir -p "$SAMPLES/patch"
+# shellcheck disable=SC2016
+printf '%s\n' '--- a/compose.yaml' '+++ b/compose.yaml' '       DOKENE_AI_OPENAI_BASE_URL: ${DOKENE_AI_OPENAI_BASE_URL:-}' \
+    '-      DOKENE_AI_OPENAI_BASE_URL: old' > "$SAMPLES/patch/change.patch"
+assert "context and removed lines of a recorded diff pass" test "$(guard_status "$SAMPLES/patch")" = 0
+printf '%s\n' '+      DOKENE_AI_OPENAI_BASE_URL: "http://127.0.0.1:18080/v1"' >> "$SAMPLES/patch/change.patch"
+assert "an added line of a recorded diff is caught" test "$(guard_status "$SAMPLES/patch")" = 1
+mkdir -p "$SAMPLES/data"
+printf '%s\n' '{ "DOKENE_AI_OPENAI_BASE_URL": "http://127.0.0.1:18080/v1" }' > "$SAMPLES/data/capture.json"
+printf '%s\n' 'echo no setting' > "$SAMPLES/data/run.sh"
+assert "recorded JSON data is not scanned" test "$(guard_status "$SAMPLES/data")" = 0
 assert "a missing directory cannot pass the guard" test "$(guard_status "$SAMPLES/missing")" = 2
 mkdir -p "$SAMPLES/empty"
 assert "a directory with no script cannot pass the guard" test "$(guard_status "$SAMPLES/empty")" = 2

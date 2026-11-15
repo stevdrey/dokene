@@ -7,7 +7,7 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 ## Environment
 
 - **Run:** 2026-11-14, branch `329-security-isolate-credentials-in-provider-failure-tests`, based on `main` at `dc0d27a`. The analysed revision of the Issue was `a328848`; every analysed location was rechecked on `dc0d27a`, with the result below.
-- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The seventh commit is identified by the blob ids of the files it changes, apart from this record.
+- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The eighth commit is identified by the blob ids of the files it changes, apart from this record.
 
   | Commit | Tree | Checks |
   | --- | --- | --- |
@@ -17,9 +17,10 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
   | `3177a27` | `6dad74005107c28aba5e9f458d62d3ca4e37641a` | F4 fix |
   | `6ee51bb` | `1e897348ac3c700508f79b3de953d0574eb5a326` | F2, F3 and F5 fixes |
   | `6a1b7e3` | `3988608eeea8c7eafd979ed21c9f7ca8c92e9ff2` | F6 and F7 fixes |
-  | seventh commit | `scripts/lib/provider-test-double.sh` `1f8d2011e94024865652d052ab3338adba02a517`, `scripts/tests/provider-test-double-test.sh` `232acd4d7d10eaee50168362f799e06d2a8404c1`, `docs/security/security-invariants.md` `3ef03edb7036f82740a48aa95d0fa851132640e5` | F8 and F9 fixes |
+  | `dde3759` | `7b26d4324ac89bb782484569c6b655b522815085` | F8 and F9 fixes |
+  | eighth commit | `scripts/lib/provider-test-double.sh` `1a38bd6a24a1db2346d54596a80b930779f6e4fc`, `scripts/tests/provider-test-double-test.sh` `63e13666c4b023b733a00ecf120170b714f09433`, `docs/security/security-invariants.md` `23da243bf5b321a89897f3d9ded096a08ce0ee43`, `.github/workflows/scripts.yml` `19f719d50c525b2569d61c1c76756a25930bd17f`, `docs/verification/issue-121-evidence/scripts/sec121-d.sh` `0b02caeefb6d963a543f1c57e3909ed218e75870`, `docs/verification/issue-120-evidence/scripts/ai120-c.sh` `9287f08963ac45c1bc689cc9d769d7a89580a255`, `docs/verification/issue-123-evidence/scripts/res10.sh` `c0611028c97702018e582136a3cb0fac0d21fe21`, `docs/verification/issue-123-evidence/scripts/README.md` `7bbbe2ad11c1d029f7870326ba0ce33f3920cbaa` | Code review fixes, allowlist check |
 
-  An independent verifier checked each of these candidates (rounds 1 to 7).
+  An independent verifier checked each of these candidates (rounds 1 to 8).
 - **Toolchain:** Linux 7.3 (Fedora 45), GNU bash 5, ShellCheck 0.11.0, curl 8.21.0, OpenJDK 27 compiling the stub with `javac --release 26`, Node `--check` for the `.mjs` script.
 - **Not run:** `./gradlew check` and the frontend suite, because no backend or frontend file changed. The local stack was not started and the changed evidence scripts were not rerun end to end; see Limitations.
 
@@ -130,7 +131,7 @@ The fifth verification round reported two new optional findings. They were fixed
 
 ## F8 and F9 fixes (seventh commit)
 
-The sixth verification round reported two new optional findings. They were fixed in the seventh commit and checked on its working tree (blob ids under Tested revisions):
+The sixth verification round reported two new optional findings. They were fixed in the seventh commit (`dde3759`, see Tested revisions) and checked on its working tree:
 
 | Finding | Fix | Check | Outcome |
 | --- | --- | --- | --- |
@@ -139,11 +140,35 @@ The sixth verification round reported two new optional findings. They were fixed
 
 `scripts/tests/provider-test-double-test.sh` passes 166 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
 
+## Code review fixes, allowlist check (eighth commit)
+
+A second code review of the pull request found eight issues. Two of them were ways past the backend check: a multi-line environment value hid its continuation, and an entrypoint or command override was never inspected. The review also noted that the check was a denylist each round had to extend. The eighth commit replaces it with a comparison against the backend's baseline. A read-only comparison of the running backend showed the baseline fits exactly: its 53 environment names are the 46 of the compose file's backend service plus the image's 7. Its only mount is the compose secret target, and its entrypoint, command and working directory equal the image's.
+
+| Finding | Fix | Check | Outcome |
+| --- | --- | --- | --- |
+| A multi-line environment value hid its continuation from every rule | A line of the inspection that is neither an entrypoint, command, working directory, environment entry nor mount fails closed, as does an entry without `=`. The container and the image are inspected separately, so a container value cannot add lines to the image's baseline | Multi-line model, `JAVA_TOOL_OPTIONS` and forged-entry cases; an entry without `=` | All fail closed |
+| Entrypoint and command were never inspected | The entrypoint, command and working directory must equal the image's | A changed entrypoint with `-D` options, an added Spring argument, a changed working directory; read-only comparison on the running backend | All fail closed; the running backend matches its image |
+| The CI path filter was narrower than the guard | The Script tests workflow runs on any change under `docs/verification/` | Workflow file reviewed | Filter matches the guard's scope |
+| The check was a growing denylist | Environment names come only from the compose file's backend service, from `PROVIDER_TEST_EXTRA_NAMES` (which must pass the reserved-name rule) or from the image, whose variables must keep the image's values. Mounts come only from the compose file's secret targets. That closes the remaining finding F10 too (`-Xrun`, `-XX:OnError`, `BASH_ENV`, `PATH`, mounts at `/etc` and `/opt`) | 19 variables outside the baseline, 9 image variables with other values, 23 mounts outside the baseline, 8 reserved or malformed declared names, a missing or backend-less compose file, an unreadable image; the declared metrics names of `res10.sh` and the image's own values pass; the running backend compared with the same baseline, printing names and paths only | All as expected. The running backend passes every baseline rule and fails only the two value rules (it is not on a test double) |
+| The reviewed lines were byte-exact copies | Reads are exempt in the two reviewed files when they carry the marker `# provider-test-double: reviewed read`. The harness line that sets the URL stays an exact match | An edited marked read passes, the marker in another file and a reviewed file's unmarked mention are caught | All as expected |
+| Recorded `.json` and `.patch` files were scanned in full | `.json` is not scanned; in `.patch` files only added lines count | Context and removed lines pass, an added line is caught, a JSON capture passes | All as expected |
+| The override filter and the check kept separate lists | One reserved-name rule, now including `LD_*`, `LOADER_*`, `CLASSPATH`, `BASH_ENV`, `ENV`, `PATH` and `JAVA_HOME`, is used for override extras and declared names | 8 new write-time refusals | All refused with status 2 |
+| A `:` in a path broke the guard's parsing | Files are scanned one at a time (`find -print0`) | A reviewed read in a path holding `:` | Passes |
+
+`scripts/tests/provider-test-double-test.sh` passes 195 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). Negative controls fail as intended:
+- The seventh commit's check, with the new compose helpers kept, fails 42 checks: every baseline, entrypoint, multi-line and write-time case.
+- The seventh commit's guard fails 5 checks.
+
+ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
+
+Finding F11 is partly addressed: nested YAML keys, doubled separators and the unscanned file types of the guard remain. The backend check now covers those spellings at run time for every script that uses the library, because any name outside the baseline fails closed.
+
 ## Limitations
 
 - The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.
 - Whether the key reached the stub in the original runs was not established, as the Issue notes: the stub never logged headers, and the refused and blackholed destinations had no listener. This record proves that a rerun cannot send it, not what was sent before.
 - The backend still sends whatever key is configured to an allowed base URL, loopback included. A local gateway on loopback that forwards to a provider is a legitimate deployment, so the backend cannot refuse a real key there; the guard is in the test harness, where the destination is chosen.
 - The hand-set URL guard is a text scan: a name built at run time (for example by joining strings) would not be seen. Scripts that use the library are still checked at run time by `provider_test_assert_backend`.
+- The baseline trusts the compose file and the image built from this tree; a change to either is reviewed like any other code. A driver whose own override adds names must declare them in `PROVIDER_TEST_EXTRA_NAMES`, otherwise the check stops the backend.
 - Spring's handling of each alias was not exercised against a running backend. The checks follow the relaxed binding rules (case and separators ignored) and fail closed beyond them; a property source the library does not know, such as a config file baked into a custom image, is outside what a harness check can see.
 - `res11.mjs` and the live cases of `res01.sh` use the real provider on purpose and are out of scope; `res01.sh` already sets its key per case.

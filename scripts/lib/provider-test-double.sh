@@ -8,7 +8,12 @@
 #   provider_test_export URL                 exports the same base URL and synthetic key for `dev-env.sh` restarts
 #   provider_test_unexport                   clears both again, so the next restart reads the key from .env
 #   provider_test_assert_backend             fails closed when the running backend is not on a loopback test double
-#                                            with the synthetic key: it stops the backend and returns 3
+#                                            with the synthetic key, or differs from its baseline in any other way
+#                                            that could change that: it stops the backend and returns 3
+#
+#   PROVIDER_TEST_COMPOSE_FILE   the compose file whose backend service is the baseline (default compose.yaml)
+#   PROVIDER_TEST_EXTRA_NAMES    space-separated extra environment names a script's own override adds; each must
+#                                pass the same reserved-name rules as override extras
 #
 # A provider failure test only needs a destination that answers or fails the way the case asks for, never a real
 # credential. The OpenAI endpoint policy (issue 322) accepts any loopback port over plain HTTP, so it cannot tell a
@@ -47,10 +52,15 @@ _provider_test_norm_into() {
 }
 
 # _provider_test_reserved NAME: true when an environment variable named NAME could set the provider, its endpoint or
-# its key, under any spelling Spring binds, or could load configuration that does (SPRING_APPLICATION_JSON,
-# SPRING_CONFIG_*, JVM option variables carrying -D system properties).
+# its key, under any spelling Spring binds, could load configuration that does (SPRING_APPLICATION_JSON,
+# SPRING_CONFIG_*, JVM option variables carrying -D system properties), or could load other code (LD_*, LOADER_*,
+# CLASSPATH, BASH_ENV, ENV, PATH, JAVA_HOME). Both override extras and the declared extra names of the backend check
+# go through it, so the two refuse the same names.
 _provider_test_reserved() {
     local n
+    case "$1" in
+        LD_* | LOADER_* | CLASSPATH | BASH_ENV | ENV | PATH | JAVA_HOME) return 0 ;;
+    esac
     _provider_test_norm_into n "$1"
     case "$n" in
         DOKENEAIOPENAI*APIKEY* | DOKENEAIOPENAI*BASEURL* | DOKENEAIOPENAI*TRUSTEDHOSTS* | DOKENEAIPROVIDER* \
@@ -99,89 +109,150 @@ provider_test_unexport() {
     export DOKENE_AI_OPENAI_BASE_URL=
 }
 
-# _provider_test_backend_state: prints the running backend container's environment entries (ENV NAME=value) and mount
-# destinations (MOUNT path). Values travel on a pipe, never on a command line.
-_provider_test_backend_state() {
-    local id
-    id="$(docker compose ps -q backend 2>/dev/null)" || return 1
-    [ -n "$id" ] || return 1
-    docker inspect --format '{{range .Config.Env}}ENV {{println .}}{{end}}{{range .Mounts}}MOUNT {{println .Destination}}{{end}}' \
-        "$id" 2>/dev/null
+# _provider_test_compose_names FILE and _provider_test_compose_mounts FILE: the environment names and the secret
+# target paths of the backend service, read from the compose file's text. No compose command runs, so no value from
+# .env is read.
+_provider_test_compose_names() {
+    awk '/^  backend:$/ { b = 1; next } b && /^  [^ ]/ { b = 0 }
+         b && /^    environment:$/ { e = 1; next } b && e && /^    [^ ]/ { e = 0 }
+         b && e && /^      [A-Za-z_][A-Za-z0-9_]*:/ { sub(/^ +/, ""); sub(/:.*/, ""); print }' "$1"
+}
+_provider_test_compose_mounts() {
+    awk '/^  backend:$/ { b = 1; next } b && /^  [^ ]/ { b = 0 }
+         b && /^ +target: \// { sub(/^ +target: */, ""); print }' "$1"
 }
 
-# Every spelling of the key and the base URL that Spring binds is checked, not only the canonical name: each key
-# alias must hold the synthetic key and each base URL alias a loopback URL, and both canonical names must be present.
-# Configuration a test double cannot vouch for fails closed: SPRING_APPLICATION_JSON or SPRING_CONFIG_* set at all,
-# JVM options that set a provider or configuration property or read a JVM argument file (@file, -XX:VMOptionsFile,
-# -XX:Flags), a mount that shadows or adds to the config tree (/run, /run/secrets, /run/secrets/dokene, any file
-# there but the signing key, a reserved name under /run/secrets), a mount where Spring Boot loads configuration by
-# default (/app, the image's working directory, and /config) or any mounted application*.yml, .yaml or .properties
-# file, and a mount that replaces code the backend runs (anything under /app such as dokene.jar or entrypoint.sh, the
-# JRE under /opt/java, /usr, /bin, /sbin, /lib, /lib64, the dynamic linker's /etc/ld.so* files). Variables and JVM
-# options that load other code fail closed as well: LD_* (LD_PRELOAD and the like), LOADER_*, CLASSPATH, and
-# -javaagent, -agentpath, -agentlib, -Xbootclasspath, --patch-module or -Dloader.* in a JVM option variable.
+# _provider_test_backend_state VAR_CONTAINER VAR_IMAGE: sets the first variable to the running backend container's
+# entrypoint, cmd and working directory (JSON, one line each), environment entries (ENV NAME=value) and mount
+# destinations (MOUNT path), and the second to the same lines for its image (no mounts). They are two separate
+# inspections, so a multi-line container value can never add lines to the image's baseline. Values travel on a pipe,
+# never on a command line.
+_provider_test_backend_state() {
+    local _pt_id _pt_image _pt_out _pt_fmt='ENTRYPOINT {{json .Config.Entrypoint}}{{"\n"}}CMD {{json .Config.Cmd}}{{"\n"}}WORKDIR {{json .Config.WorkingDir}}{{"\n"}}{{range .Config.Env}}ENV {{println .}}{{end}}'
+    _pt_id="$(docker compose ps -q backend 2>/dev/null)" || return 1
+    [ -n "$_pt_id" ] || return 1
+    _pt_image="$(docker inspect --format '{{.Image}}' "$_pt_id" 2>/dev/null)" || return 1
+    [ -n "$_pt_image" ] || return 1
+    _pt_out="$(docker inspect --format "$_pt_fmt"'{{range .Mounts}}MOUNT {{println .Destination}}{{end}}' \
+        "$_pt_id" 2>/dev/null)" || return 1
+    [ -n "$_pt_out" ] || return 1
+    printf -v "$1" '%s' "$_pt_out"
+    _pt_out="$(docker image inspect --format "$_pt_fmt" "$_pt_image" 2>/dev/null)" || return 1
+    [ -n "$_pt_out" ] || return 1
+    printf -v "$2" '%s' "$_pt_out"; _pt_out=''
+}
+
+# The backend is compared with its baseline, not searched for known bad settings: anything the baseline does not
+# allow fails closed.
+# - Environment names: the backend's environment block in the compose file, the names declared in
+#   PROVIDER_TEST_EXTRA_NAMES (each must pass _provider_test_reserved), and the image's own names, which must keep the
+#   image's value (PATH, JAVA_HOME, JAVA_TOOL_OPTIONS and the locale). Any other name fails closed, so another spelling
+#   of the key or base URL, SPRING_APPLICATION_JSON, SPRING_CONFIG_*, JDK_JAVA_OPTIONS, LD_PRELOAD, BASH_ENV and the
+#   like never reach the backend unseen.
+# - Mounts: only the backend's secret targets in the compose file.
+# - Entrypoint, cmd and working directory: exactly the image's, so no -D option, command-line argument or other
+#   ./config directory is added.
+# - A line that is none of the above is the continuation of a multi-line value and fails closed, as does an
+#   environment entry without '='.
+# - Values: the canonical key must be the synthetic one, the canonical base URL a loopback URL, and a JVM option
+#   variable may not load agents, argument files or configuration (defence in depth for the image's own options).
 provider_test_assert_backend() {
-    local state line kind entry name value n reason='' key_seen='' url_seen=''
-    state="$(_provider_test_backend_state)" || reason='no running backend container'
-    [ -n "$state" ] || reason='no running backend container'
+    local compose="${PROVIDER_TEST_COMPOSE_FILE:-compose.yaml}" nl='
+'
+    local state='' image_state='' line kind entry name value n extra reason='' key_seen='' url_seen=''
+    local allowed='' mounts='' image_env='' image_names='' entrypoint='' cmd='' workdir=''
+    local image_entrypoint='' image_cmd='' image_workdir=''
+    if [ ! -r "$compose" ]; then
+        reason="the compose file $compose is not readable"
+    else
+        allowed="$nl$(_provider_test_compose_names "$compose")$nl"
+        mounts="$nl$(_provider_test_compose_mounts "$compose")$nl"
+        [ "$allowed" = "$nl$nl" ] && reason="no backend environment found in $compose"
+    fi
+    for extra in ${PROVIDER_TEST_EXTRA_NAMES:-}; do
+        [ -n "$reason" ] && break
+        if ! [[ "$extra" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || _provider_test_reserved "$extra"; then
+            reason="PROVIDER_TEST_EXTRA_NAMES may not declare $extra"
+        else
+            allowed="$allowed$extra$nl"
+        fi
+    done
+    if [ -z "$reason" ]; then
+        _provider_test_backend_state state image_state || reason='no running backend container or image'
+    fi
+    # The image's baseline.
     while [ -z "$reason" ] && IFS= read -r line; do
         kind="${line%% *}"; entry="${line#* }"
-        if [ "$kind" = MOUNT ]; then
-            case "${entry##*/}" in
-                application*.yml | application*.yaml | application*.properties)
-                    reason="a mounted application file can configure the provider ($entry)"; continue ;;
-            esac
-            case "$entry" in
-                /app | /app/* | /config | /config/*)
-                    reason="a mount is where the backend loads its code or Spring Boot its configuration ($entry)" ;;
-                /opt/java | /opt/java/* | /usr | /usr/* | /bin | /bin/* | /sbin | /sbin/* | /lib | /lib/* \
-                    | /lib64 | /lib64/* | /etc/ld.so*)
-                    reason="a mount replaces code the backend runs ($entry)" ;;
-                /run | /run/ | /run/secrets | /run/secrets/ | /run/secrets/dokene | /run/secrets/dokene/)
-                    reason="a mount shadows the config tree ($entry)" ;;
-                /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY) ;;
-                /run/secrets/dokene/*) reason="a mount adds to the config tree ($entry)" ;;
-                /run/secrets/*)
-                    _provider_test_reserved "${entry##*/}" \
-                        && reason="a mounted secret file can set the provider configuration ($entry)" ;;
-            esac
-            continue
-        fi
-        [ "$kind" = ENV ] || continue
-        name="${entry%%=*}"; value="${entry#*=}"; _provider_test_norm_into n "$name"
-        case "$n" in
-            DOKENEAIOPENAI*APIKEY*)
-                [ "$name" = DOKENE_AI_OPENAI_API_KEY ] && key_seen=1
-                [ "$value" = "$PROVIDER_TEST_API_KEY" ] \
-                    || reason="$name of the backend is not the synthetic test key" ;;
-            DOKENEAIOPENAI*BASEURL*)
-                [ "$name" = DOKENE_AI_OPENAI_BASE_URL ] && url_seen=1
-                provider_test_url_ok "$value" || reason="$name of the backend is not a loopback test double" ;;
-            SPRINGAPPLICATIONJSON* | SPRINGCONFIG*)
-                [ -n "$value" ] && reason="$name is set on the backend and could configure the provider" ;;
-            LD* | LOADER* | CLASSPATH)
-                # The dynamic linker (LD_PRELOAD, LD_LIBRARY_PATH, LD_AUDIT), the Spring Boot launcher (LOADER_PATH)
-                # and the class path can load code the check cannot see.
-                case "$name" in
-                    LD_* | ld_* | LOADER_* | loader_* | CLASSPATH)
-                        [ -n "$value" ] && reason="$name is set on the backend and could load other code" ;;
+        case "$kind" in
+            ENTRYPOINT) image_entrypoint="$entry" ;;
+            CMD) image_cmd="$entry" ;;
+            WORKDIR) image_workdir="$entry" ;;
+            ENV) image_env="$image_env$nl$entry"; image_names="$image_names$nl${entry%%=*}" ;;
+        esac
+    done <<< "$image_state"
+    image_env="$image_env$nl"; image_names="$image_names$nl"
+    [ -z "$reason" ] && [ -z "$image_entrypoint" ] && reason='the backend image could not be inspected'
+    # The container against that baseline.
+    while [ -z "$reason" ] && IFS= read -r line; do
+        [ -z "$line" ] && continue
+        kind="${line%% *}"; entry="${line#* }"
+        case "$kind" in
+            ENTRYPOINT) entrypoint="$entry"; [ "$entry" = "$image_entrypoint" ] \
+                || reason='the backend entrypoint differs from its image' ;;
+            CMD) cmd="$entry"; [ "$entry" = "$image_cmd" ] || reason='the backend command differs from its image' ;;
+            WORKDIR) workdir="$entry"; [ "$entry" = "$image_workdir" ] \
+                || reason='the backend working directory differs from its image' ;;
+            MOUNT)
+                case "$mounts" in
+                    *"$nl$entry$nl"*) ;;
+                    *) reason="a mount is not part of the backend's compose definition ($entry)" ;;
                 esac ;;
-            *JAVAOPTIONS* | *JAVATOOLOPTIONS*)
-                case " $value" in
-                    *" @"* | *"	@"*) reason="$name of the backend reads a JVM argument file" ;;
+            ENV)
+                case "$entry" in
+                    *=*) ;;
+                    *) reason='an environment entry of the backend has no value separator'; continue ;;
                 esac
-                _provider_test_norm_into n "$value"
-                case "$n" in
-                    *DOKENEAI* | *SPRINGAPPLICATIONJSON* | *SPRINGCONFIG*)
-                        reason="$name of the backend sets provider or configuration properties" ;;
-                    *VMOPTIONSFILE* | *XXFLAGS*) reason="$name of the backend reads a JVM argument file" ;;
-                    *JAVAAGENT* | *AGENTPATH* | *AGENTLIB* | *XBOOTCLASSPATH* | *PATCHMODULE* | *LOADER*)
-                        reason="$name of the backend loads an agent or other code" ;;
+                name="${entry%%=*}"; value="${entry#*=}"
+                case "$allowed" in
+                    *"$nl$name$nl"*) ;;
+                    *)
+                        case "$image_names" in
+                            *"$nl$name$nl"*)
+                                case "$image_env" in
+                                    *"$nl$entry$nl"*) ;;
+                                    *) reason="$name of the backend differs from its image" ;;
+                                esac ;;
+                            *) reason="$name is set on the backend but is not part of its compose definition" ;;
+                        esac ;;
+                esac
+                [ -n "$reason" ] && continue
+                case "$name" in
+                    DOKENE_AI_OPENAI_API_KEY)
+                        key_seen=1
+                        [ "$value" = "$PROVIDER_TEST_API_KEY" ] \
+                            || reason="$name of the backend is not the synthetic test key" ;;
+                    DOKENE_AI_OPENAI_BASE_URL)
+                        url_seen=1
+                        provider_test_url_ok "$value" || reason="$name of the backend is not a loopback test double" ;;
+                    *JAVA_OPTIONS | *JAVA_TOOL_OPTIONS)
+                        case " $value" in
+                            *" @"* | *"	@"*) reason="$name of the backend reads a JVM argument file" ;;
+                        esac
+                        _provider_test_norm_into n "$value"
+                        case "$n" in
+                            *DOKENEAI* | *SPRINGAPPLICATIONJSON* | *SPRINGCONFIG* | *VMOPTIONSFILE* | *XXFLAGS* \
+                                | *JAVAAGENT* | *AGENTPATH* | *AGENTLIB* | *XRUN* | *XBOOTCLASSPATH* | *PATCHMODULE* \
+                                | *LOADER* | *XXONERROR* | *XXONOUTOFMEMORYERROR*)
+                                reason="$name of the backend loads code or configuration" ;;
+                        esac ;;
                 esac ;;
+            *) reason='an environment value of the backend spans several lines' ;;
         esac
     done <<< "$state"
-    value=''; entry=''; line=''; state=''
-    if [ -z "$reason" ] && [ -z "$key_seen" ]; then
+    value=''; entry=''; line=''; state=''; image_state=''; image_env=''
+    if [ -z "$reason" ] && { [ -z "$entrypoint" ] || [ -z "$cmd" ] || [ -z "$workdir" ]; }; then
+        reason='the backend entrypoint, command or working directory could not be inspected'
+    elif [ -z "$reason" ] && [ -z "$key_seen" ]; then
         reason='DOKENE_AI_OPENAI_API_KEY of the backend is not the synthetic test key'
     elif [ -z "$reason" ] && [ -z "$url_seen" ]; then
         reason='DOKENE_AI_OPENAI_BASE_URL of the backend is not a loopback test double'

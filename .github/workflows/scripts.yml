@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/**'
-      - 'docs/verification/*-evidence/scripts/**'
+      - 'docs/verification/**'
       - 'compose.yaml'
       - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
@@ -12,7 +12,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/**'
-      - 'docs/verification/*-evidence/scripts/**'
+      - 'docs/verification/**'
       - 'compose.yaml'
       - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
