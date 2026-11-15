@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #123, RES-02/03/04 with the FAULT-INJECTION stub (every provider response below is injected, none is genuine). Records attempt counts and timestamps from the stub log.
-cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh; B1=$(cat /home/stevdrey/qa123/out/baseline.id); ST=/home/stevdrey/qa121/stub
+cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh; B1=$(cat /home/stevdrey/qa123/out/baseline.id); ST=/home/stevdrey/qa121/stub; . ./scripts/lib/provider-test-double.sh; provider_test_assert_backend || exit 3  # issue 329: loopback test double with the synthetic key only
 echo '{"recommendation":{"outcome":"ACTION","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","rationale":"Reposición habitual del café.","confidence":0.8,"draftVariables":[]}}' > $ST/rec.json
 echo '{"draft":{"outcome":"DRAFT","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","body":"Hola, ¿cómo te fue con el Café de grano 1 kg que compraste?","draftVariables":[],"locale":"es-419","evidence":["Compra: Café de grano 1 kg"],"warnings":[],"rationale":"Reposición.","confidence":0.9}}' > $ST/draft.json
 : > $ST/fail; echo 0 > $ST/delay.ms

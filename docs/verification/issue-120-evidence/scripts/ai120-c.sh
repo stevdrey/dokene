@@ -34,7 +34,7 @@ in_set() { [[ " $2 " == *" $1 "* ]]; }
 
 byname() { getj testoperator "/api/customers?name=$(python3 -c 'import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1]))' "$1")&status=${2:-ACTIVE}" | jq -r '.customers[0].id'; }
 echo "== FAULT INJECTION (labelled): provider base URL -> closed port; ineligible customers must never need the provider"
-echo "INFO  config: DOKENE_AI_PROVIDER=$(docker inspect $(docker compose ps -q backend) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DOKENE_AI_PROVIDER=' | cut -d= -f2) base-url=$(docker inspect $(docker compose ps -q backend) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DOKENE_AI_OPENAI_BASE_URL=' | cut -d= -f2)"
+echo "INFO  config: DOKENE_AI_PROVIDER=$(docker inspect $(docker compose ps -q backend) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DOKENE_AI_PROVIDER=' | cut -d= -f2) base-url=$(docker inspect $(docker compose ps -q backend) --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^DOKENE_AI_OPENAI_BASE_URL=' | cut -d= -f2)"  # provider-test-double: reviewed read
 for pair in "Unknown Consent QA:ACTIVE" "Revoked Consent QA:ACTIVE" "DNC QA:ACTIVE" "Archived QA:ARCHIVED" "Not Due QA:ACTIVE" "No History QA:ACTIVE"; do name=${pair%%:*}; st=${pair#*:}; id=$(byname "$name" $st)
   s=$(date +%s.%N); rec $id; e=$(date +%s.%N); r=$(echo "$REC_BODY"|jq -r '.status'); draft $id REPEAT_PURCHASE_FOLLOW_UP REPEAT_PURCHASE; d=$(echo "$BODY"|jq -r '.status')
   chk AI-05 "$name: recommendation INELIGIBLE without the provider (took $(echo "$e - $s" | bc | cut -c1-5)s)" INELIGIBLE "$r"; chk AI-05 "$name: draft INELIGIBLE without the provider" INELIGIBLE "$d"; done

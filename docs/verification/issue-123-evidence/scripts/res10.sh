@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #123 RES-10 observability. Disposable override exposes /actuator/metrics (NOT the default). Provider = stub (injected). Audit rows and log lines are read for each invocation outcome; meters are read through an authenticated session.
-cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh; ST=/home/stevdrey/qa121/stub; qa_login testoperator; TENANT=$A; qa_login testuser; qa_login testviewer
+cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh; ST=/home/stevdrey/qa121/stub; qa_login testoperator; TENANT=$A; qa_login testuser; qa_login testviewer; . ./scripts/lib/provider-test-double.sh; PROVIDER_TEST_EXTRA_NAMES="MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE MANAGEMENT_ENDPOINT_METRICS_ACCESS" provider_test_assert_backend || exit 3  # issue 329: loopback test double with the synthetic key only
 B1=$(mk "Res10 obs $RUN" "$(rnd_phone)" ""); consent $B1 GRANTED >/dev/null; buy $B1 2026-08-01T14:00:00Z "Café de grano 1 kg" >/dev/null
 REC_OK='{"recommendation":{"outcome":"ACTION","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","rationale":"Reposición habitual del café.","confidence":0.8,"draftVariables":[]}}'
 DR_OK='{"draft":{"outcome":"DRAFT","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","body":"Hola, ¿cómo te fue con el Café de grano 1 kg que compraste?","draftVariables":[],"locale":"es-419","evidence":["Compra: Café de grano 1 kg"],"warnings":[],"rationale":"Reposición.","confidence":0.9}}'
