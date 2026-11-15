@@ -5,9 +5,12 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 
-/** QA fault-injection stub of the OpenAI Responses API (suite #121). Controlled through files in /stub. NOT live-model evidence. */
+/** QA fault-injection stub of the OpenAI Responses API (suite #121). Controlled through files in /stub. NOT live-model evidence.
+ *  Only the synthetic key of scripts/lib/provider-test-double.sh is accepted (issue 329): a request with any other
+ *  Authorization header gets 401, is logged as credential=unexpected without its value, and its body is not stored. */
 public class Stub {
-  static final Path DIR = Paths.get("/stub");
+  static final Path DIR = Paths.get(System.getenv().getOrDefault("STUB_DIR", "/stub"));
+  static final String EXPECTED_AUTH = "Bearer " + System.getenv().getOrDefault("STUB_EXPECTED_API_KEY", "sk-dokene-test-double-not-a-real-key");
   static String read(String n, String d) { try { return Files.readString(DIR.resolve(n), StandardCharsets.UTF_8).strip(); } catch (Exception e) { return d; } }
   static final AtomicInteger seq = new AtomicInteger();
   public static void main(String[] a) throws Exception {
@@ -18,6 +21,11 @@ public class Stub {
       String body = new String(in, StandardCharsets.UTF_8);
       String kind = body.contains("follow_up_message_draft") ? "draft" : "rec";
       int n = seq.incrementAndGet();
+      if (!EXPECTED_AUTH.equals(ex.getRequestHeaders().getFirst("Authorization"))) {
+        Files.writeString(DIR.resolve("requests.log"), Instant.now() + " #" + n + " " + ex.getRequestMethod() + " " + ex.getRequestURI() + " kind=" + kind + " credential=unexpected\n",
+            StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        byte[] b = "{\"error\":{\"message\":\"stub accepts only the synthetic test key\",\"type\":\"invalid_request_error\"}}".getBytes(); ex.getResponseHeaders().add("Content-Type", "application/json");
+        ex.sendResponseHeaders(401, b.length); ex.getResponseBody().write(b); ex.close(); return; }
       Files.writeString(DIR.resolve("requests.log"), Instant.now() + " #" + n + " " + ex.getRequestMethod() + " " + ex.getRequestURI() + " kind=" + kind + " bytes=" + in.length + "\n",
           StandardOpenOption.CREATE, StandardOpenOption.APPEND);
       Files.writeString(DIR.resolve("last-" + kind + ".json"), body);

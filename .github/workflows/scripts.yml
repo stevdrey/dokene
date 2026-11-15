@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'scripts/**'
+      - 'docs/verification/*-evidence/scripts/**'
       - 'compose.yaml'
       - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
@@ -11,6 +12,7 @@ on:
     branches: [main]
     paths:
       - 'scripts/**'
+      - 'docs/verification/*-evidence/scripts/**'
       - 'compose.yaml'
       - 'infra/docker/**'
       - '.github/workflows/scripts.yml'
@@ -47,3 +49,10 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./scripts/tests/bff-login-test.sh
+
+  provider-test-double:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: ./scripts/tests/provider-test-double-test.sh

@@ -1,0 +1,54 @@
+# Issue #329 Credentials in provider failure tests: verification record
+
+Status: single PR, part of epic [#305](https://github.com/stevdrey/dokene/issues/305). It closes [#329](https://github.com/stevdrey/dokene/issues/329): the provider failure scripts of the resilience suite pointed the backend at a fault-injection stub, a refused port or a blackholed address through a Compose override that set only the provider and the base URL, so the backend kept the OpenAI key configured in `.env` and sent it to each of those destinations. The rule now holds as [security invariant 37](../security/security-invariants.md).
+
+This record is sanitized: it gives outcomes, counts and settings only. It contains no credential, key, request body or exploit detail. Every key used below was synthetic: the fixed test key of the library, or a real-looking value generated for the run and discarded with its temporary directory. No real provider key was read, and no OpenAI call was made.
+
+## Environment
+
+- **Run:** 2026-11-14, branch `329-security-isolate-credentials-in-provider-failure-tests`, based on `main` at `dc0d27a`. The analysed revision of the Issue was `a328848`; every analysed location was rechecked on `dc0d27a`, with the result below.
+- **Tested revision:** the working tree that became the first commit of this branch on top of `dc0d27a` (a commit cannot name its own hash). Every check in the table ran on that tree.
+- **Toolchain:** Linux 7.3 (Fedora 45), GNU bash 5, ShellCheck 0.11.0, curl 8.21.0, OpenJDK 27 compiling the stub with `javac --release 26`, Node `--check` for the `.mjs` script.
+- **Not run:** `./gradlew check` and the frontend suite, because no backend or frontend file changed. The local stack was not started and the changed evidence scripts were not rerun end to end; see Limitations.
+
+## Analysed locations on `dc0d27a`
+
+| Location | Finding on `dc0d27a` |
+| --- | --- |
+| `docs/verification/issue-123-evidence/scripts/res04b.sh:7-8` (root control) | Still applied: `recreate()` wrote `DOKENE_AI_PROVIDER` and `DOKENE_AI_OPENAI_BASE_URL` only, so the key from `.env` stayed in force |
+| `res04b.sh:12-13` (entrypoint) | Still applied for the refused port `127.0.0.1:9`. The blackholed address `10.255.255.1` is no longer reachable from the backend: since issue 322 the endpoint policy rejects that base URL at startup, before a client is built |
+| `res0234.sh:7-9` (propagation) | Still applied: the suite ran against whatever backend was up, with no check of its key |
+| `compose.yaml` backend environment (propagation) | Unchanged and correct for normal use: `DOKENE_AI_OPENAI_API_KEY` comes from the shell or `.env`. The fix belongs in the test harness, which is the one place that changes the destination |
+| `OpenAiConfiguration.java:22-32`, `OpenAiResponsesApiAdapter.java:177-181` (sinks) | Unchanged: the client sends the configured key to the configured base URL, which is its job. The endpoint policy accepts any loopback port over HTTP for test servers and cannot tell a stub from a local gateway that forwards the key, so no backend change was made |
+| `OpenAiResponsesApiAdapterTest.java:178` (expected control) | Unchanged: the adapter tests already use the synthetic `test-api-key` against an in-process loopback server; the scripts now follow the same pattern |
+
+The same pattern was found in four stub-phase drivers that exported `DOKENE_AI_OPENAI_BASE_URL` before a `dev-env.sh` restart (`phase-3-evidence/scripts/regress.sh`, `rerun-ui.sh`, `issue-118-evidence/scripts/drive-ui.sh`, `drive-security-stub-phase.sh`) and in the other stub cases of suite #123 (`res05.sh`, `res06.sh`, `res07.mjs`, `res10.sh`). They are covered by the same change. The stub itself never logged the `Authorization` header, so no recorded output under `docs/verification/` holds a key.
+
+## What changed
+
+| Location | Before | After |
+| --- | --- | --- |
+| New `scripts/lib/provider-test-double.sh` | — | `provider_test_override` and `provider_test_export` accept only an http(s) loopback URL, always set the synthetic key `PROVIDER_TEST_API_KEY`, and refuse extra environment that would replace the provider, base URL or key. `provider_test_assert_backend` reads the running backend's environment through a pipe and, unless it holds a loopback base URL and exactly the synthetic key, stops the backend and returns 3. Messages name variables, never values |
+| `res04b.sh` | override with provider and base URL only; blackholed address case | override through the library and a backend check after each recreate (except the case that must fail to start); the blackholed case is replaced by a check that a non-loopback destination is refused |
+| `res0234.sh`, `res05.sh`, `res06.sh`, `res10.sh`, `res07.mjs` | ran against whatever backend was up | check the backend first, and `res07.mjs` again after it restarts the backend |
+| The four stub-phase drivers | `export DOKENE_AI_OPENAI_BASE_URL=…` | `provider_test_export`, a backend check after each stub start, `provider_test_unexport` before going back to the real provider |
+| `issue-121-evidence/scripts/Stub.java` | answered any request | answers any `Authorization` other than the synthetic key with HTTP 401, logs `credential=unexpected` without the value and does not store the body; `STUB_DIR` moves its control folder |
+| New `scripts/tests/provider-test-double-test.sh`, job `provider-test-double` in `scripts.yml` | — | offline tests with a stub `docker`; the workflow now also runs on changes under `docs/verification/*-evidence/scripts/`; both new files are in the ShellCheck gate of `dev-env-smoke.sh` |
+| READMEs of suites #121, #122, #123; security invariant 37 | — | document the library, the stub behaviour and the rule |
+
+## Checks
+
+| Check | Kind | Outcome |
+| --- | --- | --- |
+| `scripts/tests/provider-test-double-test.sh` | automated | 49 checks pass: loopback destinations accepted, `api.openai.com`, a private address, look-alike hosts, userinfo, a query and an embedded newline refused; the override and export carry only the synthetic key even when the caller's environment holds a real-looking one; a refused call leaves the previous override untouched; the backend check passes for a loopback stub with the synthetic key and fails closed (status 3, backend stopped) for a real-looking key, the default OpenAI endpoint, a private address, a blank key and no running backend; no recorded `docker` argument list or message held the real-looking key; every changed script calls the check; no evidence script sets a stub base URL by hand |
+| Negative control: the library writes the caller's key into the override and skips the key comparison | automated | 6 checks fail, among them "the override sets the synthetic key", "the caller's key never reaches the override" and "a real-looking key on the test double fails closed" |
+| `Stub.java` compiled and run on `127.0.0.1:18080` with a temporary `STUB_DIR`; requests sent with real curl, each header from a file descriptor | live, loopback | synthetic key: HTTP 200; a real-looking generated key: HTTP 401; no header: HTTP 401. Both refusals are logged as `credential=unexpected`; the refused body was not stored; neither the stub's files nor its output contain the generated key |
+| ShellCheck 0.11.0 on both new files; `bash -n` on every changed shell script; `node --check` on `res07.mjs` | automated | Pass |
+| `scripts/tests/dev-env-smoke.sh` (ShellCheck gate with the two new targets) | automated | Pass, "shell scripts are ShellCheck-clean" included |
+
+## Limitations
+
+- The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.
+- Whether the key reached the stub in the original runs was not established, as the Issue notes: the stub never logged headers, and the refused and blackholed destinations had no listener. This record proves that a rerun cannot send it, not what was sent before.
+- The backend still sends whatever key is configured to an allowed base URL, loopback included. A local gateway on loopback that forwards to a provider is a legitimate deployment, so the backend cannot refuse a real key there; the guard is in the test harness, where the destination is chosen.
+- `res11.mjs` and the live cases of `res01.sh` use the real provider on purpose and are out of scope; `res01.sh` already sets its key per case.

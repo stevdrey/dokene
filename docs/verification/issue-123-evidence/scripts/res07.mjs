@@ -3,6 +3,8 @@ import { launchChrome, Browser, login, sleep } from '/home/stevdrey/qa122/cdp.mj
 import { execSync } from 'node:child_process';
 import { writeFileSync, readFileSync } from 'node:fs';
 const QA = '/home/stevdrey/Projects/Java/dokene-qa-run'; const ST = '/home/stevdrey/qa121/stub';
+// Issue 329: stop here (and stop the backend) unless it is on a loopback test double with the synthetic key.
+execSync('. ./scripts/lib/provider-test-double.sh && provider_test_assert_backend', { cwd: QA, shell: '/bin/bash', stdio: 'inherit' });
 const sh = (c) => execSync(c, { cwd: QA, encoding: 'utf8', shell: '/bin/bash' }).trim();
 const nreq = () => readFileSync(`${ST}/requests.log`, 'utf8').split('\n').filter(Boolean).length;
 const sql = (q) => execSync("docker compose exec -T postgres sh -c 'psql -U $POSTGRES_USER -d $POSTGRES_DB -At'", { cwd: QA, encoding: 'utf8', input: q, shell: '/bin/bash' }).trim();
@@ -48,6 +50,7 @@ L('   f1) SIGKILL of the backend container while the call is in flight'); sh('do
 chk('f1) backend crash during the call: no false success, an understandable error with manual actions available', !/Recomendación de la IA/.test(t) && /no pudimos|no está disponible|error/i.test(t) && /Posponer/.test(t));
 L(`   observed after the crash: provider requests ${nreq() - n0} (the provider call was already sent), audit rows +${audit() - a0} (no terminal audit row can exist for a killed process)`);
 sh('docker compose up -d --no-deps backend >/dev/null 2>&1'); for (let i = 0; i < 60; i++) { try { if (sh("docker compose ps backend --format '{{.Status}}'").includes('healthy')) break; } catch {} await sleep(2000); }
+sh('. ./scripts/lib/provider-test-double.sh && provider_test_assert_backend');  // issue 329: the restarted backend is still on the test double
 const status = await p.ev(`(async()=>{try{const r=await fetch('/api/session');return r.status}catch(e){return 'network-error'}})()`); L(`   backend back; GET /api/session with the old cookie -> ${status} (BFF sessions live in the backend process)`);
 await p.goto('http://localhost:5173/'); await sleep(1500); t = await text(); chk('f1) after the crash the old session is rejected cleanly and the login screen is shown (no partial UI)', /Iniciar sesión/.test(t) || status === 401, t.slice(0, 70));
 await login(p); await p.waitFor('!document.body.innerText.includes("Cargando seguimientos")', 20000); W('delay-ok.ms', '0'); await open(); await p.clickText('Obtener recomendación'); await p.waitFor('document.body.innerText.includes("Recomendación de la IA")||document.body.innerText.includes("no está disponible")', 20000); t = await text(); chk('f1) recovery: after signing in again a new recommendation works', /Recomendación de la IA/.test(t));

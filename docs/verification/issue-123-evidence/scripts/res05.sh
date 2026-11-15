@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #123 RES-05 (derived from the suite #121 script, adds a role downgrade to VIEWER during the backoff):  SEC-09 membership revoke / archive / DNC during a controlled retry, and plain membership revoke in flight. Provider = stub (FAULT INJECTION).
-cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; echo 0 > $STUB/delay-ok.ms
+cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; echo 0 > $STUB/delay-ok.ms; . ./scripts/lib/provider-test-double.sh; provider_test_assert_backend || exit 3  # issue 329: loopback test double with the synthetic key only
 reqs() { wc -l < $STUB/requests.log; }; setstub() { echo "${1:-0}" > $STUB/delay.ms; echo "${2:-}" > $STUB/fail; }
 echo '{"recommendation":{"outcome":"ACTION","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","rationale":"Reposición habitual.","confidence":0.8,"draftVariables":[]}}' > $STUB/rec.json
 mkt() { local tok=$(curl -s -b $QA_TMP/jar-testuser.txt $BFF/api/session|jq -r .csrfToken); curl -s -b $QA_TMP/jar-testuser.txt -X POST $BFF/api/tenants -H "X-CSRF-TOKEN: $tok" -H 'Content-Type: application/json' -H "Idempotency-Key: sec121-$RUN-$1" -d "{\"displayName\":\"SEC121 $1 $RUN\"}"|jq -r .tenantId; }
