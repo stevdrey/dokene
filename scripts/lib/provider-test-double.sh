@@ -64,12 +64,13 @@ provider_test_override() {
     [ -n "$file" ] || { _provider_test_refuse "no override file given"; return 2; }
     provider_test_url_ok "$url" \
         || { _provider_test_refuse "refusing a provider test destination that is not a loopback URL; no override written"; return 2; }
-    # Extra environment is one `      NAME: "value"` line per variable, so it cannot add YAML keys of its own
-    # (env_file, secrets, volumes, command) or a second spelling of a reserved variable.
+    # Extra environment is one `      NAME: "value"` line per variable with a literal value, so it cannot add YAML keys
+    # of its own (env_file, secrets, volumes, command), a second spelling of a reserved variable, or a `$` that Compose
+    # would fill in from the host environment or .env (a real key under an unreserved name such as the model).
     while IFS= read -r line; do
         [ -z "$line" ] && continue
-        if ! [[ "$line" =~ ^\ {6}([A-Z][A-Z0-9_]*):\ \"[^\"\\]*\"$ ]]; then
-            _provider_test_refuse "extra environment must be indented NAME: \"value\" lines; no override written"
+        if ! [[ "$line" =~ ^\ {6}([A-Z][A-Z0-9_]*):\ \"[^\"\\$]*\"$ ]]; then
+            _provider_test_refuse "extra environment must be indented NAME: \"value\" lines with literal values (no \$); no override written"
             return 2
         fi
         name="${BASH_REMATCH[1]}"

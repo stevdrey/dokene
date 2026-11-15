@@ -65,8 +65,12 @@ for alias in DOKENE_AI_OPENAI_APIKEY DOKENE_AI_OPENAIAPI_KEY DOKENEAIOPENAIAPIKE
     provider_test_override "$OV" "http://127.0.0.1:18080/v1" "      $alias: \"x\"" 2>> "$TMP/err"
     assert "extra environment cannot set $alias (status 2)" test "$?" = 2
 done
+# The `$` values below are literal on purpose: Compose substitution must be refused, not expanded here.
+# shellcheck disable=SC2016
 for bad in '      dokene_ai_openai_api_key: "x"' '    env_file: other.env' '      DOKENE_AI_RETRY_MAX_ATTEMPTS: 3' \
-    '      DOKENE_AI_RETRY_MAX_ATTEMPTS: "3" # x' '      DOKENE_AI_RETRY_MAX_ATTEMPTS: "\"x"'; do
+    '      DOKENE_AI_RETRY_MAX_ATTEMPTS: "3" # x' '      DOKENE_AI_RETRY_MAX_ATTEMPTS: "\"x"' \
+    '      DOKENE_AI_OPENAI_MODEL: "${DOKENE_AI_OPENAI_API_KEY}"' '      DOKENE_AI_OPENAI_MODEL: "$DOKENE_AI_OPENAI_API_KEY"' \
+    '      DOKENE_AI_RETRY_MAX_ATTEMPTS: "$$3"'; do
     provider_test_override "$OV" "http://127.0.0.1:18080/v1" "$bad" 2>> "$TMP/err"
     assert "extra environment that is not one NAME: \"value\" line is refused: $bad" test "$?" = 2
 done

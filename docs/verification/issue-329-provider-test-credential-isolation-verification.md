@@ -83,6 +83,16 @@ A code review of the pull request found eight non-blocking issues. They were fix
 
 ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass on that tree.
 
+## F4 fix (fourth commit)
+
+Round 3 of the independent verification reported optional finding F4, introduced by the narrower filter. An extra under an unreserved name could hold a Compose substitution such as `"${DOKENE_AI_OPENAI_API_KEY}"`. Compose fills that in from the host environment or `.env`, so the configured key would go to the stub in the request body and land in its local `last-*.json`. The backend check does not see substitutions. The fourth commit refuses any `$` in an extra value, which also closes the `${…}` case of finding F3. The base URL already allowed no `$`.
+
+| Check | Kind | Outcome |
+| --- | --- | --- |
+| `scripts/tests/provider-test-double-test.sh` with three new refusals (`${…}`, `$NAME`, `$$`) | automated | 102 checks pass under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only) |
+| Negative control: the third commit's value expression | automated | 4 checks fail: the three `$` cases and the untouched-override check |
+| ShellCheck (`-x`) on both files; `scripts/tests/dev-env-smoke.sh` | automated | Pass |
+
 ## Limitations
 
 - The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.
