@@ -117,7 +117,9 @@ _provider_test_backend_state() {
 # there but the signing key, a reserved name under /run/secrets), a mount where Spring Boot loads configuration by
 # default (/app, the image's working directory, and /config) or any mounted application*.yml, .yaml or .properties
 # file, and a mount that replaces code the backend runs (anything under /app such as dokene.jar or entrypoint.sh, the
-# JRE under /opt/java, /usr, /bin, /sbin, /lib, /lib64).
+# JRE under /opt/java, /usr, /bin, /sbin, /lib, /lib64, the dynamic linker's /etc/ld.so* files). Variables and JVM
+# options that load other code fail closed as well: LD_* (LD_PRELOAD and the like), LOADER_*, CLASSPATH, and
+# -javaagent, -agentpath, -agentlib, -Xbootclasspath, --patch-module or -Dloader.* in a JVM option variable.
 provider_test_assert_backend() {
     local state line kind entry name value n reason='' key_seen='' url_seen=''
     state="$(_provider_test_backend_state)" || reason='no running backend container'
@@ -133,7 +135,7 @@ provider_test_assert_backend() {
                 /app | /app/* | /config | /config/*)
                     reason="a mount is where the backend loads its code or Spring Boot its configuration ($entry)" ;;
                 /opt/java | /opt/java/* | /usr | /usr/* | /bin | /bin/* | /sbin | /sbin/* | /lib | /lib/* \
-                    | /lib64 | /lib64/*)
+                    | /lib64 | /lib64/* | /etc/ld.so*)
                     reason="a mount replaces code the backend runs ($entry)" ;;
                 /run | /run/ | /run/secrets | /run/secrets/ | /run/secrets/dokene | /run/secrets/dokene/)
                     reason="a mount shadows the config tree ($entry)" ;;
@@ -157,6 +159,13 @@ provider_test_assert_backend() {
                 provider_test_url_ok "$value" || reason="$name of the backend is not a loopback test double" ;;
             SPRINGAPPLICATIONJSON* | SPRINGCONFIG*)
                 [ -n "$value" ] && reason="$name is set on the backend and could configure the provider" ;;
+            LD* | LOADER* | CLASSPATH)
+                # The dynamic linker (LD_PRELOAD, LD_LIBRARY_PATH, LD_AUDIT), the Spring Boot launcher (LOADER_PATH)
+                # and the class path can load code the check cannot see.
+                case "$name" in
+                    LD_* | ld_* | LOADER_* | loader_* | CLASSPATH)
+                        [ -n "$value" ] && reason="$name is set on the backend and could load other code" ;;
+                esac ;;
             *JAVAOPTIONS* | *JAVATOOLOPTIONS*)
                 case " $value" in
                     *" @"* | *"	@"*) reason="$name of the backend reads a JVM argument file" ;;
@@ -166,6 +175,8 @@ provider_test_assert_backend() {
                     *DOKENEAI* | *SPRINGAPPLICATIONJSON* | *SPRINGCONFIG*)
                         reason="$name of the backend sets provider or configuration properties" ;;
                     *VMOPTIONSFILE* | *XXFLAGS*) reason="$name of the backend reads a JVM argument file" ;;
+                    *JAVAAGENT* | *AGENTPATH* | *AGENTLIB* | *XBOOTCLASSPATH* | *PATCHMODULE* | *LOADER*)
+                        reason="$name of the backend loads an agent or other code" ;;
                 esac ;;
         esac
     done <<< "$state"

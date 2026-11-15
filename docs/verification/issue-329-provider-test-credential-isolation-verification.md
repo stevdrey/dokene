@@ -7,7 +7,7 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
 ## Environment
 
 - **Run:** 2026-11-14, branch `329-security-isolate-credentials-in-provider-failure-tests`, based on `main` at `dc0d27a`. The analysed revision of the Issue was `a328848`; every analysed location was rechecked on `dc0d27a`, with the result below.
-- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The sixth commit is identified by the blob ids of the files it changes, apart from this record.
+- **Tested revisions:** each section's checks ran on the working tree that then became one commit of this branch on top of `dc0d27a`. A commit cannot name its own hash, so the table gives the commit together with its Git tree id; `git rev-parse <commit>^{tree}` reproduces it. The seventh commit is identified by the blob ids of the files it changes, apart from this record.
 
   | Commit | Tree | Checks |
   | --- | --- | --- |
@@ -16,9 +16,10 @@ This record is sanitized: it gives outcomes, counts and settings only. It contai
   | `5df920b` | `b11e16772c8bb22cf3721e00f0ef52f7cb1fbc10` | Code review fixes |
   | `3177a27` | `6dad74005107c28aba5e9f458d62d3ca4e37641a` | F4 fix |
   | `6ee51bb` | `1e897348ac3c700508f79b3de953d0574eb5a326` | F2, F3 and F5 fixes |
-  | sixth commit | `scripts/lib/provider-test-double.sh` `d363b9c79525c7967a4c294bbff3609242b7aa16`, `scripts/tests/provider-test-double-test.sh` `62494c06bec2ff76a082cd88597259af47d39d9c`, `docs/security/security-invariants.md` `c98a811505aebcd82371d120cc303cf5061e4ef6` | F6 and F7 fixes |
+  | `6a1b7e3` | `3988608eeea8c7eafd979ed21c9f7ca8c92e9ff2` | F6 and F7 fixes |
+  | seventh commit | `scripts/lib/provider-test-double.sh` `1f8d2011e94024865652d052ab3338adba02a517`, `scripts/tests/provider-test-double-test.sh` `232acd4d7d10eaee50168362f799e06d2a8404c1`, `docs/security/security-invariants.md` `3ef03edb7036f82740a48aa95d0fa851132640e5` | F8 and F9 fixes |
 
-  An independent verifier checked each of these candidates (rounds 1 to 6).
+  An independent verifier checked each of these candidates (rounds 1 to 7).
 - **Toolchain:** Linux 7.3 (Fedora 45), GNU bash 5, ShellCheck 0.11.0, curl 8.21.0, OpenJDK 27 compiling the stub with `javac --release 26`, Node `--check` for the `.mjs` script.
 - **Not run:** `./gradlew check` and the frontend suite, because no backend or frontend file changed. The local stack was not started and the changed evidence scripts were not rerun end to end; see Limitations.
 
@@ -118,7 +119,7 @@ The fourth verification round left three optional findings open. They were fixed
 
 ## F6 and F7 fixes (sixth commit)
 
-The fifth verification round reported two new optional findings. They were fixed in the sixth commit and checked on its working tree (blob ids under Tested revisions):
+The fifth verification round reported two new optional findings. They were fixed in the sixth commit (`6a1b7e3`, see Tested revisions) and checked on its working tree:
 
 | Finding | Fix | Check | Outcome |
 | --- | --- | --- | --- |
@@ -127,10 +128,22 @@ The fifth verification round reported two new optional findings. They were fixed
 
 `scripts/tests/provider-test-double-test.sh` passes 140 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
 
+## F8 and F9 fixes (seventh commit)
+
+The sixth verification round reported two new optional findings. They were fixed in the seventh commit and checked on its working tree (blob ids under Tested revisions):
+
+| Finding | Fix | Check | Outcome |
+| --- | --- | --- | --- |
+| F8: the hand-set base URL guard missed setter calls (Java `environment().put`, Python `os.environ.setdefault` and `os.putenv`, bash `printf -v`, JS `??=`), other spellings (`DOKENE_AI_OPENAI_BASEURL`, `-Ddokene.ai.openai.base-url`) and `.ts` and `.json` files | The guard no longer recognizes assignment forms. It flags every mention of the setting in any spelling Spring binds, in `.sh`, `.bash`, `.mjs`, `.js`, `.ts`, `.py`, `.java`, `.json`, `.yaml`, `.yml`, `.conf`, `.properties` and `.patch` files. The only exceptions are three reviewed lines (two reads and the issue 246-253 harness), each matched by file and exact content | Ten new sample forms spread over eight file types; a script without a mention; a reviewed read in its own file and the same read elsewhere; negative control with the sixth commit's guard | All as expected. The repository's three mentions are the reviewed lines. The control fails 15 checks |
+| F9: code could be injected by routes the mount rule did not list (`-javaagent` with a mounted jar, `LD_PRELOAD`, `/etc/ld.so.preload`) | The check fails closed on a set `LD_*`, `LOADER_*` or `CLASSPATH` variable. It also fails closed on JVM options with `-javaagent`, `-agentpath`, `-agentlib`, `-Xbootclasspath`, `--patch-module` or `-Dloader.*`, and on mounts at `/etc/ld.so*` | 11 code-loading cases and 2 linker mounts; the image's locale and JRE variables and an empty `LD_PRELOAD`; negative control with the sixth commit's library; the running backend's variable names and JVM options compared with the new rules, printing names and match counts only | All fail closed and the image's variables pass. The running backend has no variable or option that matches. The control fails 13 checks |
+
+`scripts/tests/provider-test-double-test.sh` passes 166 checks under bash 5 and in the `bash:3.2` image (network disabled, repository mounted read-only). ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass.
+
 ## Limitations
 
 - The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.
 - Whether the key reached the stub in the original runs was not established, as the Issue notes: the stub never logged headers, and the refused and blackholed destinations had no listener. This record proves that a rerun cannot send it, not what was sent before.
 - The backend still sends whatever key is configured to an allowed base URL, loopback included. A local gateway on loopback that forwards to a provider is a legitimate deployment, so the backend cannot refuse a real key there; the guard is in the test harness, where the destination is chosen.
+- The hand-set URL guard is a text scan: a name built at run time (for example by joining strings) would not be seen. Scripts that use the library are still checked at run time by `provider_test_assert_backend`.
 - Spring's handling of each alias was not exercised against a running backend. The checks follow the relaxed binding rules (case and separators ignored) and fail closed beyond them; a property source the library does not know, such as a config file baked into a custom image, is outside what a harness check can see.
 - `res11.mjs` and the live cases of `res01.sh` use the real provider on purpose and are out of scope; `res01.sh` already sets its key per case.

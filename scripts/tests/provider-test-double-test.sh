@@ -211,7 +211,7 @@ assert "mounts outside the config tree with unreserved names pass" test "$rc" = 
 for mount in /app/config /app/config/ /app/config/application.yml /app/config/extra/x.yml /app/application.properties \
     /app /config /config/application-local.yaml /opt/application.yml \
     /app/dokene.jar /app/entrypoint.sh /opt/java/openjdk /opt/java/openjdk/lib/security/java.security \
-    /usr/local/bin/java /bin /sbin/x /lib/x.so /lib64; do
+    /usr/local/bin/java /bin /sbin/x /lib/x.so /lib64 /etc/ld.so.preload /etc/ld.so.conf.d/x.conf; do
     backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
     printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n%s\n' "$mount" > "$DOCKER_STATE/mounts"
     check_backend; rc=$?
@@ -228,6 +228,19 @@ for opts in 'JDK_JAVA_OPTIONS=@/tmp/args' 'JDK_JAVA_OPTIONS=-Xmx1g @/tmp/args' '
     check_backend; rc=$?
     assert "JVM options with an argument file fail closed: $opts" test "$rc" = 3
 done
+# Agents, the dynamic linker and other class paths can load code that reads or replaces the key.
+for code in 'JAVA_TOOL_OPTIONS=-javaagent:/tmp/agent.jar' 'JDK_JAVA_OPTIONS=-agentpath:/tmp/libx.so' \
+    'JAVA_TOOL_OPTIONS=-agentlib:jdwp=transport=dt_socket' 'JDK_JAVA_OPTIONS=-Xbootclasspath/a:/tmp/x.jar' \
+    'JDK_JAVA_OPTIONS=--patch-module java.base=/tmp/x' 'JAVA_TOOL_OPTIONS=-Dloader.path=/tmp/lib' \
+    'LD_PRELOAD=/tmp/libx.so' 'LD_LIBRARY_PATH=/tmp' 'LD_AUDIT=/tmp/libx.so' 'LOADER_PATH=/tmp/lib' 'CLASSPATH=/tmp/x.jar'; do
+    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "$code"
+    check_backend; rc=$?
+    assert "code loading fails closed: $code" test "$rc" = 3
+done
+backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" 'LANG=C.UTF-8' 'LC_ALL=C.UTF-8' 'LD_PRELOAD=' \
+    'JAVA_HOME=/opt/java/openjdk' 'JAVA_VERSION=jdk-26'
+check_backend; rc=$?
+assert "the image's locale and JRE variables and an empty LD_PRELOAD pass" test "$rc" = 0
 backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" 'JDK_JAVA_OPTIONS=-Xmx1g -Dfile.encoding=UTF-8'
 check_backend; rc=$?
 assert "ordinary JVM options next to the image's own pass" test "$rc" = 0
@@ -256,15 +269,34 @@ for script in \
 done
 # No script may point the backend at a test double by hand any more: that is how the configured key went along.
 # A line that sets a synthetic key next to the base URL (the evaluation harness of issues 246-253) is allowed.
-# stub_urls_clean DIR: 0 when no evidence script or config under DIR sets a non-empty provider base URL by hand (a
-# literal URL in any spelling, a variable, a printf template, an object key, a bracket assignment such as
-# process.env['…'] or os.environ["…"]), 1 when one does (the lines go to stdout), 2 when DIR could not be scanned:
-# missing, holding no such file, or find or grep reported an error. An empty reset, reads and comparisons do not count.
-# The only allowed hit is the exact line of the issue 246-253 evaluation harness, which sets a synthetic key with it.
-STUB_URL_SCAN_TYPES=(-name '*.sh' -o -name '*.bash' -o -name '*.mjs' -o -name '*.js' -o -name '*.py' -o -name '*.java'
-    -o -name '*.yaml' -o -name '*.yml' -o -name '*.conf' -o -name '*.patch')
+# stub_urls_clean DIR: 0 when no evidence script or config under DIR mentions the provider base URL setting outside a
+# reviewed line, 1 when one does (the lines go to stdout), 2 when DIR could not be scanned: missing, holding no such
+# file, or find or grep reported an error. Every mention counts, in any spelling Spring binds (DOKENE_AI_OPENAI_BASE_URL,
+# DOKENE_AI_OPENAI_BASEURL, dokene.ai.openai.base-url, baseUrl) and in any form (assignment, setter call, -D option,
+# object key), so no assignment syntax can slip past. The reviewed lines are reads and the issue 246-253 evaluation
+# harness, which sets a synthetic key next to it; each is matched by file and exact content.
+STUB_URL_SCAN_TYPES=(-name '*.sh' -o -name '*.bash' -o -name '*.mjs' -o -name '*.js' -o -name '*.ts' -o -name '*.py'
+    -o -name '*.java' -o -name '*.json' -o -name '*.yaml' -o -name '*.yml' -o -name '*.conf' -o -name '*.properties'
+    -o -name '*.patch')
 STUB_URL_ALLOWED_FILE='/issue-246-253-evidence/scripts/run-eval-against-stub.sh'
 STUB_URL_ALLOWED_LINE='export DOKENE_AI_OPENAI_API_KEY=sk-qa-stub-not-a-real-key DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1'
+# shellcheck disable=SC2016  # the reviewed lines are script text, not expansions
+STUB_URL_REVIEWED=(
+    "$STUB_URL_ALLOWED_FILE"
+    "$STUB_URL_ALLOWED_LINE"
+    '/issue-121-evidence/scripts/sec121-d.sh'
+    '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && { echo "ABORT: base URL override present, not a live run"; exit 2; }'
+    '/issue-120-evidence/scripts/ai120-c.sh'
+    'echo "INFO  config: DOKENE_AI_PROVIDER=$(docker inspect $(docker compose ps -q backend) --format '"'"'{{range .Config.Env}}{{println .}}{{end}}'"'"' | grep '"'"'^DOKENE_AI_PROVIDER='"'"' | cut -d= -f2) base-url=$(docker inspect $(docker compose ps -q backend) --format '"'"'{{range .Config.Env}}{{println .}}{{end}}'"'"' | grep '"'"'^DOKENE_AI_OPENAI_BASE_URL='"'"' | cut -d= -f2)"'
+)
+stub_url_reviewed() { # FILE CONTENT: true when the pair is one of STUB_URL_REVIEWED
+    local k=0
+    while [ "$k" -lt "${#STUB_URL_REVIEWED[@]}" ]; do
+        case "$1" in *"${STUB_URL_REVIEWED[$k]}") [ "$2" = "${STUB_URL_REVIEWED[$((k + 1))]}" ] && return 0 ;; esac
+        k=$((k + 2))
+    done
+    return 1
+}
 stub_urls_clean() {
     local dir="$1" count hit file rest content found=0
     [ -d "$dir" ] || return 2
@@ -273,14 +305,11 @@ stub_urls_clean() {
     [ "$count" -gt 0 ] && [ ! -s "$TMP/scan.err" ] || return 2
     # grep exits 1 when a file has no match, so find's status says nothing here; errors show up on stderr instead.
     find "$dir" -type f \( "${STUB_URL_SCAN_TYPES[@]}" \) -exec grep -HniE \
-        "DOKENE_AI_OPENAI_BASE_URL[]\"']*[[:space:]]*[:=][[:space:]]*[\"']?[^[:space:]\"';)=]" {} + \
-        > "$TMP/scan.hits" 2>> "$TMP/scan.err"
+        'dokene[._-]?ai[._-]?openai[._-]?base[._-]?url' {} + > "$TMP/scan.hits" 2>> "$TMP/scan.err"
     [ ! -s "$TMP/scan.err" ] || return 2
     while IFS= read -r hit; do
         file="${hit%%:*}"; rest="${hit#*:}"; content="${rest#*:}"
-        case "$file" in
-            *"$STUB_URL_ALLOWED_FILE") [ "$content" = "$STUB_URL_ALLOWED_LINE" ] && continue ;;
-        esac
+        stub_url_reviewed "$file" "$content" && continue
         printf '%s\n' "$hit"; found=1
     done < "$TMP/scan.hits"
     [ "$found" = 0 ] || return 1
@@ -289,8 +318,9 @@ stub_urls_clean() {
 guard_status() { stub_urls_clean "$1" > /dev/null; echo "$?"; }
 SAMPLES="$TMP/samples"; mkdir -p "$SAMPLES"
 i=0
-SAMPLE_EXTS=(sh py mjs js yml)  # each sample form lands in a different scanned file type
-# The `$` forms below are literal on purpose: they are the script text the guard must catch.
+SAMPLE_EXTS=(sh py mjs js yml ts json java)  # each sample form lands in a different scanned file type
+# The `$` forms below are literal on purpose: they are the script text the guard must catch. Every mention counts, so
+# empty resets and comparisons outside the reviewed lines are caught too.
 # shellcheck disable=SC2016
 for form in 'export DOKENE_AI_OPENAI_BASE_URL="http://127.0.0.1:18080/v1"' "DOKENE_AI_OPENAI_BASE_URL='http://localhost:18080/v1'" \
     'DOKENE_AI_OPENAI_BASE_URL=http://[::1]:18080/v1' 'DOKENE_AI_OPENAI_BASE_URL=https://localhost:8443/v1' \
@@ -299,17 +329,23 @@ for form in 'export DOKENE_AI_OPENAI_BASE_URL="http://127.0.0.1:18080/v1"' "DOKE
     'DOKENE_AI_OPENAI_BASE_URL=HTTP://LOCALHOST:1/v1' 'docker run -e DOKENE_AI_OPENAI_BASE_URL=x image' \
     "process.env['DOKENE_AI_OPENAI_BASE_URL'] = url;" 'os.environ["DOKENE_AI_OPENAI_BASE_URL"] = url' \
     '{ DOKENE_AI_OPENAI_BASE_URL: url }' \
-    'DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1  # DOKENE_AI_OPENAI_API_KEY=sk-qa-stub-not-a-real-key'; do
-    i=$((i + 1)); mkdir -p "$SAMPLES/s$i"; printf '%s\n' "$form" > "$SAMPLES/s$i/script.${SAMPLE_EXTS[$((i % 5))]}"
+    'DOKENE_AI_OPENAI_BASE_URL=http://127.0.0.1:18080/v1  # DOKENE_AI_OPENAI_API_KEY=sk-qa-stub-not-a-real-key' \
+    'pb.environment().put("DOKENE_AI_OPENAI_BASE_URL", url);' 'os.environ.setdefault("DOKENE_AI_OPENAI_BASE_URL", url)' \
+    'os.putenv("DOKENE_AI_OPENAI_BASE_URL", url)' 'printf -v DOKENE_AI_OPENAI_BASE_URL %s "$url"' \
+    'process.env.DOKENE_AI_OPENAI_BASE_URL ??= url;' 'DOKENE_AI_OPENAI_BASEURL=http://127.0.0.1:18080/v1' \
+    'java -Ddokene.ai.openai.base-url=http://127.0.0.1:18080/v1 -jar app.jar' '{ "dokene.ai.openai.baseUrl": "x" }' \
+    'export DOKENE_AI_OPENAI_BASE_URL=' 'if (process.env.DOKENE_AI_OPENAI_BASE_URL === "x") {}'; do
+    i=$((i + 1)); mkdir -p "$SAMPLES/s$i"; printf '%s\n' "$form" > "$SAMPLES/s$i/script.${SAMPLE_EXTS[$((i % 8))]}"
     assert "the hand-set URL guard catches: $form" test "$(guard_status "$SAMPLES/s$i")" = 1
 done
 mkdir -p "$SAMPLES/ok"
-# shellcheck disable=SC2016
-printf '%s\n' 'export DOKENE_AI_OPENAI_BASE_URL=' 'export DOKENE_AI_OPENAI_BASE_URL=;' \
-    '[ -n "$DOKENE_AI_OPENAI_BASE_URL" ] && exit 2' "grep '^DOKENE_AI_OPENAI_BASE_URL=' env.txt" \
-    "if (process.env.DOKENE_AI_OPENAI_BASE_URL === 'x') {}" "url = os.environ['DOKENE_AI_OPENAI_BASE_URL']" \
-    > "$SAMPLES/ok/script.sh"
-assert "an empty reset and reads of the base URL are not hand-set URLs" test "$(guard_status "$SAMPLES/ok")" = 0
+printf '%s\n' 'echo "no provider setting here"' 'DOKENE_AI_OPENAI_MODEL=gpt-test' > "$SAMPLES/ok/script.sh"
+assert "scripts that never mention the base URL pass" test "$(guard_status "$SAMPLES/ok")" = 0
+mkdir -p "$SAMPLES/reviewed/issue-121-evidence/scripts"
+printf '%s\n' "${STUB_URL_REVIEWED[3]}" > "$SAMPLES/reviewed/issue-121-evidence/scripts/sec121-d.sh"
+assert "a reviewed read in its own file passes" test "$(guard_status "$SAMPLES/reviewed")" = 0
+printf '%s\n' "${STUB_URL_REVIEWED[3]}" > "$SAMPLES/reviewed/other.sh"
+assert "the same read in another file is caught" test "$(guard_status "$SAMPLES/reviewed")" = 1
 assert "a missing directory cannot pass the guard" test "$(guard_status "$SAMPLES/missing")" = 2
 mkdir -p "$SAMPLES/empty"
 assert "a directory with no script cannot pass the guard" test "$(guard_status "$SAMPLES/empty")" = 2
