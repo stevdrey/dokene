@@ -6,11 +6,12 @@ import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /** QA fault-injection stub of the OpenAI Responses API (suite #121). Controlled through files in /stub. NOT live-model evidence.
- *  Only the synthetic key of scripts/lib/provider-test-double.sh is accepted (issue 329): a request with any other
- *  Authorization header gets 401, is logged as credential=unexpected without its value, and its body is not stored. */
+ *  Only the synthetic key of scripts/lib/provider-test-double.sh is accepted (issue 329), fixed here on purpose so no
+ *  setting can make the stub accept another key: a request with any other Authorization header gets 401, is logged as
+ *  credential=unexpected without its value, and its body is not stored. */
 public class Stub {
   static final Path DIR = Paths.get(System.getenv().getOrDefault("STUB_DIR", "/stub"));
-  static final String EXPECTED_AUTH = "Bearer " + System.getenv().getOrDefault("STUB_EXPECTED_API_KEY", "sk-dokene-test-double-not-a-real-key");
+  static final String EXPECTED_AUTH = "Bearer sk-dokene-test-double-not-a-real-key";
   static String read(String n, String d) { try { return Files.readString(DIR.resolve(n), StandardCharsets.UTF_8).strip(); } catch (Exception e) { return d; } }
   static final AtomicInteger seq = new AtomicInteger();
   public static void main(String[] a) throws Exception {

@@ -66,6 +66,23 @@ Checks on the working tree that became the second commit:
 | The `docker inspect` template run against a local container, only the line prefixes counted | live, local | environment entries and mounts are listed as `ENV` and `MOUNT` lines; the trailing blank line is ignored |
 | ShellCheck 0.11.0 (`-x`) on both files; `scripts/tests/dev-env-smoke.sh` | automated | Pass |
 
+## Code review fixes (third commit)
+
+A code review of the pull request found eight non-blocking issues. They were fixed in the third commit and checked on the working tree that became that commit:
+
+| Finding | Fix | Check | Outcome |
+| --- | --- | --- | --- |
+| Name normalization used `${1^^}`, which bash 3.2 (the macOS default) does not have. The alias filter then accepted every name, and the backend check stopped every backend | `_provider_test_norm_into` upper-cases in-process from explicit letter lists and assigns with `printf -v` | The whole test run in the official `bash:3.2` image (3.2.57), repository mounted read-only, with the test's stub `docker` | 99 of 99 checks pass, as under bash 5 |
+| Normalization forked a subshell for every environment entry | The same in-process function | Code reading: the only command substitution left in the check is the one `docker inspect` | No fork per entry |
+| The reserved-name filter refused harmless extras such as `DOKENE_AI_OPENAI_TIMEOUT` | Limited to the key, base URL, trusted hosts and provider properties, plus the configuration-loading variables | New positive cases; negative control with the old filter | Timeout, output token and WhatsApp base URL extras are written; the control fails 3 checks |
+| The mount check missed a mount over the config tree root | Fails closed on `/run`, `/run/secrets`, `/run/secrets/dokene`, any file there but the signing key, and an application or reserved file under `/run/secrets` | 7 new mount cases; negative control with the old check | All fail closed and the signing-key mount passes; the control fails 7 checks |
+| The stub's accepted key could be overridden with `STUB_EXPECTED_API_KEY` | The key is fixed in the source | Stub run on loopback with that variable set to another value; a test that the name is gone | Synthetic key 200, the other value 401; the control with the override restored fails 2 checks |
+| The guard against hand-set stub URLs missed quoted, `[::1]`, `https` and spaced forms | Broader expression, with files picked by `find` so it also works with BusyBox grep | Six sample forms, each must be caught; negative control with the old expression | All six caught, none in the repository; the control fails 5 checks |
+| Counters required each canonical name "exactly once", which Docker cannot break | Presence flags; the impossible duplicate case was removed | Test run | Pass |
+| The test reimplemented the literal secret search | Uses `contains_literal` from `scripts/lib/secret-match.sh` | Test run | Pass |
+
+ShellCheck (`-x`) on both files and `scripts/tests/dev-env-smoke.sh` pass on that tree.
+
 ## Limitations
 
 - The changed evidence scripts record past runs and start with paths of the machine they ran on. They were changed so that a rerun cannot send a real key to a test double, and checked through the library's tests, the stub run and static checks; they were not rerun end to end against the local stack. The outputs in `issue-123-evidence/outputs.txt` are from the original run.

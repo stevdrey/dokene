@@ -19,6 +19,8 @@ refute() { local name="$1"; shift; if "$@"; then fail "$name"; else pass "$name"
 
 # shellcheck source=../lib/provider-test-double.sh
 . "$LIB"
+# shellcheck source=../lib/secret-match.sh
+. "$ROOT_DIR/scripts/lib/secret-match.sh"
 
 # A value shaped like a real key, generated for this run only. It must never reach an override, an export, an
 # argument list or any output.
@@ -46,7 +48,7 @@ assert "the override sets the synthetic key" grep -qxF "      DOKENE_AI_OPENAI_A
 assert "the override sets the loopback base URL" grep -qxF '      DOKENE_AI_OPENAI_BASE_URL: "http://127.0.0.1:18080/v1"' "$OV"
 assert "the override keeps the extra environment" grep -qxF '      DOKENE_AI_RETRY_MAX_ATTEMPTS: "3"' "$OV"
 assert "the override sets the key exactly once" test "$(grep -c DOKENE_AI_OPENAI_API_KEY "$OV")" = 1
-refute "the caller's key never reaches the override" grep -qF -f <(printf '%s\n' "$REAL_LOOKING_KEY") "$OV"
+refute "the caller's key never reaches the override" contains_literal "$OV" "$REAL_LOOKING_KEY"
 
 printf 'previous\n' > "$OV"
 provider_test_override "$OV" "http://10.255.255.1:81/v1" '' 2> "$TMP/err"
@@ -69,6 +71,12 @@ for bad in '      dokene_ai_openai_api_key: "x"' '    env_file: other.env' '    
     assert "extra environment that is not one NAME: \"value\" line is refused: $bad" test "$?" = 2
 done
 assert "no refused alias rewrote the override file" grep -qx previous "$OV"
+# Settings that cannot change the destination or the key stay allowed, whatever words their names share.
+for harmless in DOKENE_AI_OPENAI_TIMEOUT DOKENE_AI_OPENAI_MAX_OUTPUT_TOKENS DOKENE_INTEGRATION_WHATSAPP_GRAPH_BASE_URL; do
+    provider_test_override "$OV" "http://127.0.0.1:18080/v1" "      $harmless: \"3\"" 2>> "$TMP/err"
+    assert "extra environment may set $harmless" grep -qxF "      $harmless: \"3\"" "$OV"
+done
+printf 'previous\n' > "$OV"
 provider_test_override "" "http://127.0.0.1:18080/v1" '' 2>> "$TMP/err"
 assert "a missing override file is refused with status 2" test "$?" = 2
 
@@ -183,17 +191,25 @@ backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
 printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
 check_backend; rc=$?
 assert "the backend's own secret mount passes" test "$rc" = 0
-backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY" "DOKENE_AI_OPENAI_API_KEY=$PROVIDER_TEST_API_KEY"
+for mount in /run/secrets/dokene /run/secrets/dokene/ /run/secrets /run /run/secrets/dokene/OTHER_FILE \
+    /run/secrets/application.yml /run/secrets/extra/application-local.properties; do
+    backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
+    printf '/run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n%s\n' "$mount" > "$DOCKER_STATE/mounts"
+    check_backend; rc=$?
+    assert "a mount at $mount fails closed" test "$rc" = 3
+done
+backend_env "http://127.0.0.1:18080/v1" "$PROVIDER_TEST_API_KEY"
+printf '/var/lib/dokene\n/run/secrets/other/DOKENE_TENANT_CONTEXT_SIGNING_KEY\n' > "$DOCKER_STATE/mounts"
 check_backend; rc=$?
-assert "a duplicated canonical key fails closed" test "$rc" = 3
+assert "mounts outside the config tree with unreserved names pass" test "$rc" = 0
 
 : > "$DOCKER_STATE/env"
 check_backend; rc=$?
 assert "no running backend fails closed" test "$rc" = 3
 cat "$TMP/assert.err" >> "$TMP/err"
 
-refute "no docker argument list held the key" grep -qF -f <(printf '%s\n' "$REAL_LOOKING_KEY") "$DOCKER_LOG"
-refute "no message printed the key" grep -qF -f <(printf '%s\n' "$REAL_LOOKING_KEY") "$TMP/err"
+refute "no docker argument list held the key" contains_literal "$DOCKER_LOG" "$REAL_LOOKING_KEY"
+refute "no message printed the key" contains_literal "$TMP/err" "$REAL_LOOKING_KEY"
 
 # --- every provider failure script and stub-phase driver goes through the library
 for script in \
@@ -211,12 +227,23 @@ for script in \
 done
 # No script may point the backend at a test double by hand any more: that is how the configured key went along.
 # A line that sets a synthetic key next to the base URL (the evaluation harness of issues 246-253) is allowed.
+# hand_set_stub_urls DIR: prints every line under DIR that sets a loopback base URL by hand, in any quoting.
 hand_set_stub_urls() {
-    grep -rnE 'DOKENE_AI_OPENAI_BASE_URL(=|: *")http://(127\.0\.0\.1|localhost)' "$ROOT_DIR/docs/verification" \
-        --include='*.sh' --include='*.mjs' | grep -vE 'DOKENE_AI_OPENAI_API_KEY=sk-[a-z-]*not-a-real-key'
+    find "$1" -type f \( -name '*.sh' -o -name '*.mjs' \) -exec grep -HnE \
+        "DOKENE_AI_OPENAI_BASE_URL[[:space:]]*[:=][[:space:]]*[\"']?https?://(127\\.0\\.0\\.1|localhost|\\[::1\\])" {} + \
+        | grep -vE 'DOKENE_AI_OPENAI_API_KEY=sk-[a-z-]*not-a-real-key'
 }
-refute "no evidence script sets a stub base URL without the library" hand_set_stub_urls
-assert "the stub accepts only the synthetic key" grep -qF "\"$PROVIDER_TEST_API_KEY\"" "$ROOT_DIR/docs/verification/issue-121-evidence/scripts/Stub.java"
+SAMPLES="$TMP/samples"; mkdir -p "$SAMPLES"
+i=0
+for form in 'export DOKENE_AI_OPENAI_BASE_URL="http://127.0.0.1:18080/v1"' "DOKENE_AI_OPENAI_BASE_URL='http://localhost:18080/v1'" \
+    'DOKENE_AI_OPENAI_BASE_URL=http://[::1]:18080/v1' 'DOKENE_AI_OPENAI_BASE_URL=https://localhost:8443/v1' \
+    '      DOKENE_AI_OPENAI_BASE_URL: "http://127.0.0.1:18080/v1"' 'env.DOKENE_AI_OPENAI_BASE_URL = "http://127.0.0.1:18080/v1"'; do
+    i=$((i + 1)); printf '%s\n' "$form" > "$SAMPLES/s$i.sh"
+    assert "the hand-set URL guard catches: $form" test -n "$(hand_set_stub_urls "$SAMPLES/s$i.sh")"
+done
+refute "no evidence script sets a stub base URL without the library" hand_set_stub_urls "$ROOT_DIR/docs/verification"
+assert "the stub accepts only the synthetic key" grep -qF "\"Bearer $PROVIDER_TEST_API_KEY\"" "$ROOT_DIR/docs/verification/issue-121-evidence/scripts/Stub.java"
+refute "no setting can change the key the stub accepts" grep -q STUB_EXPECTED_API_KEY "$ROOT_DIR/docs/verification/issue-121-evidence/scripts/Stub.java"
 
 if [ "$FAILURES" -gt 0 ]; then
     printf '%d check(s) failed\n' "$FAILURES"

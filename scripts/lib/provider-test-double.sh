@@ -28,11 +28,22 @@ _provider_test_refuse() {
     return 2
 }
 
-# _provider_test_norm TEXT: upper case with every character other than A-Z and 0-9 removed, the way Spring's relaxed
-# binding compares names (DOKENE_AI_OPENAI_APIKEY, dokene.ai.openai.api-key and DOKENE_AI_OPENAI_API_KEY are one key).
-_provider_test_norm() {
-    local text="${1^^}"
-    printf '%s' "${text//[^A-Z0-9]/}"
+# _provider_test_norm_into VAR TEXT: sets VAR to TEXT in upper case with every character other than A-Z and 0-9
+# removed, the way Spring's relaxed binding compares names (DOKENE_AI_OPENAI_APIKEY, dokene.ai.openai.api-key and
+# DOKENE_AI_OPENAI_API_KEY are one key). In-process (no subshell) and bash 3.2 compatible: explicit letter lists, not
+# ranges, so the locale cannot change what matches.
+_provider_test_norm_into() {
+    local _pt_in="$2" _pt_out='' _pt_c _pt_i=0 _pt_head
+    local _pt_lower=abcdefghijklmnopqrstuvwxyz _pt_upper=ABCDEFGHIJKLMNOPQRSTUVWXYZ
+    while [ "$_pt_i" -lt "${#_pt_in}" ]; do
+        _pt_c="${_pt_in:$_pt_i:1}"; _pt_i=$((_pt_i + 1))
+        case "$_pt_c" in
+            [ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789]) _pt_out="$_pt_out$_pt_c" ;;
+            [abcdefghijklmnopqrstuvwxyz])
+                _pt_head="${_pt_lower%%"$_pt_c"*}"; _pt_out="$_pt_out${_pt_upper:${#_pt_head}:1}" ;;
+        esac
+    done
+    printf -v "$1" '%s' "$_pt_out"
 }
 
 # _provider_test_reserved NAME: true when an environment variable named NAME could set the provider, its endpoint or
@@ -40,9 +51,9 @@ _provider_test_norm() {
 # SPRING_CONFIG_*, JVM option variables carrying -D system properties).
 _provider_test_reserved() {
     local n
-    n="$(_provider_test_norm "$1")"
+    _provider_test_norm_into n "$1"
     case "$n" in
-        *OPENAI* | *APIKEY* | *BASEURL* | *TRUSTEDHOSTS* | DOKENEAIPROVIDER* \
+        DOKENEAIOPENAI*APIKEY* | DOKENEAIOPENAI*BASEURL* | DOKENEAIOPENAI*TRUSTEDHOSTS* | DOKENEAIPROVIDER* \
             | SPRINGAPPLICATIONJSON* | SPRINGCONFIG* | *JAVAOPTIONS* | *JAVATOOLOPTIONS*) return 0 ;;
     esac
     return 1
@@ -100,42 +111,55 @@ _provider_test_backend_state() {
 # Every spelling of the key and the base URL that Spring binds is checked, not only the canonical name: each key
 # alias must hold the synthetic key and each base URL alias a loopback URL, and both canonical names must be present.
 # Configuration a test double cannot vouch for fails closed: SPRING_APPLICATION_JSON or SPRING_CONFIG_* set at all,
-# JVM options that set a provider or configuration property, a mounted config tree file for the provider.
+# JVM options that set a provider or configuration property, and a mount that shadows or adds to the config tree
+# (/run, /run/secrets, /run/secrets/dokene, any file there but the signing key, an application file or a reserved
+# name under /run/secrets).
 provider_test_assert_backend() {
-    local state line kind entry name value n reason='' keys=0 urls=0
+    local state line kind entry name value n reason='' key_seen='' url_seen=''
     state="$(_provider_test_backend_state)" || reason='no running backend container'
     [ -n "$state" ] || reason='no running backend container'
     while [ -z "$reason" ] && IFS= read -r line; do
         kind="${line%% *}"; entry="${line#* }"
         if [ "$kind" = MOUNT ]; then
-            case "$entry" in /run/secrets/*)
-                _provider_test_reserved "${entry##*/}" && reason="a mounted secret file can set the provider configuration ($entry)" ;;
+            case "$entry" in
+                /run | /run/ | /run/secrets | /run/secrets/ | /run/secrets/dokene | /run/secrets/dokene/)
+                    reason="a mount shadows the config tree ($entry)" ;;
+                /run/secrets/dokene/DOKENE_TENANT_CONTEXT_SIGNING_KEY) ;;
+                /run/secrets/dokene/*) reason="a mount adds to the config tree ($entry)" ;;
+                /run/secrets/*)
+                    case "${entry##*/}" in
+                        application*.yml | application*.yaml | application*.properties)
+                            reason="a mounted application file can configure the provider ($entry)" ;;
+                        *) _provider_test_reserved "${entry##*/}" \
+                            && reason="a mounted secret file can set the provider configuration ($entry)" ;;
+                    esac ;;
             esac
             continue
         fi
         [ "$kind" = ENV ] || continue
-        name="${entry%%=*}"; value="${entry#*=}"; n="$(_provider_test_norm "$name")"
+        name="${entry%%=*}"; value="${entry#*=}"; _provider_test_norm_into n "$name"
         case "$n" in
             DOKENEAIOPENAI*APIKEY*)
-                [ "$name" = DOKENE_AI_OPENAI_API_KEY ] && keys=$((keys + 1))
+                [ "$name" = DOKENE_AI_OPENAI_API_KEY ] && key_seen=1
                 [ "$value" = "$PROVIDER_TEST_API_KEY" ] \
                     || reason="$name of the backend is not the synthetic test key" ;;
             DOKENEAIOPENAI*BASEURL*)
-                [ "$name" = DOKENE_AI_OPENAI_BASE_URL ] && urls=$((urls + 1))
+                [ "$name" = DOKENE_AI_OPENAI_BASE_URL ] && url_seen=1
                 provider_test_url_ok "$value" || reason="$name of the backend is not a loopback test double" ;;
             SPRINGAPPLICATIONJSON* | SPRINGCONFIG*)
                 [ -n "$value" ] && reason="$name is set on the backend and could configure the provider" ;;
             *JAVAOPTIONS* | *JAVATOOLOPTIONS*)
-                case "$(_provider_test_norm "$value")" in
+                _provider_test_norm_into n "$value"
+                case "$n" in
                     *DOKENEAI* | *SPRINGAPPLICATIONJSON* | *SPRINGCONFIG*)
                         reason="$name of the backend sets provider or configuration properties" ;;
                 esac ;;
         esac
     done <<< "$state"
     value=''; entry=''; line=''; state=''
-    if [ -z "$reason" ] && [ "$keys" -ne 1 ]; then
+    if [ -z "$reason" ] && [ -z "$key_seen" ]; then
         reason='DOKENE_AI_OPENAI_API_KEY of the backend is not the synthetic test key'
-    elif [ -z "$reason" ] && [ "$urls" -ne 1 ]; then
+    elif [ -z "$reason" ] && [ -z "$url_seen" ]; then
         reason='DOKENE_AI_OPENAI_BASE_URL of the backend is not a loopback test double'
     fi
     [ -z "$reason" ] && return 0
