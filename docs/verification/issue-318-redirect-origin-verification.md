@@ -1,0 +1,61 @@
+# Issue #318 OAuth redirect origin from configuration: verification record
+
+Status: single PR, part of epic [#305](https://github.com/stevdrey/dokene/issues/305). It closes [#318](https://github.com/stevdrey/dokene/issues/318) (audit finding L7): a request sent straight to the backend port could put its own `Host` into the OAuth `redirect_uri`, and only Keycloak's exact match stopped it. The backend now builds the login callback, the logout return address and the HSTS decision from `DOKENE_PUBLIC_ORIGIN` and from nothing in the request. The contract is in [ADR 0007](../adr/0007-oidc-server-side-session.md) and security invariant 38.
+
+This record is sanitized: it gives outcomes and settings only. It contains no credential, cookie, token, authorization code or state value, and no request recipe for the direct backend port. Every forged value was a documentation address (`203.0.113.0/24`) or the name `evil.example`.
+
+## Environment
+
+- **Run:** 2026-11-16, branch `fix/318-configured-oauth-redirect-origin`, based on `main` at `04cfe3c`.
+- **Tested revision:** the working tree of that branch on top of `04cfe3c`, before its first commit. PENDING: replace with the commit id once the change is committed, and confirm no source file changed after the checks below.
+- **Toolchain:** macOS 27.2.1, Docker Desktop (engine 29.7.2), Docker Compose 5.4.0, curl 8.7.1, JDK 26.0.2 (Corretto), Spring Boot 4.1.2, Keycloak 26.8.2.
+- **CI:** PENDING: the run identifiers of the PR's checks.
+
+## What changed
+
+| Value | Before | After |
+| --- | --- | --- |
+| Login callback (`redirect_uri`) | `{baseUrl}/login/oauth2/code/dokene`, so `Host` and, under `framework`, the forwarded headers decided it | `<DOKENE_PUBLIC_ORIGIN>/login/oauth2/code/dokene` |
+| Logout return (`post_logout_redirect_uri`) | `{baseUrl}/` | `<DOKENE_PUBLIC_ORIGIN>/` |
+| Back channel logout replay | loopback on the scheme and port of the provider's request | `http://localhost:<server.port>/logout/connect/back-channel/dokene`, or a fixed override |
+| `Strict-Transport-Security` | Spring's default: sent when the request looks secure, which under `framework` a forwarded scheme decides | `max-age=31536000` on both filter chains when the origin is `https`; never when it is `http` or unset |
+| Startup | started with any of the settings below | refuses a missing or malformed origin, a leftover redirect URI, a registration id other than `dokene`, a context path with a registration, a blank, relative or request derived replay URI, and any strategy but `none` or `framework` |
+
+## Checks
+
+| Check | Kind | AC | Outcome |
+| --- | --- | --- | --- |
+| `PublicOriginTest`: every accepted origin form, and every refused one named in AC-4 (trailing slash, path, query, fragment, user info, upper case, default port, port range and leading zero, empty port, non ASCII host, plain http off loopback including `[0:0:0:0:0:0:0:1]`, other schemes, malformed hosts, a trailing dot, the 63 character label limit, IPv6 literals that are not addresses, whitespace) | unit | AC-4, AC-9 | Pass, 77 cases; each refusal names `DOKENE_PUBLIC_ORIGIN` and the rule, and never repeats the value |
+| `RedirectOriginStartupTest`: contexts built with Boot's own OAuth client auto-configuration. A registration without an origin, a malformed origin with and without a registration, a leftover redirect URI in every spelling Boot binds (environment variable, system property, camel case, `SPRING_APPLICATION_JSON`), a second registration id, a registration under another id only, a context path, a blank, relative, non http or request derived replay URI, the `native`, blank and unset strategies, and a `ClientRegistrationRepository` bean that is not Boot's own | context | AC-3, AC-4, AC-5, AC-7, AC-9 | Pass, 44 cases; every refusal is an `IllegalStateException` at the root that names the environment variable |
+| The same class: with no registration there is no `OAuth2ClientProperties` bean and the context starts without an origin; with the `dokene` registration the bean exists | context | AC-4, AC-9 | Pass; this pins the Boot internal signal the registration checks rest on |
+| The same class: lazy initialization with a malformed origin, the `native` strategy, and a registration without an origin | context | AC-7, AC-9 | Startup fails each time. Negative control: with the two `@Lazy(false)` markers removed the test fails, so it can detect the regression |
+| The same class: an origin carrying user info is refused, and no message or `toString()` in the exception chain holds the user name or the secret | context | AC-4, AC-9 | Pass |
+| The same class: an unset redirect URI becomes `<origin>/login/oauth2/code/{registrationId}`; the two equal spellings are accepted; the replay URI defaults to loopback on `server.port`; a fixed override is kept; one INFO line gives the origin and HSTS on or off | context | AC-1, AC-3, AC-5, AC-8 | Pass |
+| `ConfiguredRedirectOriginIntegrationTest` (`none`) and `ConfiguredRedirectOriginFrameworkIntegrationTest` (`framework`): the running application with the in process OIDC provider, requests sent straight to its port with a forged `Host`, `Forwarded`, `X-Forwarded-Host`, `-Proto`, `-Port` and `-Prefix` | integration | AC-1, AC-2, AC-6, AC-9 | Under both strategies the login start gives exactly the configured callback, a signed in provider logout gives exactly the configured origin plus `/`, and neither the BFF chain nor the webhook chain sends HSTS for the `http` origin. Each class also asserts the strategy it runs under |
+| `HttpsOriginHstsIntegrationTest` (`none`) and `HttpsOriginHstsFrameworkIntegrationTest` (`framework`): an `https` origin, plain http requests to the port | integration | AC-6, AC-9 | Both chains send exactly `max-age=31536000`, also when the caller forwards `http` |
+| `ForwardedHeadersTrustedProxyIntegrationTest`, inverted: under `framework`, forwarded headers that used to move the callback to another host | integration | AC-1, AC-9 | The callback stays on the configured origin |
+| `OidcBrowserSessionIntegrationTest` and `BffTenantBoundarySecurityIntegrationTest` on a pinned free port with the origin set | integration | AC-3, AC-9 | Pass; a provider logout token still ends only the matching session through the loopback replay default |
+| `./gradlew check` | automated | AC-9 | Pass: 2852 tests, 0 failed, 0 skipped |
+| Live stack, backend rebuilt from this tree, `none`: the startup log | live | AC-8 | One INFO line since the container started, with `http://localhost:8080` and `HSTS off` |
+| The same: login start through `http://localhost:5173` and on the backend port, each once plainly and once with a forged `Host` and every forwarded header | live | AC-1 | `redirect_uri` is `http://localhost:8080/login/oauth2/code/dokene` all four times |
+| The same: anonymous `GET /api/session` with the forged headers, through the edge and on the backend port | live | AC-6 | `401`, no `Strict-Transport-Security` |
+| All live checks again with `SERVER_FORWARD_HEADERS_STRATEGY=framework`, applied by recreating only the backend | live | AC-1, AC-6, AC-8 | Every check passes with the same values. The 2026-11-14 record for #320 showed the same forged request on the backend port changing the `redirect_uri` and adding HSTS under `framework`; it no longer does |
+| Live, both strategies: a real login of the realm test owner started at the edge with forged forwarded headers, then `GET /api/session` through the edge | live | AC-8 | Keycloak accepts the `redirect_uri` and sends the code to the configured callback; the session answers `200`. The realm's redirect URIs were not changed |
+| Live, both strategies: provider logout (`POST /logout?provider=true`) through the edge and on the backend port, with a forged `Host` and every forwarded header | live | AC-2 | `302` both times; `post_logout_redirect_uri` is `http://localhost:8080/`; no HSTS on the response; the session then answers `401` |
+| Live, both strategies: a second application session opened on the same provider session, then the first session's end session redirect followed at Keycloak | live | AC-3 | The second session answers `401` within seconds, so the provider's logout token reached the backend and the replay to loopback on the listen port ended it |
+
+The live checks ran before three review follow ups that changed no behavior the live stack exercises: a stricter IPv6 literal check in the origin parser, a startup refusal of a foreign `ClientRegistrationRepository` bean, and added unit cases. `./gradlew check` ran again after them.
+
+The live checks ran from a script kept outside the repository, because it holds the direct port request. It loaded the realm test password from `.env` and handed it to curl on standard input. The backend was put back to `none` afterwards.
+
+## A limit found during the build
+
+Spec 0019 says an unset redirect URI is always derived from the origin. That holds when the provider is found through `issuer-uri`, as on the shipped stack, because Spring Boot then gives the registration a default redirect URI that the backend replaces. With hand written provider endpoints and no issuer, Boot has no default and refuses the registration itself (`redirectUri cannot be empty`) before the backend can derive anything. Startup still fails closed. Setting the redirect URI to `<origin>/login/oauth2/code/{registrationId}` is accepted in that setup. ADR 0007 records this.
+
+## Limitations
+
+- The direct backend port still bypasses the edge's header rules and its login start limit, and under `framework` a caller on it can forge its own client address and request scheme. No redirect address and no HSTS decision follow from that. Only network exposure closes it: the backend port must not be reachable beyond the edge.
+- The `https` origin was exercised in tests only. The local stack runs on `http://localhost:8080`, so live HSTS evidence is the absence of the header.
+- The free port for the integration tests is chosen before the context starts, so another process could take it in between; a rerun picks a new one.
+- `.env.example` is not updated in this change, by the maintainer's decision on 2026-11-16. It does not list `DOKENE_PUBLIC_ORIGIN` yet, and whether it still sets the old redirect variable was not checked. The local stack is unaffected, because `compose.yaml` defaults the origin to `http://localhost:8080` and no longer passes a redirect URI. A backend run from the host with the variables of `.env` needs `DOKENE_PUBLIC_ORIGIN` added by hand, or it stops at startup with a message that names it. This part of AC-5 and AC-10 stays open.
+- The live flow was checked with curl, not a browser. The login itself was started with forged forwarded headers but the real `Host`, because curl files the session cookie under a forged `Host` and then loses it; the forged `Host` is covered on the login start and on the logout.

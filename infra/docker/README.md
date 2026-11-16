@@ -149,15 +149,31 @@ new upstream header there, never in a location.
 
 | Header to the backend | Value |
 |---|---|
-| `Host` | always `localhost:8080`, which pins the OAuth redirect origin |
+| `Host` | always `localhost:8080`; it no longer decides the OAuth redirect origin, `DOKENE_PUBLIC_ORIGIN` does (below) |
 | `X-Forwarded-For` | the peer address, or the client address restored from a trusted proxy |
 | `X-Forwarded-Proto` | the edge's own scheme (`http` here), never a client or proxy value |
 | `X-Forwarded-Port` | always `8080`, the port of the pinned `Host` (under `framework`, Spring drops the port without it) |
 | `Forwarded`, `X-Forwarded-Host`, `-Prefix`, `-Ssl`, `-Server`, `-Scheme`, `X-Original-Forwarded-For`, `X-Real-IP`, `X-Client-IP`, `True-Client-IP` | never sent, whatever the client sent |
 
-With this edge, the backend supports `SERVER_FORWARD_HEADERS_STRATEGY=none` (the default) and `framework`, for traffic
-through nginx only. The backend port `127.0.0.1:8080` bypasses nginx, so under `framework` it still believes client
-forwarding headers; issue #318 covers that port. `native` is not supported yet.
+With this edge, the backend supports `SERVER_FORWARD_HEADERS_STRATEGY=none` (the default) and `framework`. Any other
+value, including `native` and an empty one, stops the backend at startup.
+
+**The OAuth redirect origin is configured, not read from a request (issue #318).** `DOKENE_PUBLIC_ORIGIN` (default
+`http://localhost:8080` in `compose.yaml`) is the origin Keycloak sends the browser back to. The backend builds the
+login callback (`<origin>/login/oauth2/code/dokene`), the logout return address (`<origin>/`) and the HSTS decision
+from it alone, so no `Host` or forwarding header changes them, through nginx or on the backend port. It must be
+`https://<host>[:<port>]`, or `http://` on `localhost`, `127.0.0.1` or `[::1]`, with no path and no trailing slash, and
+the backend refuses to start when it is missing or malformed. `SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_REDIRECT_URI`
+is no longer set; a leftover value stops startup with a message that says to remove it.
+
+- One origin per deployment. If you point a script's `BFF_URL` at `http://127.0.0.1:8080`, also set
+  `DOKENE_PUBLIC_ORIGIN=http://127.0.0.1:8080` and recreate the backend. Otherwise the callback goes to `localhost`,
+  and the session cookie the browser or cookie jar holds for `127.0.0.1` never reaches it.
+- The backend port `127.0.0.1:8080` bypasses nginx. A caller on it skips the header rules above and the login start
+  limit, and under `framework` can still forge its own client address and request scheme (never a redirect address or
+  HSTS). Keep that port reachable only from the edge and from this host.
+- `DOKENE_BACK_CHANNEL_LOGOUT_URI` defaults to loopback on the backend's listen port. An override must be a fixed
+  absolute URI; a request derived placeholder such as `{basePort}` stops startup.
 
 **Trusting a tunnel or load balancer.** By default no peer is trusted: the image's
 `/etc/nginx/snippets/trusted-proxies.conf` holds comments only. To trust an outer proxy, find its address first: send

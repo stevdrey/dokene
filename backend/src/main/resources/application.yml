@@ -163,10 +163,14 @@ dokene:
       # container counts whole seconds and reads 0 as "never expire"), at most max-lifetime and at most
       # server.servlet.session.timeout; startup checks all three. Starting login again does not restart the age.
       pre-login-timeout: ${DOKENE_SESSION_PRE_LOGIN_TIMEOUT:5m}
+    # The origin the identity provider sends the browser back to (spec 0019): the login callback, the logout return
+    # address and HSTS come from it, never from Host or a forwarded header. Required with a client registration;
+    # https://<host>[:<port>], or http:// on localhost, 127.0.0.1 or [::1], with no path and no trailing slash.
+    public-origin: ${DOKENE_PUBLIC_ORIGIN:}
     oidc:
-      # Where the back-channel logout handler replays each session's logout. Loopback by default; set it when the
-      # provider reaches Dokene through a proxy whose port differs from the one the backend listens on.
-      back-channel-logout-uri: ${DOKENE_BACK_CHANNEL_LOGOUT_URI:{baseScheme}://localhost{basePort}/logout/connect/back-channel/{registrationId}}
+      # Where the back-channel logout handler replays each session's logout: loopback on this instance's listen
+      # port. An override must be a fixed URI; a request derived placeholder such as {basePort} stops startup.
+      back-channel-logout-uri: ${DOKENE_BACK_CHANNEL_LOGOUT_URI:http://localhost:${server.port:8080}/logout/connect/back-channel/{registrationId}}
     cors:
       allowed-origins: ${DOKENE_CORS_ALLOWED_ORIGINS:}
 

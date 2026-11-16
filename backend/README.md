@@ -49,9 +49,14 @@ client secret remain strictly server-side and are never exposed to browser stora
 or logs.
 
 Configure one provider with standard Spring Boot properties; the `.env.example` uses the registration ID `dokene`.
-At minimum set the client ID, client secret, scopes including `openid`, redirect URI, and provider issuer URI.
-Register `{baseUrl}/login/oauth2/code/dokene` as the provider callback and initiate login at
-`/oauth2/authorization/dokene`. A successful callback redirects to the frontend application root (`/` by default in same-origin deployments, or configurable via `DOKENE_POST_LOGIN_REDIRECT_URL` / `dokene.security.post-login-redirect-url`), where the SPA bootstraps and queries `GET /api/session` to obtain authenticated session state.
+At minimum set the client ID, client secret, scopes including `openid`, the provider issuer URI, and
+`DOKENE_PUBLIC_ORIGIN` (`dokene.security.public-origin`): the origin the provider sends the browser back to, for
+example `http://localhost:8080` locally. Do not set a redirect URI; the backend derives it from the origin and refuses
+to start on any other value (issue #318, [ADR 0007](../docs/adr/0007-oidc-server-side-session.md)).
+Register `<DOKENE_PUBLIC_ORIGIN>/login/oauth2/code/dokene` as the provider callback and initiate login at
+`/oauth2/authorization/dokene`. The origin must be `https://<host>[:<port>]`, or `http://` on `localhost`, `127.0.0.1`
+or `[::1]`, with no path and no trailing slash; an `https` origin also turns on HSTS for every response. No `Host` or
+forwarded header changes the callback, the logout return address or HSTS. A successful callback redirects to the frontend application root (`/` by default in same-origin deployments, or configurable via `DOKENE_POST_LOGIN_REDIRECT_URL` / `dokene.security.post-login-redirect-url`), where the SPA bootstraps and queries `GET /api/session` to obtain authenticated session state.
 
 The callback validates authorization state and the provider's OIDC response through Spring Security. A valid
 issuer and subject are atomically mapped to a stable internal `IdentityId`; email and provider role claims are
@@ -68,6 +73,9 @@ Session lifecycle, cookie attributes, and security controls:
 - `server.forward-headers-strategy` defaults to `none` (`SERVER_FORWARD_HEADERS_STRATEGY=none`) to avoid trusting
   unverified client proxy headers. When deployed behind a trusted reverse proxy or load balancer with TLS offloading,
   set `SERVER_FORWARD_HEADERS_STRATEGY=framework`. The edge proxy must sanitize/overwrite incoming `X-Forwarded-*` headers.
+  Only `none` and `framework` start; `native`, and an empty value, stop startup. Under `framework` the headers decide
+  the client address and the request's own scheme, never an OAuth redirect address or HSTS. Do not expose the backend
+  port beyond the edge: a direct caller skips the edge's header rules and its login start limit.
 
 Frontend contract:
 
@@ -78,7 +86,7 @@ Frontend contract:
   and returns `204 No Content` for local session logout.
 - `POST /logout?provider=true` requires `X-CSRF-TOKEN`, invalidates the local session, deletes `JSESSIONID`, and
   redirects (`302 Found`) to the provider's `end_session_endpoint` with `id_token_hint` (held server-side) and
-  `post_logout_redirect_uri={baseUrl}/` for Single Sign-Out (SSO).
+  `post_logout_redirect_uri=<DOKENE_PUBLIC_ORIGIN>/` for Single Sign-Out (SSO).
 - CORS rejects cross-origin credentialed traffic by default. `DOKENE_CORS_ALLOWED_ORIGINS` may contain a
   comma-separated exact allowlist (for example `http://localhost:5173` locally); wildcard origins are rejected.
   Same-origin deployment is the preferred production topology.

@@ -1,3 +1,5 @@
+// ABOUTME: Under the framework strategy the backend believes forwarded headers for the request itself, but never for
+// ABOUTME: the OAuth redirect: the callback stays on the configured public origin (spec 0019 AC-1, issue 318).
 package io.github.stevdrey.dokene.identity.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -21,24 +23,15 @@ class ForwardedHeadersTrustedProxyIntegrationTest {
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws Exception {
         TenantSecurityIntegrationFixture.configure(registry);
-        registry.add("spring.security.oauth2.client.registration.dokene.provider", () -> "dokene");
-        registry.add("spring.security.oauth2.client.registration.dokene.client-id", () -> "test-client");
-        registry.add("spring.security.oauth2.client.registration.dokene.client-secret", () -> "test-secret");
-        registry.add("spring.security.oauth2.client.registration.dokene.authorization-grant-type",
-                () -> "authorization_code");
-        registry.add("spring.security.oauth2.client.registration.dokene.redirect-uri",
-                () -> "{baseUrl}/login/oauth2/code/{registrationId}");
-        registry.add("spring.security.oauth2.client.provider.dokene.authorization-uri",
-                () -> "http://idp.example.test/authorize");
-        registry.add("spring.security.oauth2.client.provider.dokene.token-uri",
-                () -> "http://idp.example.test/token");
+        OidcProviderStub.register(registry);
     }
 
     @LocalServerPort
     private int port;
 
+    /** covers: AC-1. Before spec 0019 these headers moved the callback to https://auth.dokene.example. */
     @Test
-    void trustedProxyForwardedHeadersReconstructHttpsAuthorizationRedirectUri() throws Exception {
+    void forwardedHeadersDoNotMoveTheAuthorizationRedirectUriOffTheConfiguredOrigin() throws Exception {
         HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + port + "/oauth2/authorization/dokene"))
                 .header("X-Forwarded-Proto", "https")
                 .header("X-Forwarded-Host", "auth.dokene.example")
@@ -52,6 +45,8 @@ class ForwardedHeadersTrustedProxyIntegrationTest {
 
         assertThat(response.statusCode()).isEqualTo(302);
         String location = response.headers().firstValue("Location").orElseThrow();
-        assertThat(location).contains("redirect_uri=https://auth.dokene.example/login/oauth2/code/dokene");
+        assertThat(location).doesNotContain("auth.dokene.example");
+        assertThat(OidcProviderStub.parameters(URI.create(location).getRawQuery()).get("redirect_uri"))
+                .isEqualTo("http://127.0.0.1:" + port + "/login/oauth2/code/dokene");
     }
 }

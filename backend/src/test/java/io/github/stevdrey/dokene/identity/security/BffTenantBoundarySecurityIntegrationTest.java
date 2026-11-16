@@ -82,8 +82,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         registry.add("spring.security.oauth2.client.registration.dokene.scope", () -> "openid");
         registry.add("spring.security.oauth2.client.registration.dokene.authorization-grant-type",
                 () -> "authorization_code");
-        registry.add("spring.security.oauth2.client.registration.dokene.redirect-uri",
-                () -> "{baseUrl}/login/oauth2/code/{registrationId}");
+        DirectBackend.registerOrigin(registry);
         registry.add("spring.security.oauth2.client.provider.dokene.issuer-uri", OIDC::issuer);
     }
 

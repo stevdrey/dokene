@@ -73,11 +73,13 @@ logs, or audit events.
     `X-Forwarded-Host`, `X-Forwarded-Prefix`, `X-Forwarded-Ssl`, `X-Forwarded-Server`,
     `X-Forwarded-Scheme`, `X-Original-Forwarded-For`, `X-Real-IP`, `X-Client-IP` or `True-Client-IP`, whatever the
     client sent, repeated or in any letter case.
-  - *Headers set*: `Host` is always `localhost:8080`, which pins `{baseUrl}`. `X-Forwarded-For` is the edge's peer
+  - *Headers set*: `Host` is always `localhost:8080`. Until issue #318 that pinned `{baseUrl}`; the redirect
+    addresses now come from `DOKENE_PUBLIC_ORIGIN` (below) and no header decides them. `X-Forwarded-For` is the edge's peer
     address, or the client address restored from a trusted proxy (below). `X-Forwarded-Proto` is always the edge's own
     scheme; no client or proxy value is believed for it. `X-Forwarded-Port` is always `8080`, the port of the pinned
     `Host`: under `framework`, Spring clears the port when it sees `X-Forwarded-Proto` and restores it only from
-    `X-Forwarded-Port`, so without it `{baseUrl}` would lose `:8080` and the registered redirect URI would not match.
+    `X-Forwarded-Port`, so without it the request's own URL would lose `:8080`. Since issue #318 the registered
+    redirect URI no longer depends on it.
   - *Trusted proxies*: the image ships `/etc/nginx/snippets/trusted-proxies.conf` with no entry, so no peer is
     trusted. An operator trusts an outer proxy (a tunnel or load balancer) by mounting their own file over it, holding
     only `set_real_ip_from <address or CIDR>;` lines. From a listed peer the edge takes the rightmost address in its
@@ -86,10 +88,41 @@ logs, or audit events.
     webhook connection limits key on that restored address. The header source is fixed in `nginx.conf`, so the
     operator file cannot change it, and an invalid file stops nginx from starting.
   - *Supported strategies behind this edge*: `none` (the default) and `framework`, for traffic that arrives through the
-    edge. `native` is not supported until scope feature 15 (issue #318) settles which peers the backend trusts.
-  - *Gaps left to feature 15*: the direct backend port (`127.0.0.1:8080`, used by `oidc-bridge` and the local scripts)
-    reaches the backend without the edge, so under `framework` it still accepts client forwarding headers. A TLS
-    tunnel's scheme is not believed, so behind one the backend sees `http` and, under `framework`, sends no HSTS.
+    edge. `native` is refused at startup (issue #318, below).
+  - *Gaps closed by issue #318*: the direct backend port and the scheme behind a TLS tunnel no longer affect any
+    redirect address or HSTS; see the next amendment for what the direct port can still influence.
+
+  Amended by issue #318 (audit finding L7, spec 0019): the redirect origin is configuration, never a request value.
+  - *Configured origin*: `dokene.security.public-origin` (`DOKENE_PUBLIC_ORIGIN`) is the origin the identity provider
+    sends the browser back to. The login callback is `<origin>/login/oauth2/code/dokene` and the logout return address
+    is `<origin>/`. No `Host`, `Forwarded` or `X-Forwarded-*` value changes either, on the edge or on the direct port,
+    under `none` or `framework`. The form is `https://<host>[:<port>]`, or `http://` on `localhost`, `127.0.0.1` or
+    `[::1]`, with no path, no trailing slash, no user info, lower case, and no default port written out. The value is
+    used exactly as written. One origin per deployment: reaching the same backend by a second address needs that
+    address configured instead.
+  - *HSTS*: both security filter chains (the BFF chain and the webhook chain) send
+    `Strict-Transport-Security: max-age=31536000` on every response when the origin is `https`, and never when it is
+    `http` or unset. The request's scheme is not consulted, so a forged `X-Forwarded-Proto` cannot switch it and a TLS
+    tunnel that passes no scheme still gets it.
+  - *What forwarded headers still decide*: under `framework` only the client address and the scheme the request itself
+    reports (`X-Forwarded-For`, `X-Forwarded-Proto`). Never the redirect origin, the logout return or HSTS. Under
+    `none`, nothing.
+  - *Startup refusals*: the backend does not start when a client registration is configured without a valid origin;
+    when the origin is set but malformed (with or without a registration); when
+    `spring.security.oauth2.client.registration.dokene.redirect-uri` is set to anything but the origin's own callback;
+    when a registration id other than `dokene` exists; when a `ClientRegistrationRepository` bean other than Spring
+    Boot's own is defined; when `server.servlet.context-path` is set alongside a
+    registration; when `DOKENE_BACK_CHANNEL_LOGOUT_URI` is blank, not an absolute `http(s)` URI with a host, or holds a
+    request derived placeholder (`{baseUrl}`, `{baseScheme}`, `{baseHost}`, `{basePort}`, `{basePath}`); and when
+    `server.forward-headers-strategy` is anything but `none` or `framework`. That refuses `native` and also an unset
+    or blank strategy, which Spring Boot turns into `native` on a detected cloud platform. Every refusal happens
+    while the context refreshes, before the server accepts a request, and never repeats the refused origin.
+  - *The direct backend port bypasses the edge*: a caller on it skips the edge's header rules and the login start
+    limit (spec 0016), and under `framework` can still forge its own client address and request scheme. A deployment
+    must not expose the backend port beyond the edge; the local stack binds it to `127.0.0.1`.
+  - *Limit*: an unset redirect URI is derived only when Spring Boot can default it, which it does for a provider found
+    through `issuer-uri` (the shipped setup). With hand written provider endpoints and no issuer, Boot itself refuses
+    the missing redirect URI; set it to `<origin>/login/oauth2/code/{registrationId}`, which is accepted.
 
 ### Anonymous Requests and Login Start Sessions
 
@@ -155,8 +188,9 @@ user, nor live forever while it stays active. The contract, with the default bou
 - **Back-channel logout**: the endpoint is anonymous, CSRF-exempt and creates no session; Spring Security validates
   the logout token signature against the provider JWKS, `iss`, `aud`, `iat`, the back-channel `events` claim, `sid` or
   `sub`, and the absence of `nonce`. It then replays the logout once per matching session to
-  `dokene.security.oidc.back-channel-logout-uri` (`DOKENE_BACK_CHANNEL_LOGOUT_URI`), which defaults to loopback on the
-  port the provider called; override it when the provider reaches Dokene through a proxy on another port. The provider
+  `dokene.security.oidc.back-channel-logout-uri` (`DOKENE_BACK_CHANNEL_LOGOUT_URI`), which defaults to
+  `http://localhost:<server.port>/logout/connect/back-channel/{registrationId}`: loopback on the port this instance
+  listens on, never a value from the request (issue #318). An override must be a fixed absolute URI. The provider
   client must register the back-channel URL (local realm: `http://oidc-bridge:8080/logout/connect/back-channel/dokene`)
   with `backchannel.logout.session.required=true`. Back-channel logout is an accelerator: when the provider cannot reach
   Dokene (for example a backend run on the host), revalidation still bounds the delay.
@@ -205,7 +239,8 @@ The BFF exposes a minimal same-origin session contract:
    - **Provider SSO Logout**: `POST /logout?provider=true` requires `X-CSRF-TOKEN` (or `_csrf` form field), invalidates the
      local session, deletes `JSESSIONID`, and delegates to Spring Security's native `OidcClientInitiatedLogoutSuccessHandler`.
      The handler extracts the `idToken` from the server-side `OidcUser` (never exposed to client JavaScript) and redirects
-     (`302 Found`) the browser to the provider's `end_session_endpoint` with `id_token_hint` and `post_logout_redirect_uri={baseUrl}/`.
+     (`302 Found`) the browser to the provider's `end_session_endpoint` with `id_token_hint` and `post_logout_redirect_uri=<DOKENE_PUBLIC_ORIGIN>/`
+     (the configured origin, never the request's `Host`; issue #318).
      Keycloak terminates its SSO session and redirects the browser back to the application.
 7. **CORS & Origin Model**: Same-origin deployment is the default architectural expectation. Cross-origin requests
    are rejected unless exact origins are explicitly configured in `dokene.security.cors.allowed-origins` (e.g.,
