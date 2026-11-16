@@ -224,7 +224,7 @@ class TenantSecurityConfiguration {
             String sessionCookieName
     )
             throws Exception {
-        LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations, publicOrigin);
+        LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations, redirectOrigin);
 
         http.authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/", "/oauth2/**", "/login/**", "/error").permitAll()
@@ -338,7 +338,7 @@ class TenantSecurityConfiguration {
 
     private LogoutSuccessHandler createLogoutSuccessHandler(
             ObjectProvider<ClientRegistrationRepository> clientRegistrations,
-            PublicOriginSettings publicOrigin
+            RedirectOriginStartupValidator redirectOrigin
     ) {
         HttpStatusReturningLogoutSuccessHandler apiLogoutSuccessHandler =
                 new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT);
@@ -350,7 +350,7 @@ class TenantSecurityConfiguration {
         OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler =
                 new OidcClientInitiatedLogoutSuccessHandler(repository);
         // From the configured origin, never {baseUrl}: Host and forwarded headers cannot move the logout return.
-        oidcLogoutSuccessHandler.setPostLogoutRedirectUri(publicOrigin.requiredOrigin().logoutReturn());
+        oidcLogoutSuccessHandler.setPostLogoutRedirectUri(redirectOrigin.registrationOrigin().logoutReturn());
 
         return (request, response, authentication) -> {
             boolean providerRequested = "true".equalsIgnoreCase(request.getParameter("provider"));

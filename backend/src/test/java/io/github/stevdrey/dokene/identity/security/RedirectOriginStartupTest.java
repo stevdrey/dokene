@@ -17,6 +17,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientAutoConfiguration;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientProperties;
 import org.springframework.boot.support.SpringApplicationJsonEnvironmentPostProcessor;
+import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.assertj.AssertableWebApplicationContext;
 import org.springframework.boot.test.context.runner.WebApplicationContextRunner;
 import org.springframework.boot.test.system.CapturedOutput;
@@ -29,6 +30,8 @@ import org.springframework.core.env.StandardEnvironment;
 import org.springframework.core.env.SystemEnvironmentPropertySource;
 import org.springframework.security.oauth2.client.registration.ClientRegistration;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
+import org.springframework.security.oauth2.client.registration.InMemoryClientRegistrationRepository;
+import org.springframework.security.oauth2.core.AuthorizationGrantType;
 
 @ExtendWith(OutputCaptureExtension.class)
 class RedirectOriginStartupTest {
@@ -37,10 +40,16 @@ class RedirectOriginStartupTest {
     private static final String REDIRECT = "spring.security.oauth2.client.registration.dokene.redirect-uri";
     private static final String REDIRECT_ENV = "SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_REDIRECT_URI";
 
-    private final WebApplicationContextRunner withoutRegistration = new WebApplicationContextRunner()
+    private static final String REPLAY = "dokene.security.oidc.back-channel-logout-uri";
+
+    /** No replay URI: the runner does not read application.yml, the one place its default is written. */
+    private final WebApplicationContextRunner withoutReplayUri = new WebApplicationContextRunner()
             .withConfiguration(AutoConfigurations.of(OAuth2ClientAutoConfiguration.class))
             .withUserConfiguration(ServerPropertiesConfiguration.class, RedirectOriginConfiguration.class)
             .withPropertyValues("server.forward-headers-strategy=none");
+
+    private final WebApplicationContextRunner withoutRegistration = withoutReplayUri.withPropertyValues(
+            REPLAY + "=http://localhost:8080/logout/connect/back-channel/{registrationId}");
 
     /**
      * The provider is found through its issuer, as on the shipped stack. Only then does Boot give an unset redirect
@@ -250,13 +259,63 @@ class RedirectOriginStartupTest {
                 .run(context -> assertStartupRefused(context, "ClientRegistrationRepository", "customRepository"));
     }
 
-    /** covers: AC-3. */
+    /** covers: AC-1, AC-5. Boot's bean backs off for a repository of the same class, which the type alone lets by. */
+    @Test
+    void anInMemoryRepositoryHoldingAnotherRegistrationStopsStartup() {
+        withRegistration.withUserConfiguration(SecondRegistrationRepositoryConfiguration.class)
+                .withPropertyValues("dokene.security.public-origin=" + ORIGIN)
+                .run(context -> assertStartupRefused(context, "ClientRegistrationRepository", "twoRegistrations",
+                        "\"dokene\""));
+    }
+
+    /** covers: AC-3. The default as application.yml writes it, the copy the shipped backend reads. */
     @Test
     void theReplayUriDefaultsToLoopbackOnTheListenPort() {
-        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.port=18443")
+        withoutReplayUri.withInitializer(new ConfigDataApplicationContextInitializer())
+                .withPropertyValues(stubClientRegistration())
+                .withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.port=18443")
                 .run(context -> assertThat(context.getBean(RedirectOriginStartupValidator.class)
                         .backChannelLogoutUri())
                         .isEqualTo("http://localhost:18443/logout/connect/back-channel/{registrationId}"));
+    }
+
+    /** covers: AC-3. The default is written once, in application.yml; no second copy fills in for a missing one. */
+    @Test
+    void aMissingReplayUriPropertyStopsStartup() {
+        withoutReplayUri.run(context -> {
+            assertThat(context).hasFailed();
+            assertThat(context.getStartupFailure()).hasStackTraceContaining(REPLAY);
+        });
+    }
+
+    /**
+     * covers: AC-3. Port 0 asks the server for any free port, so the replay URI built from server.port would point
+     * at no listener and every provider logout would be lost without an error.
+     */
+    @Test
+    void aReplayUriOnPortZeroStopsStartupWithARegistrationOnly() {
+        String onPortZero = REPLAY + "=http://localhost:0/logout/connect/back-channel/{registrationId}";
+
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, onPortZero)
+                .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", "port 0",
+                        "SERVER_PORT"));
+        withoutRegistration.withPropertyValues(onPortZero).run(context -> assertThat(context).hasNotFailed());
+    }
+
+    /** covers: AC-3. A TLS listener does not answer the plain http replay the default sends. */
+    @Test
+    void aPlainHttpReplayUriStopsStartupWhenTheListenerUsesTls() {
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.ssl.bundle=web")
+                .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", "server.ssl",
+                        "https://"));
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.ssl.bundle=web",
+                        "server.ssl.enabled=false")
+                .run(context -> assertThat(context).hasNotFailed());
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.ssl.bundle=web",
+                        REPLAY + "=https://localhost:8443/logout/connect/back-channel/{registrationId}")
+                .run(context -> assertThat(context).hasNotFailed());
+        withoutRegistration.withPropertyValues("server.ssl.bundle=web")
+                .run(context -> assertThat(context).hasNotFailed());
     }
 
     /** covers: AC-3. An operator override without a request derived placeholder is kept. */
@@ -363,6 +422,25 @@ class RedirectOriginStartupTest {
         @Bean
         ClientRegistrationRepository customRepository() {
             return registrationId -> null;
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class SecondRegistrationRepositoryConfiguration {
+
+        @Bean
+        ClientRegistrationRepository twoRegistrations() {
+            return new InMemoryClientRegistrationRepository(registration("dokene"), registration("other"));
+        }
+
+        private static ClientRegistration registration(String id) {
+            return ClientRegistration.withRegistrationId(id)
+                    .clientId("client")
+                    .authorizationGrantType(AuthorizationGrantType.AUTHORIZATION_CODE)
+                    .redirectUri("{baseUrl}/login/oauth2/code/{registrationId}")
+                    .authorizationUri("http://localhost:1/authorize")
+                    .tokenUri("http://localhost:1/token")
+                    .build();
         }
     }
 

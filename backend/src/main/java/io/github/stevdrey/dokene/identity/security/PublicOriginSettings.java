@@ -37,14 +37,6 @@ public final class PublicOriginSettings {
         return Optional.ofNullable(origin);
     }
 
-    public PublicOrigin requiredOrigin() {
-        if (origin == null) {
-            throw new IllegalStateException(
-                    PublicOrigin.SETTING + " must be set when an OAuth client registration is configured");
-        }
-        return origin;
-    }
-
     public boolean hstsEnabled() {
         return origin != null && origin.isHttps();
     }

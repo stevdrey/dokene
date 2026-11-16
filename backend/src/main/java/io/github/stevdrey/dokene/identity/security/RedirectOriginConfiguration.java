@@ -16,9 +16,8 @@ import org.springframework.context.annotation.Lazy;
 @ConditionalOnWebApplication(type = Type.SERVLET)
 class RedirectOriginConfiguration {
 
-    /** Loopback on the port this instance listens on: never a host, scheme or port taken from the request. */
-    static final String BACK_CHANNEL_LOGOUT_URI = "${dokene.security.oidc.back-channel-logout-uri:"
-            + "http://localhost:${server.port:8080}/logout/connect/back-channel/{registrationId}}";
+    /** Required: application.yml holds the one default, loopback on the port this instance listens on. */
+    static final String BACK_CHANNEL_LOGOUT_URI = "${dokene.security.oidc.back-channel-logout-uri}";
 
     // Not lazy: the filter chains that read these beans are built at the first request, so under
     // spring.main.lazy-initialization a refused setting would otherwise surface only after the server is up.
@@ -41,7 +40,7 @@ class RedirectOriginConfiguration {
     ) {
         return new RedirectOriginStartupValidator(settings, clientProperties.getIfAvailable(),
                 serverProperties.getForwardHeadersStrategy(), serverProperties.getServlet().getContextPath(),
-                backChannelLogoutUri);
+                serverProperties.getSsl() != null && serverProperties.getSsl().isEnabled(), backChannelLogoutUri);
     }
 
     @Bean

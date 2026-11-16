@@ -3,7 +3,6 @@
 package io.github.stevdrey.dokene.identity.security;
 
 import java.net.URI;
-import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Map;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientProperties;
@@ -27,11 +26,14 @@ public final class RedirectOriginStartupValidator {
     private final String backChannelLogoutUri;
 
     RedirectOriginStartupValidator(PublicOriginSettings settings, OAuth2ClientProperties clientProperties,
-            ForwardHeadersStrategy forwardHeadersStrategy, String contextPath, String backChannelLogoutUri) {
+            ForwardHeadersStrategy forwardHeadersStrategy, String contextPath, boolean tlsListener,
+            String backChannelLogoutUri) {
         requireSupportedForwardHeadersStrategy(forwardHeadersStrategy);
         requireFixedBackChannelLogoutUri(backChannelLogoutUri);
         if (clientProperties != null) {
-            this.origin = settings.requiredOrigin();
+            // Present: the settings refuse an unset origin on the same registration signal.
+            this.origin = settings.origin().orElseThrow();
+            requireReplayUriReachesTheListener(backChannelLogoutUri, tlsListener);
             requireOnlyTheDokeneRegistration(clientProperties.getRegistration());
             requireNoLeftoverRedirectUri(origin,
                     clientProperties.getRegistration().get(REGISTRATION_ID).getRedirectUri());
@@ -42,8 +44,8 @@ public final class RedirectOriginStartupValidator {
         this.backChannelLogoutUri = backChannelLogoutUri;
     }
 
-    /** The validated origin a client registration's callback is derived from. */
-    PublicOrigin registrationOrigin() {
+    /** The validated origin a client registration's callback and logout return address are derived from. */
+    public PublicOrigin registrationOrigin() {
         if (origin == null) {
             throw new IllegalStateException("A client registration repository exists, but no OAuth client "
                     + "registration is configured under spring.security.oauth2.client.registration");
@@ -81,15 +83,37 @@ public final class RedirectOriginStartupValidator {
         }
     }
 
-    /** {@code {registrationId}} is the one placeholder left; it is not a legal URI character, so it is filled first. */
+    /**
+     * The default follows the configured port and plain http, not the listener actually bound, and a replay that
+     * reaches no listener fails without stopping anything: sessions would outlive a provider logout. Checked with a
+     * registration only, because without one nothing is replayed and a test may start on a random port.
+     */
+    static void requireReplayUriReachesTheListener(String uri, boolean tlsListener) {
+        URI parsed = parse(uri);
+        if (parsed.getPort() == 0) {
+            throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must not use port 0: with server.port "
+                    + "(SERVER_PORT) set to 0 the server picks its port after this URI is built; set a fixed "
+                    + "SERVER_PORT, or write the replay URI with the real port");
+        }
+        if (tlsListener && !"https".equals(parsed.getScheme())) {
+            throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must start with https:// while server.ssl "
+                    + "is enabled: the listener does not answer the plain http replay of the default");
+        }
+    }
+
     private static boolean isAbsoluteHttpUriWithHost(String uri) {
         try {
-            URI parsed = new URI(uri.replace("{registrationId}", REGISTRATION_ID));
+            URI parsed = parse(uri);
             return ("http".equals(parsed.getScheme()) || "https".equals(parsed.getScheme()))
                     && parsed.getHost() != null && !parsed.getHost().isEmpty();
-        } catch (URISyntaxException malformed) {
+        } catch (IllegalArgumentException malformed) {
             return false;
         }
+    }
+
+    /** {@code {registrationId}} is the one placeholder left; it is not a legal URI character, so it is filled first. */
+    private static URI parse(String uri) {
+        return URI.create(uri.replace("{registrationId}", REGISTRATION_ID));
     }
 
     /** The callback path is fixed at {@code /login/oauth2/code/}, so under a context path it would miss the app. */

@@ -14,7 +14,8 @@ import org.springframework.security.oauth2.client.registration.InMemoryClientReg
  * Boot's repository bean and its "client configured" condition stay as they are, so there is never a second
  * repository bean. The validator is resolved first, so a leftover redirect setting stops startup instead of being
  * silently replaced. Any other repository stops startup: its registrations would keep whatever redirect URI
- * template they were built with, unchecked.
+ * template they were built with, unchecked. So does a repository of Boot's class that holds anything but the one
+ * "dokene" registration: Boot's bean backs off for a hand written one, which the validated settings do not describe.
  */
 final class ConfiguredRedirectUriPostProcessor implements BeanPostProcessor {
 
@@ -37,6 +38,11 @@ final class ConfiguredRedirectUriPostProcessor implements BeanPostProcessor {
         String callbackTemplate = validator.getObject().registrationOrigin().loginCallbackTemplate();
         List<ClientRegistration> derived = new ArrayList<>();
         for (ClientRegistration registration : repository) {
+            if (!registration.getRegistrationId().equals(RedirectOriginStartupValidator.REGISTRATION_ID)) {
+                throw new IllegalStateException("The ClientRegistrationRepository bean \"" + beanName + "\" holds a "
+                        + "registration other than \"dokene\", the only one the backend supports and has checked; "
+                        + "remove the custom bean");
+            }
             derived.add(ClientRegistration.withClientRegistration(registration).redirectUri(callbackTemplate).build());
         }
         return new InMemoryClientRegistrationRepository(derived);

@@ -100,7 +100,17 @@ class PublicOriginTest {
             "https://[2001:DB8::1]                   | lower case",
             "http://[0:0:0:0:0:0:0:1]                | plain http",
             "http://[0:0:0:0:0:0:0:1]:8080           | plain http",
-            "https://2001:db8::1                     | host"
+            "https://2001:db8::1                     | host",
+            "https://127.1                           | IPv4",
+            "https://10.1                            | IPv4",
+            "https://1.2.3                           | IPv4",
+            "https://999.1.1.1                       | IPv4",
+            "https://0x7f.1                          | IPv4",
+            "https://1.0x7f                          | IPv4",
+            "https://192.0.2.010                     | IPv4",
+            "https://1.2.3.4.5                       | IPv4",
+            "https://dokene.123                      | IPv4",
+            "https://2130706433                      | IPv4"
     })
     void refusesEveryOtherFormNamingTheRuleItBreaks(String value, String rule) {
         assertRefused(value, rule);
@@ -114,6 +124,24 @@ class PublicOriginTest {
         assertThat(new PublicOrigin("https://" + longest + ".example").value())
                 .isEqualTo("https://" + longest + ".example");
         assertRefused("https://" + longest + "a.example", "host");
+    }
+
+    /** covers: AC-4. A host name holds at most 253 characters. */
+    @Test
+    void acceptsAHostOf253CharactersAndRefusesOneOf254() {
+        String label = "a".repeat(63);
+        String longest = label + "." + label + "." + label + "." + "a".repeat(61);
+
+        assertThat(longest).hasSize(253);
+        assertThat(new PublicOrigin("https://" + longest).value()).isEqualTo("https://" + longest);
+        assertRefused("https://" + longest + "a", "253");
+    }
+
+    /** covers: AC-4. Only a numeric last label makes a browser read the host as an address. */
+    @ParameterizedTest
+    @ValueSource(strings = {"https://1dokene.example", "https://127.1.example", "https://10.0x7g", "https://1.x7f"})
+    void acceptsDigitsOutsideANumericLastLabel(String value) {
+        assertThat(new PublicOrigin(value).value()).isEqualTo(value);
     }
 
     /** covers: AC-4. A value with surrounding space would not be the origin Keycloak registered. */

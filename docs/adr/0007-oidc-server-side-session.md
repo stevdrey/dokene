@@ -97,13 +97,16 @@ logs, or audit events.
     sends the browser back to. The login callback is `<origin>/login/oauth2/code/dokene` and the logout return address
     is `<origin>/`. No `Host`, `Forwarded` or `X-Forwarded-*` value changes either, on the edge or on the direct port,
     under `none` or `framework`. The form is `https://<host>[:<port>]`, or `http://` on `localhost`, `127.0.0.1` or
-    `[::1]`, with no path, no trailing slash, no user info, lower case, and no default port written out. The value is
-    used exactly as written. One origin per deployment: reaching the same backend by a second address needs that
+    `[::1]`, with no path, no trailing slash, no user info, lower case, and no default port written out. A host is at
+    most 253 characters, and one whose last label is a number must be a full dotted IPv4 address (`127.1` is refused),
+    because a browser rewrites every other spelling. The value is used exactly as written. One origin per deployment: reaching the same backend by a second address needs that
     address configured instead.
   - *HSTS*: both security filter chains (the BFF chain and the webhook chain) send
     `Strict-Transport-Security: max-age=31536000` on every response when the origin is `https`, and never when it is
     `http` or unset. The request's scheme is not consulted, so a forged `X-Forwarded-Proto` cannot switch it and a TLS
-    tunnel that passes no scheme still gets it.
+    tunnel that passes no scheme still gets it. The header carries no `includeSubDomains` and no `preload`, on
+    purpose: Spring's request based default sent `includeSubDomains`, but the header now goes out on every response
+    of an `https` origin, and a sibling subdomain of that origin may still serve plain http.
   - *What forwarded headers still decide*: under `framework` only the client address and the scheme the request itself
     reports (`X-Forwarded-For`, `X-Forwarded-Proto`). Never the redirect origin, the logout return or HSTS. Under
     `none`, nothing.
@@ -111,9 +114,12 @@ logs, or audit events.
     when the origin is set but malformed (with or without a registration); when
     `spring.security.oauth2.client.registration.dokene.redirect-uri` is set to anything but the origin's own callback;
     when a registration id other than `dokene` exists; when a `ClientRegistrationRepository` bean other than Spring
-    Boot's own is defined; when `server.servlet.context-path` is set alongside a
+    Boot's own is defined, or one of the same class that holds a registration other than `dokene`; when `server.servlet.context-path` is set alongside a
     registration; when `DOKENE_BACK_CHANNEL_LOGOUT_URI` is blank, not an absolute `http(s)` URI with a host, or holds a
-    request derived placeholder (`{baseUrl}`, `{baseScheme}`, `{baseHost}`, `{basePort}`, `{basePath}`); and when
+    request derived placeholder (`{baseUrl}`, `{baseScheme}`, `{baseHost}`, `{basePort}`, `{basePath}`); when, with a
+    registration, the replay URI uses port 0 (the default under `server.port=0`) or is not `https` while `server.ssl`
+    is enabled, since the default follows the configured port over plain http and a replay that reaches no listener
+    would leave sessions alive after a provider logout without an error; and when
     `server.forward-headers-strategy` is anything but `none` or `framework`. That refuses `native` and also an unset
     or blank strategy, which Spring Boot turns into `native` on a detected cloud platform. Every refusal happens
     while the context refreshes, before the server accepts a request, and never repeats the refused origin.

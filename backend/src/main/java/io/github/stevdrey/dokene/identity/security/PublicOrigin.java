@@ -23,6 +23,8 @@ public record PublicOrigin(String value) {
     private static final Pattern IPV6_GROUP = Pattern.compile("[0-9a-f]{1,4}");
     private static final String IPV4_OCTET = "(?:25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9]?[0-9])";
     private static final Pattern IPV4_TAIL = Pattern.compile(IPV4_OCTET + "(?:\\." + IPV4_OCTET + "){3}");
+    private static final Pattern NUMERIC_LABEL = Pattern.compile("[0-9]+|0x[0-9a-f]*");
+    private static final int MAX_HOST_LENGTH = 253;
     private static final Pattern PORT = Pattern.compile("[1-9][0-9]{0,4}");
 
     public PublicOrigin {
@@ -81,6 +83,15 @@ public record PublicOrigin(String value) {
         }
         if (!DNS_HOST.matcher(host).matches() && !isBracketedIpv6(host)) {
             throw refused("host is not a valid host name or address");
+        }
+        if (host.length() > MAX_HOST_LENGTH) {
+            throw refused("host must be at most 253 characters");
+        }
+        // A browser reads a host whose last label is a number as an IPv4 address and rewrites or rejects every
+        // other spelling of it (127.1 becomes 127.0.0.1), so the value would not be the one it is sent to.
+        if (NUMERIC_LABEL.matcher(host.substring(host.lastIndexOf('.') + 1)).matches()
+                && !IPV4_TAIL.matcher(host).matches()) {
+            throw refused("host ends in a number, so it must be a full dotted IPv4 address such as 192.0.2.10");
         }
         String port = hostAndPort.port();
         if (port != null) {
