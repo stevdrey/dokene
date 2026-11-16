@@ -51,6 +51,11 @@ Reading `outputs.txt`:
     arguments.
   - The final count query in `env04-gates333.sh` now names `outbound_send_attempts`. Its NOTE line had failed
     during the run and was dropped.
+  - `env02-membership333.sh` now reads the `.customers` list, compares fixture names for the tenant-scope check,
+    and archives the probe customer with `If-Match`. During the run both lines were first recorded wrong (the old
+    key counted envelope fields; the archive without `If-Match` answered 400). They were corrected by hand on the
+    live stack, giving the recorded lines "customer lists are tenant scoped (disjoint names)" and "cleanup: archive
+    probe customer (with If-Match)", and the wrong lines were removed.
 
 ### Controlled deviation (approved by the user in the session)
 
