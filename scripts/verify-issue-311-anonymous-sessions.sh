@@ -9,6 +9,7 @@
 # stack from `./scripts/dev-env.sh up`.
 #
 # Usage: ./scripts/verify-issue-311-anonymous-sessions.sh
+# curl-protected: own -K config. Every request goes through the curl config that request() writes (issue 401).
 set -uo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
