@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #123 RES-08: uncertain business mutation (response lost after commit) with the documented If-Match / Idempotency-Key controls. API level, persisted state compared in PostgreSQL.
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh
 fresh() { local id=$(mk "$1" "$(rnd_phone)" ""); consent $id GRANTED >/dev/null; buy $id 2026-07-01T14:00:00Z "Café de grano 1 kg" >/dev/null; echo $id; }
 cnt() { psqlq "select count(*) from dokene.$1 where customer_id='$2'"; }

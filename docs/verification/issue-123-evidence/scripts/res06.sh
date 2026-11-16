@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #123, RES-05 (authority during retry, rerun of the suite #121 script on the current SHA) is run separately; RES-06 business drift while a provider call is in flight (injected 4 s provider latency; versioned and non-versioned drift).
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh; ST=/home/stevdrey/qa121/stub; . ./scripts/lib/provider-test-double.sh; provider_test_assert_backend || exit 3  # issue 329: loopback test double with the synthetic key only
 echo '{"recommendation":{"outcome":"ACTION","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","rationale":"Reposición habitual del café.","confidence":0.8,"draftVariables":[]}}' > $ST/rec.json
 echo '{"draft":{"outcome":"DRAFT","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","body":"Hola, ¿cómo te fue con el Café de grano 1 kg que compraste?","draftVariables":[],"locale":"es-419","evidence":["Compra: Café de grano 1 kg"],"warnings":[],"rationale":"Reposición.","confidence":0.9}}' > $ST/draft.json

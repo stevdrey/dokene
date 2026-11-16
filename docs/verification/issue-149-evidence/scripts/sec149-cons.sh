@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ABOUTME: Suite #149, revoked consent cases P3-CONS-01 to P3-CONS-10 over real HTTP: archive, do not contact, consent
 # ABOUTME: and eligibility re-checked at submit, approve and send, plus the revoke-versus-send race.
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd "$(git rev-parse --show-toplevel)"; . docs/verification/issue-149-evidence/scripts/env149.sh
 H=HTTP; stub_reset; stub_set send accept
 O=$A_OPERATOR

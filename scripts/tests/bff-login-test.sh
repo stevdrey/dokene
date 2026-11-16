@@ -163,16 +163,16 @@ refute "the helper never builds a password= argument" grep -q 'password=' <<<"$L
 mkdir -p "$TMP/cpbin"
 cat > "$TMP/cpbin/curl" <<'STUB'
 #!/usr/bin/env bash
-# Records its argv and the content of every -K config it is given.
-printf '%s\n' "$*" > "$CP_DIR/argv"
-: > "$CP_DIR/config"
+# Appends its argv, one call per line, and the content of every -K config it is given, under $REC_DIR.
+printf '%s\n' "$*" >> "$REC_DIR/argv"
 while [ $# -gt 0 ]; do
-  [ "$1" = -K ] && cat "$2" >> "$CP_DIR/config" && shift
+  [ "$1" = -K ] && cat "$2" >> "$REC_DIR/config" && shift
   shift
 done
 STUB
 chmod +x "$TMP/cpbin/curl"
 export CP_DIR="$TMP/cp"; mkdir -p "$CP_DIR"
+export REC_DIR="$CP_DIR"
 cp_run() { rm -f "$CP_DIR/argv" "$CP_DIR/config"; PATH="$TMP/cpbin:$PATH" curl "$@"; }
 # Synthetic values, built at run time.
 CP_TOKEN="tok-$(printf '%s' 4271)\"q\\b"; CP_SID="sid-$(printf '%s' 4272)"; CP_CODE="code-$(printf '%s' 4273)"
@@ -220,11 +220,21 @@ done
 assert "curl-protected: no script that loads the wrapper checks curl with command -v${cp_checks:+ (found in:$cp_checks)}" \
   [ -z "$cp_checks" ]
 
-# Every live script that sends a CSRF header or a session cookie by value loads the wrapper, directly or through
-# bff-login.sh, so a new call site cannot reintroduce the exposure unnoticed.
+# sends_session_values FILE: true when FILE, outside full-line comments, names a CSRF header, a JSESSIONID cookie or
+# a callback code, however the value is quoted or assembled in that file (#401).
+sends_session_values() {
+  grep -nE '' "$1" | grep -vE '^[0-9]+:[[:space:]]*#' \
+    | grep -qiE 'X-CSRF-TOKEN|JSESSIONID|oauth2/code/[A-Za-z0-9_-]+\?code='
+}
+# A script that writes its own curl config (`-K -` or `-K <(…)`) for every such request says so with this marker.
+OWN_CONFIG_MARKER='^# curl-protected: own -K config\.'
+
+# Every live script that sends a CSRF header, a session cookie or a callback code loads the wrapper, directly or
+# through bff-login.sh, or carries the own-config marker, so a new call site cannot reintroduce the exposure unnoticed.
 cp_unwrapped=""
 for script in "$ROOT_DIR"/scripts/*.sh; do
-  grep -qiE 'X-CSRF-TOKEN: ?\$|-b "?JSESSIONID=' "$script" || continue
+  sends_session_values "$script" || continue
+  grep -qE "$OWN_CONFIG_MARKER" "$script" && continue
   # shellcheck disable=SC2016  # expanded by the child shell, or a literal regex
   grep -qE '^\. "\$ROOT_DIR/scripts/lib/(bff-login|curl-protected)\.sh"' "$script" || cp_unwrapped+=" ${script##*/}"
 done
@@ -247,28 +257,20 @@ ev_loader() {
 }
 # ev_fn FILE NAME: the lines that define function NAME in FILE, up to the first line where bash can parse them.
 ev_fn() {
-  local start n total text
+  local -a lines
+  local start n text=""
   start="$(grep -nE "^$2\(\) *\{" "$1" | head -1 | cut -d: -f1)"
   [ -n "$start" ] || return 1
-  total="$(wc -l < "$1")"
-  for ((n = start; n <= total; n++)); do
-    text="$(sed -n "${start},${n}p" "$1")"
-    if bash -n <<<"$text" 2>/dev/null; then printf '%s\n' "$text"; return 0; fi
+  mapfile -t lines < "$1"
+  for ((n = start - 1; n < ${#lines[@]}; n++)); do
+    text+="${lines[n]}"$'\n'
+    # Only a line holding a closing brace can end the definition, so only those are parsed.
+    [[ "${lines[n]}" == *"}"* ]] && bash -n <<<"$text" 2>/dev/null && { printf '%s' "$text"; return 0; }
   done
   return 1
 }
 
-mkdir -p "$TMP/evbin"
-cat > "$TMP/evbin/curl" <<'STUB'
-#!/usr/bin/env bash
-# Appends its argv, one call per line, and the content of every -K config it is given.
-printf '%s\n' "$*" >> "$EV_DIR/argv"
-while [ $# -gt 0 ]; do
-  [ "$1" = -K ] && cat "$2" >> "$EV_DIR/config" && shift
-  shift
-done
-STUB
-chmod +x "$TMP/evbin/curl"
+# The recording stub of the curl-protected checks above records these runs under $EV_DIR.
 export EV_DIR="$TMP/ev"; mkdir -p "$EV_DIR" "$TMP/evq"
 # Synthetic values, built at run time; the evidence scripts read them from these globals.
 EV_TOKEN="tok-$(printf '%s' 5281)"
@@ -290,7 +292,7 @@ ev_run() {
     set +u  # the evidence scripts do not run under set -u
     EV_SCRIPT="$file"
     eval "$loader" || exit 1
-    PATH="$TMP/evbin:$PATH"
+    PATH="$TMP/cpbin:$PATH" REC_DIR="$EV_DIR"
     jq() { cat > /dev/null; printf '%s\n' "$EV_TOKEN"; }
     api() { :; }; etag() { printf 'e1\n'; }; chk() { :; }; leak() { printf '0\n'; }
     eval "$fn"
@@ -330,18 +332,21 @@ ev_check "res09 code" 1
 # first cd or curl call; the loader finds this repository's wrapper and fails closed when the wrapper is missing.
 ev_missing="" ev_late="" ev_broken="" ev_open="" ev_seen=0
 while IFS= read -r script; do
-  grep -qiE 'X-CSRF-TOKEN: ?\$|JSESSIONID=|oauth2/code/[A-Za-z0-9_-]+\?code=' "$script" || continue
+  sends_session_values "$script" || continue
   ev_seen=$((ev_seen + 1)); rel="${script#"$ROOT_DIR"/}"
   if ! loader="$(ev_loader "$script")"; then ev_missing+=" $rel"; continue; fi
   at="$(grep -nE -m1 "$EV_LOADER_RE" "$script" | cut -d: -f1)"
-  first="$(grep -nE '^[^#]*((^|[;&|({[:space:]])cd[[:space:]]|(^|[^A-Za-z0-9_-])curl([^A-Za-z0-9_-]|$))' "$script" \
+  # The first cd, curl, `.` or `source` outside a full-line comment, which must not come before the loader.
+  first="$(grep -nE '' "$script" | grep -vE '^[0-9]+:[[:space:]]*#' \
+    | grep -E '^[0-9]+:(.*[;&|({[:space:]])?(cd|\.|source)[[:space:]]|(^[0-9]+:|.*[^A-Za-z0-9_-])curl([^A-Za-z0-9_-]|$)' \
     | cut -d: -f1 | head -1)"
   [ -n "$first" ] && [ "$first" -lt "$at" ] && ev_late+=" $rel"
   # shellcheck disable=SC2016  # expanded by the child shell
   bash -c 'EV_SCRIPT=$1; eval "$2" && [ "$(type -t curl)" = function ]' _ "$script" "$loader" > /dev/null 2>&1 \
     || ev_broken+=" $rel"
   # shellcheck disable=SC2016  # expanded by the child shell
-  out="$(bash -c 'EV_SCRIPT=$1; eval "$2"; echo continued' _ "$TMP/absent/x.sh" "$loader" 2>&1)"
+  mkdir -p "$TMP/fakerepo/$(dirname "$rel")"  # a checkout whose directories exist but whose wrapper is missing
+  out="$(bash -c 'EV_SCRIPT=$1; eval "$2"; echo continued' _ "$TMP/fakerepo/$rel" "$loader" 2>&1)"
   [[ "$out" == *"curl-protected.sh not found"* && "$out" != *continued* ]] || ev_open+=" $rel"
 done < <(find "$ROOT_DIR/docs/verification" -name '*.sh' | sort)
 assert "evidence scripts: the scan found the scripts that send session values ($ev_seen)" [ "$ev_seen" -ge 20 ]

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #123 RES-09: dependency outages in the disposable stack (Keycloak, PostgreSQL pause/stop, backend stop). Established BFF sessions vs new logins; no partial state; no leaks.
-. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh
 DBPW=$(grep '^DOKENE_DB_PASSWORD=' .env | cut -d= -f2-); DCP="docker compose"
 waith() { local svc=$1; for i in $(seq 1 90); do case "$($DCP ps $svc --format '{{.Status}}' 2>/dev/null)" in *healthy*) return 0;; esac; sleep 2; done; return 1; }
