@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Retest of #246 (RES-09): API behaviour while PostgreSQL is stopped, on the local Compose stack built from the branch.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd "${DOKENE_ROOT:?set DOKENE_ROOT to the repository root}"
 export QA_TMP=${QA_TMP:-$(mktemp -d)}; mkdir -p "$QA_TMP"
 set -a; . ./.env; set +a; . "${QA_HELPERS:?set QA_HELPERS to the local qa.sh harness (login/api/chk/psqlq)}"

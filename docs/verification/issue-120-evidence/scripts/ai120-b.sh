@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # QA suite #120, API level, LIVE OpenAI (DOKENE_AI_PROVIDER=openai): AI-02, AI-03, AI-05, AI-06, AI-07, AI-09, AI-10 (live part).
 # Synthetic data only. Run from the repository root with the stack up. Writes AI samples to $OUT (sanitized text only).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 set -a; . ./.env; set +a; export QA_TMP=$(mktemp -d); . "$(dirname "$0")/qa.sh"
 OUT=${OUT:-$QA_TMP/ai-samples.jsonl}; : > "$OUT"
 for u in testuser testoperator testviewer; do qa_login $u; done

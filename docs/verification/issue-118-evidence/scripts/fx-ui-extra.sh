@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Fixtures needed by ux09 (81 due customers) and ux10_11 (second workspace "QA Café Sur"). Synthetic data only.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh
 tok=$(curl -s -b $QA_TMP/jar-testuser.txt $BFF/api/session|jq -r .csrfToken)
 S=$(curl -s -b $QA_TMP/jar-testuser.txt -X POST $BFF/api/tenants -H "X-CSRF-TOKEN: $tok" -H 'Content-Type: application/json' -H "Idempotency-Key: ui-sur-$RUN" -d '{"displayName":"QA Café Sur"}' | jq -r .tenantId); echo "tenant Sur=$S"
