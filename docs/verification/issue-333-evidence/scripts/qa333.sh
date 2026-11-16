@@ -62,3 +62,24 @@ rid() { hdr x-request-id; }
 # rec <case> <check> <PASS|FAIL|BLOCKED|NOTE> <note>   (manual/API observations only; sanitized notes)
 rec() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(date -u +%FT%TZ)" "$4" | tee -a "$RESULTS"; }
 psqlq() { docker compose -f "$WT/compose.yaml" exec -T postgres psql -U "$DOKENE_DB_BOOTSTRAP_USERNAME" -d "$DOKENE_DB_NAME" -At -c "$1"; }
+
+# kc_admin_token: Keycloak master-realm admin token (password on stdin, never in an argument list).
+kc_admin_token() {
+  printf '%s' "$KC_BOOTSTRAP_ADMIN_PASSWORD" | curl -s -d grant_type=password -d client_id=admin-cli \
+    -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --data-urlencode "password@-" \
+    "$KC/realms/master/protocol/openid-connect/token" | jq -r '.access_token // empty'
+}
+# stub_sends: provider send calls the Graph stub logged; exit 3 when its log is missing (a count must never be empty).
+stub_sends() {
+  local log=$QA_HOME/stub/requests.log
+  [ -f "$log" ] || { echo "stub log $log missing" >&2; return 3; }
+  grep -c 'kind=send' "$log"; true
+}
+# assert_safe_stack <true|false>: the backend's Graph base URL is the loopback stub and its global switch is as expected.
+assert_safe_stack() {
+  local base global
+  base=$(docker compose -f "$WT/compose.yaml" exec -T backend sh -c 'printf %s "$DOKENE_INTEGRATION_WHATSAPP_GRAPH_BASE_URL"')
+  global=$(docker compose -f "$WT/compose.yaml" exec -T backend sh -c 'printf %s "$DOKENE_MESSAGING_OUTBOUND_ENABLED"')
+  [ "$base" = http://127.0.0.1:18080 ] && [ "$global" = "$1" ] \
+    || { echo "unsafe stack: base=${base:-unset} global=${global:-unset} (expected loopback stub, global=$1)" >&2; return 1; }
+}

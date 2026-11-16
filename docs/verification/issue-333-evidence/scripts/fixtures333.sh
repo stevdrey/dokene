@@ -6,9 +6,8 @@ set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/qa333.sh"
 
 echo "== 1. Keycloak users"
-KC_TOKEN=$(printf '%s' "$KC_BOOTSTRAP_ADMIN_PASSWORD" | curl -s -d grant_type=password -d client_id=admin-cli \
-  -d "username=$KC_BOOTSTRAP_ADMIN_USERNAME" --data-urlencode "password@-" "$KC/realms/master/protocol/openid-connect/token" | jq -r .access_token)
-[ -n "$KC_TOKEN" ] && [ "$KC_TOKEN" != null ] || { echo "Keycloak admin login failed" >&2; exit 1; }
+KC_TOKEN=$(kc_admin_token)
+[ -n "$KC_TOKEN" ] || { echo "Keycloak admin login failed" >&2; exit 1; }
 kc_user() { # username first last
   local n; n=$(curl -s -H @<(printf 'Authorization: Bearer %s\n' "$KC_TOKEN") "$KC/admin/realms/dokene/users?username=$1&exact=true" | jq 'length')
   if [ "$n" = 0 ]; then
@@ -28,10 +27,12 @@ done
 
 echo "== 3. tenants"
 A=$(curl -s -b "$QA_TMP/jar-testuser.txt" "$BFF/api/tenants" | jq -r '[.[]|select(.displayName=="QA Café Norte")][0].tenantId // empty')
+[ -n "$A" ] || { echo "tenant A (QA Café Norte) not found; run ./scripts/dev-env.sh up --seed first" >&2; exit 1; }
 B=$(curl -s -b "$QA_TMP/jar-testowner2.txt" "$BFF/api/tenants" | jq -r '[.[]|select(.displayName=="QA Café Sur")][0].tenantId // empty')
 if [ -z "$B" ]; then
   req testowner2 - POST /api/tenants '{"displayName":"QA Café Sur","idempotencyKey":"qa333-tenant-b"}' -H 'Idempotency-Key: qa333-tenant-b'
-  echo "  provision B: $CODE"; B=$(printf '%s' "$BODY" | jq -r .tenantId)
+  echo "  provision B: $CODE"; B=$(printf '%s' "$BODY" | jq -r '.tenantId // empty')
+  { [ "$CODE" = 201 ] || [ "$CODE" = 200 ]; } && [ -n "$B" ] || { echo "tenant B provisioning failed (http=$CODE)" >&2; exit 1; }
 fi
 echo "  A=$A B=$B"
 

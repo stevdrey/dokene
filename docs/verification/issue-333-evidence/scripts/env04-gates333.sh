@@ -5,10 +5,10 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/qa333.sh"
 . "$OUTD/ids"
-STUBDIR=$QA_HOME/stub; C=ENV-04
+C=ENV-04
 for u in testuser testoperator; do qa_login $u; done
-sends() { grep -c 'kind=send' "$STUBDIR/requests.log" 2>/dev/null; true; }
-S0=$(sends)
+assert_safe_stack false || exit 2
+S0=$(stub_sends) || S0=
 integ() { req testuser "$A" GET /api/integrations/whatsapp -; }
 show() { printf '%s' "$BODY" | jq -c '{enabled,outboundEnabled,webhookVerified,phoneNumberId,secretRef,version,code}' 2>/dev/null; }
 integ; rec $C "baseline: proven, tenant switch off" $([ "$(printf '%s' "$BODY" | jq -r '"\(.webhookVerified)/\(.outboundEnabled)"')" = true/false ] && echo PASS || echo FAIL) "$(show)"
@@ -53,5 +53,5 @@ if [ -n "${MID:-}" ]; then
 fi
 integ; req testuser "$A" PUT /api/integrations/whatsapp/outbound '{"enabled":false}' -H "If-Match: $(etag)"
 rec $C "OWNER turns tenant switch back off" $([ "$(printf '%s' "$BODY" | jq -r .outboundEnabled)" = false ] && echo PASS || echo FAIL) "http=$CODE"
-S1=$(sends); rec $C "zero provider send calls during ENV-04" $([ "$S1" = "$S0" ] && echo PASS || echo FAIL) "stub sends before=$S0 after=$S1"
+S1=$(stub_sends) || S1=; rec $C "zero provider send calls during ENV-04" $([ -n "$S0" ] && [ "$S1" = "$S0" ] && echo PASS || echo FAIL) "stub sends before=$S0 after=$S1"
 c=$(psqlq "select count(*) from dokene.outbound_send_attempts" 2>/dev/null || echo n/a); rec $C "send attempt rows" NOTE "count=$c"

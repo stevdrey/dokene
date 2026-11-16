@@ -31,7 +31,8 @@ done
 stub templates approved; stub params 'customer_name'; refresh
 rec $C "provider schema mismatch (1 placeholder vs 2 mapped) -> not sendable" $([ "$(printf '%s' "$BODY" | jq -r .sendable)" = false ] && echo PASS || echo FAIL) "http=$CODE $(show)"
 stub params 'customer_name,message_body'; stub templates error500; refresh
-rec $C "provider 5xx -> safe problem, no approval invented" $([ "$(printf '%s' "$BODY" | jq -r '.sendable // false')" = false ] && echo PASS || echo FAIL) "http=$CODE $(show)"
+R5=$CODE; R5C=$(printf '%s' "$BODY" | jq -r '.code // empty' 2>/dev/null); AFTER=$(cur | jq -r .approvalStatus)
+rec $C "provider 5xx -> safe problem, no approval invented" $([ "$R5" = 503 ] && [ "$R5C" = PROVIDER_UNAVAILABLE ] && [ "$AFTER" != APPROVED ] && echo PASS || echo FAIL) "http=$R5 code=$R5C stored=$AFTER"
 stub templates approved; refresh; rec $C "re-verify after recovery -> APPROVED" $([ "$(printf '%s' "$BODY" | jq -r .approvalStatus)" = APPROVED ] && echo PASS || echo FAIL) "http=$CODE $(show)"
 SENDABLE_APPROVED=$(printf '%s' "$BODY" | jq -r .sendable)
 put false qa333_general_follow_up es "$P2"; rec $C "OWNER disables mapping -> not sendable" $([ "$(printf '%s' "$BODY" | jq -r .sendable)" = false ] && echo PASS || echo FAIL) "http=$CODE $(show)"

@@ -56,6 +56,15 @@ Reading `outputs.txt`:
     key counted envelope fields; the archive without `If-Match` answered 400). They were corrected by hand on the
     live stack, giving the recorded lines "customer lists are tenant scoped (disjoint names)" and "cleanup: archive
     probe customer (with If-Match)", and the wrong lines were removed.
+  - After code review the scripts were hardened without changing the recorded lines:
+    - `env04-gates333.sh` and `env04-proofgate333.sh` assert the loopback stub and the expected global switch
+      before any request (`assert_safe_stack`);
+    - the stub send counter fails when the stub log is missing, instead of passing on two empty counts;
+    - the proof-gate script restores the tenant (probe cancelled, tenant switch off, number re-proven) in an
+      EXIT trap;
+    - the disabled-integration and provider-5xx checks require the exact error code;
+    - the global-route probe sends `enabled:false`;
+    - fixtures stop on a missing tenant and do not duplicate customers on a rerun.
 
 ### Controlled deviation (approved by the user in the session)
 

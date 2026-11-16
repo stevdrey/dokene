@@ -29,5 +29,5 @@ req testuser "$A" GET /api/integrations/whatsapp -
 rec $C "[$L] refused writes changed nothing" $([ "$CODE" = "$BASE_CODE" ] && [ "$(etag)" = "$BASE_ETAG" ] && [ "$(printf '%s' "$BODY" | jq -cS 'del(.version)' 2>/dev/null)" = "$BASE" ] && echo PASS || echo FAIL) "http=$CODE etag=$(etag)"
 for u in testuser testoperator testviewer; do req $u "$A" GET /api/templates -; rec $C "[$L] $u reads templates" $([ "$CODE" = 200 ] && echo PASS || echo FAIL) "http=$CODE n=$(printf '%s' "$BODY" | jq '.items|length' 2>/dev/null) sendable=$(printf '%s' "$BODY" | jq -c '[.items[]?.sendable]|unique' 2>/dev/null)"; done
 # global switch has no route
-req testuser "$A" PUT /api/integrations/whatsapp/global-outbound '{"enabled":true}' -H "If-Match: ${BASE_ETAG:-\"0\"}"
+req testuser "$A" PUT /api/integrations/whatsapp/global-outbound '{"enabled":false}' -H "If-Match: ${BASE_ETAG:-\"0\"}"
 rec $C "[$L] no API route for the global kill switch" $([ "$CODE" = 404 ] || [ "$CODE" = 405 ] && echo PASS || echo FAIL) "http=$CODE"

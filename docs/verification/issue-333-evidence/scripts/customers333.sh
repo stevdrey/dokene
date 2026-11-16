@@ -10,12 +10,18 @@ PAST=$(date -u -d '-40 days' +%Y-%m-%dT%H:%M:%SZ); RECENT=$(date -u -d '-2 days'
 n=0
 mk() { # user tenant name consent(GRANTED|REVOKED|none) purchasedAt nextDate(today|none)
   n=$((n+1)); local phone; phone=$(printf '+5698%07d' $((3330000 + n)))
+  req "$1" "$2" GET /api/customers -
+  if printf '%s' "$BODY" | jq -e --arg n "$3" 'any(.customers[]; .displayName == $n)' >/dev/null; then
+    printf '  %-28s exists (rerun: not created again)\n' "$3"; return 0
+  fi
   req "$1" "$2" POST /api/customers "$(jq -cn --arg n "$3" --arg p "$phone" '{displayName:$n,phones:[{number:$p,region:"CL",primary:true}]}')"
   local cid pid; cid=$(printf '%s' "$BODY" | jq -r .id); pid=$(printf '%s' "$BODY" | jq -r '.phones[0].id'); local c1=$CODE
   if [ "$4" != none ]; then
     req "$1" "$2" GET "/api/customers/$cid/contact-policy" -
     req "$1" "$2" PUT "/api/customers/$cid/contacts/$pid/consents/WHATSAPP" "{\"status\":\"$4\",\"source\":\"CUSTOMER_VERBAL\"}" -H "If-Match: $(etag)"
-  fi; local c2=${CODE:-}
+    local c2=$CODE
+  else local c2=-
+  fi
   req "$1" "$2" POST "/api/customers/$cid/purchases" "$(jq -cn --arg t "$5" '{purchasedAt:$t,description:"Compra sintetica QA333"}')" -H "Idempotency-Key: qa333-p-$cid"
   local c3=$CODE c4=-
   if [ "$6" = today ]; then
