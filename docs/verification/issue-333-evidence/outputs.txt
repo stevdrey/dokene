@@ -1,0 +1,225 @@
+# Suite #333 recorded run (sanitized). Synthetic data only; no tokens, cookies, CSRF values, passwords or real phone numbers.
+# Tested SHA: 3807963859888ff1ad1c6b258135f50879fd2452 (main). Run date: 2026-11-16 (UTC).
+# Stack: compose project dokene-qa333 from a detached worktree at the SHA, fresh PostgreSQL volume; images built from the SHA.
+# Docker 29.9.3, Compose 5.7.1, Keycloak 26.8.2, PostgreSQL 17.12, Flyway V39; backend image sha256:66e6c064..., frontend sha256:33534238...
+# Browser: Claude desktop built-in browser, Chrome 156.0.8078.75 (Linux). Host kernel 7.3.3 (Fedora).
+# Provider modes: AI=fake (not exercised); WhatsApp Graph = loopback GraphStub from issue-149 evidence (controlled provider mode), never real Meta.
+# Switches: global DOKENE_MESSAGING_OUTBOUND_ENABLED=false and tenant switches false for the whole run, except the user-approved
+#   ENV-04 [proof-gate] window (global=true, loopback stub only, ~1 minute) that was restored to false and verified.
+# Columns: case, check, result, time (UTC), sanitized note. [browser] = manual observation in the real UI; [api] or no tag = authenticated
+#   HTTP/DB check through the real BFF session; [harness] = QA tooling note. NOTE lines are observations, not verdicts.
+
+## results.tsv
+ENV-02	non-member reads tenant A customers	PASS	2026-11-16T18:31:34Z	http=403 rid=4df682ac-cc08-4fa3-8c2f-37c1bfcffa6c
+ENV-02	OWNER invites testnone as VIEWER	PASS	2026-11-16T18:31:35Z	http=201
+ENV-02	INVITED (not accepted) member reads customers	PASS	2026-11-16T18:31:35Z	http=403
+ENV-02	invitee accepts	PASS	2026-11-16T18:31:35Z	http=200
+ENV-02	VIEWER reads customers	PASS	2026-11-16T18:31:35Z	http=200
+ENV-02	VIEWER cannot create customer	PASS	2026-11-16T18:31:35Z	http=403
+ENV-02	OWNER changes role to OPERATOR	PASS	2026-11-16T18:31:35Z	http=204
+ENV-02	role change takes effect on the same session (OPERATOR creates)	PASS	2026-11-16T18:31:35Z	http=201
+ENV-02	OWNER revokes membership	PASS	2026-11-16T18:31:35Z	http=204
+ENV-02	revoked member loses access	PASS	2026-11-16T18:31:35Z	http=403
+ENV-02	OWNER reactivates (back to INVITED)	PASS	2026-11-16T18:31:35Z	http=200 status=INVITED
+ENV-02	reactivated but not accepted still denied	PASS	2026-11-16T18:31:35Z	http=403
+ENV-02	cleanup: revoke testnone again	NOTE	2026-11-16T18:31:36Z	http=204
+ENV-02	tenant B OWNER invites testuser as ADMIN	PASS	2026-11-16T18:31:36Z	http=201
+ENV-02	testuser accepts tenant B	PASS	2026-11-16T18:31:36Z	http=200
+ENV-02	testuser lists both workspaces	PASS	2026-11-16T18:31:36Z	count=2
+ENV-02	per-tenant role resolved from X-Tenant-Id	PASS	2026-11-16T18:31:36Z	A=OWNER B=ADMIN
+ENV-02	no tenant selected -> refused	PASS	2026-11-16T18:31:36Z	http=403 code=
+ENV-02	cleanup: archive probe customer (with If-Match)	NOTE	2026-11-16T18:31:51Z	http=204
+ENV-02	customer lists are tenant scoped (disjoint names)	PASS	2026-11-16T18:31:51Z	A=4 B=1
+ENV-03	[unconfigured] OWNER reads integration	NOTE	2026-11-16T18:32:22Z	http=404 etag= body={"enabled":null,"outboundEnabled":null,"webhookVerified":null,"secretRef":null,"code":"NOT_FOUND"} cache=no-cache, no-store, max-age=0, must-revalidate
+ENV-03	[unconfigured] testadmin reads integration like OWNER	PASS	2026-11-16T18:32:22Z	http=404
+ENV-03	[unconfigured] testoperator reads integration like OWNER	PASS	2026-11-16T18:32:22Z	http=404
+ENV-03	[unconfigured] testviewer reads integration like OWNER	PASS	2026-11-16T18:32:22Z	http=404
+ENV-03	[unconfigured] non-member read refused	PASS	2026-11-16T18:32:22Z	http=403
+ENV-03	[unconfigured] testoperator PUT integration refused	PASS	2026-11-16T18:32:22Z	http=403 code=FORBIDDEN
+ENV-03	[unconfigured] testoperator tenant outbound switch refused	PASS	2026-11-16T18:32:23Z	http=403
+ENV-03	[unconfigured] testoperator ownership proof refused	PASS	2026-11-16T18:32:23Z	http=403
+ENV-03	[unconfigured] testoperator credential rotation refused	PASS	2026-11-16T18:32:23Z	http=403
+ENV-03	[unconfigured] testviewer PUT integration refused	PASS	2026-11-16T18:32:23Z	http=403 code=FORBIDDEN
+ENV-03	[unconfigured] testviewer tenant outbound switch refused	PASS	2026-11-16T18:32:23Z	http=403
+ENV-03	[unconfigured] testviewer ownership proof refused	PASS	2026-11-16T18:32:23Z	http=403
+ENV-03	[unconfigured] testviewer credential rotation refused	PASS	2026-11-16T18:32:23Z	http=403
+ENV-03	[unconfigured] VIEWER template write refused	PASS	2026-11-16T18:32:23Z	http=403
+ENV-03	[unconfigured] refused writes changed nothing	PASS	2026-11-16T18:32:23Z	http=404 etag=
+ENV-03	[unconfigured] testuser reads templates	PASS	2026-11-16T18:32:23Z	http=200 n=5 sendable=[false] (re-read: list key is .items; 5 intents, all mapped=false UNVERIFIED)
+ENV-03	[unconfigured] testoperator reads templates	PASS	2026-11-16T18:32:23Z	http=200 n=5 sendable=[false] (re-read: list key is .items; 5 intents, all mapped=false UNVERIFIED)
+ENV-03	[unconfigured] testviewer reads templates	PASS	2026-11-16T18:32:23Z	http=200 n=5 sendable=[false] (re-read: list key is .items; 5 intents, all mapped=false UNVERIFIED)
+ENV-03	[unconfigured] no API route for the global kill switch	PASS	2026-11-16T18:32:24Z	http=404
+ENV-05	OWNER maps GENERAL_FOLLOW_UP (es, 2 params)	PASS	2026-11-16T18:36:10Z	http=200 {"approvalStatus":"UNVERIFIED","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	new mapping is not sendable before provider evidence	PASS	2026-11-16T18:36:10Z	UNVERIFIED/false
+ENV-05	approval refresh with provider APPROVED (exact name/lang/schema)	PASS	2026-11-16T18:36:10Z	http=200 {"approvalStatus":"APPROVED","sendable":true,"enabled":true,"version":0,"code":null}
+ENV-05	sendable reported for approved mapping (integration proven, switches off)	NOTE	2026-11-16T18:36:10Z	sendable=true
+ENV-05	provider evidence 'otherName' -> not approved and not sendable	PASS	2026-11-16T18:36:11Z	http=200 {"approvalStatus":"NOT_FOUND","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	provider evidence 'otherLanguage' -> not approved and not sendable	PASS	2026-11-16T18:36:11Z	http=200 {"approvalStatus":"NOT_FOUND","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	provider evidence 'absent' -> not approved and not sendable	PASS	2026-11-16T18:36:11Z	http=200 {"approvalStatus":"NOT_FOUND","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	provider evidence 'rejected' -> not approved and not sendable	PASS	2026-11-16T18:36:11Z	http=200 {"approvalStatus":"REJECTED","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	provider evidence 'paused' -> not approved and not sendable	PASS	2026-11-16T18:36:11Z	http=200 {"approvalStatus":"PAUSED","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	provider evidence 'deleted' -> not approved and not sendable	PASS	2026-11-16T18:36:11Z	http=200 {"approvalStatus":"DELETED","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	provider schema mismatch (1 placeholder vs 2 mapped) -> not sendable	PASS	2026-11-16T18:36:12Z	http=200 {"approvalStatus":"SCHEMA_MISMATCH","sendable":false,"enabled":true,"version":0,"code":null}
+ENV-05	provider 5xx -> safe problem, no approval invented	PASS	2026-11-16T18:36:12Z	http=503 {"approvalStatus":null,"sendable":null,"enabled":null,"version":null,"code":"PROVIDER_UNAVAILABLE"}
+ENV-05	re-verify after recovery -> APPROVED	PASS	2026-11-16T18:36:12Z	http=200 {"approvalStatus":"APPROVED","sendable":true,"enabled":true,"version":0,"code":null}
+ENV-05	OWNER disables mapping -> not sendable	PASS	2026-11-16T18:36:12Z	http=200 {"approvalStatus":"UNVERIFIED","sendable":false,"enabled":false,"version":1,"code":null}
+ENV-05	re-enable mapping	NOTE	2026-11-16T18:36:12Z	http=200 {"approvalStatus":"UNVERIFIED","sendable":false,"enabled":true,"version":2,"code":null}
+ENV-05	re-verify after re-enable -> APPROVED, sendable as before	PASS	2026-11-16T18:36:13Z	http=200 {"approvalStatus":"APPROVED","sendable":true,"enabled":true,"version":2,"code":null}
+ENV-05	renaming the provider template drops approval evidence	PASS	2026-11-16T18:36:13Z	http=200 {"approvalStatus":"UNVERIFIED","sendable":false,"enabled":true,"version":3,"code":null}
+ENV-05	restore approved mapping for later suites	NOTE	2026-11-16T18:36:13Z	http=200 {"approvalStatus":"APPROVED","sendable":true,"enabled":true,"version":4,"code":null}
+ENV-05	stale If-Match refused	PASS	2026-11-16T18:36:13Z	http=409 code=STALE_VERSION
+ENV-05	unknown intent -> 404 (closed enum)	PASS	2026-11-16T18:36:13Z	http=404
+ENV-05	tenant B does not see tenant A mapping	PASS	2026-11-16T18:36:14Z	B.mapped=false
+ENV-04	baseline: proven, tenant switch off	PASS	2026-11-16T18:37:28Z	{"enabled":true,"outboundEnabled":false,"webhookVerified":true,"phoneNumberId":"100000000000001","secretRef":"qa333-token-a","version":7,"code":null}
+ENV-04	number change clears ownership proof	PASS	2026-11-16T18:37:29Z	http=200 {"enabled":true,"outboundEnabled":false,"webhookVerified":false,"phoneNumberId":"100000000000003","secretRef":"qa333-token-a","version":8,"code":null}
+ENV-04	template sendability with unproven integration	NOTE	2026-11-16T18:37:29Z	GENERAL_FOLLOW_UP sendable=true
+ENV-04	submit with unproven integration	NOTE	2026-11-16T18:37:29Z	http=201 status=PENDING_APPROVAL
+ENV-04	approval with unproven integration	NOTE	2026-11-16T18:37:29Z	http=201 result=APPROVED
+ENV-04	send with unproven integration is refused	PASS	2026-11-16T18:37:30Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY
+ENV-04	restore number and re-prove ownership	PASS	2026-11-16T18:37:30Z	http=200 {"enabled":true,"outboundEnabled":false,"webhookVerified":true,"phoneNumberId":"100000000000001","secretRef":"qa333-token-a","version":10,"code":null}
+ENV-04	OWNER turns tenant switch on (global stays off)	PASS	2026-11-16T18:37:30Z	http=200
+ENV-04	proven + tenant on + global off -> refused OUTBOUND_DISABLED_GLOBALLY	PASS	2026-11-16T18:37:30Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY
+ENV-04	cleanup: cancel probe message	NOTE	2026-11-16T18:37:30Z	http=201 status=CANCELLED
+ENV-04	OWNER turns tenant switch back off	PASS	2026-11-16T18:37:31Z	http=200
+ENV-04	zero provider send calls during ENV-04	PASS	2026-11-16T18:37:31Z	stub sends before=0 after=0
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T18:40:34Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T18:40:35Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T18:40:36Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T18:40:36Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T18:40:36Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T18:40:36Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T18:40:36Z	http=201 status=CANCELLED
+ENV-04	[proof-gate] cleanup: enabled+proven, tenant switch OFF	PASS	2026-11-16T18:40:36Z	{"enabled":true,"webhookVerified":true,"outboundEnabled":false}
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T18:40:36Z	stub sends before=0 after=0
+ENV-03	[configured] OWNER reads integration	NOTE	2026-11-16T18:41:03Z	http=200 etag="28" body={"enabled":true,"outboundEnabled":false,"webhookVerified":true,"secretRef":"qa333-token-a","code":null} cache=no-store
+ENV-03	[configured] testadmin reads integration like OWNER	PASS	2026-11-16T18:41:03Z	http=200
+ENV-03	[configured] testoperator reads integration like OWNER	PASS	2026-11-16T18:41:03Z	http=200
+ENV-03	[configured] testviewer reads integration like OWNER	PASS	2026-11-16T18:41:03Z	http=200
+ENV-03	[configured] non-member read refused	PASS	2026-11-16T18:41:03Z	http=403
+ENV-03	[configured] testoperator PUT integration refused	PASS	2026-11-16T18:41:03Z	http=403 code=FORBIDDEN
+ENV-03	[configured] testoperator tenant outbound switch refused	PASS	2026-11-16T18:41:03Z	http=403
+ENV-03	[configured] testoperator ownership proof refused	PASS	2026-11-16T18:41:04Z	http=403
+ENV-03	[configured] testoperator credential rotation refused	PASS	2026-11-16T18:41:04Z	http=403
+ENV-03	[configured] testviewer PUT integration refused	PASS	2026-11-16T18:41:04Z	http=403 code=FORBIDDEN
+ENV-03	[configured] testviewer tenant outbound switch refused	PASS	2026-11-16T18:41:04Z	http=403
+ENV-03	[configured] testviewer ownership proof refused	PASS	2026-11-16T18:41:04Z	http=403
+ENV-03	[configured] testviewer credential rotation refused	PASS	2026-11-16T18:41:04Z	http=403
+ENV-03	[configured] VIEWER template write refused	PASS	2026-11-16T18:41:04Z	http=403
+ENV-03	[configured] refused writes changed nothing	PASS	2026-11-16T18:41:04Z	http=200 etag="28"
+ENV-03	[configured] testuser reads templates	PASS	2026-11-16T18:41:04Z	http=200 n=5 sendable=[false,true]
+ENV-03	[configured] testoperator reads templates	PASS	2026-11-16T18:41:04Z	http=200 n=5 sendable=[false,true]
+ENV-03	[configured] testviewer reads templates	PASS	2026-11-16T18:41:04Z	http=200 n=5 sendable=[false,true]
+ENV-03	[configured] no API route for the global kill switch	PASS	2026-11-16T18:41:05Z	http=404
+ENV-03	ADMIN rotates credential revision -> proof cleared	PASS	2026-11-16T18:41:15Z	http=200 {"webhookVerified":false,"version":29}
+ENV-03	ADMIN re-proves ownership	PASS	2026-11-16T18:41:15Z	http=200
+ENV-03	no canary secret in integration/template/session responses	PASS	2026-11-16T18:41:16Z	matches=0
+ENV-03	no canary secret in backend/migrate logs	PASS	2026-11-16T18:41:16Z	matches=0 lines=51
+ENV-03	no canary secret persisted in the database	PASS	2026-11-16T18:41:16Z	matches=0
+ENV-03	audit rows (count only)	NOTE	2026-11-16T18:41:16Z	audit_events=117
+ENV-04	tenant B can STORE tenant A's number unverified (by design, ADR 0024 issue-210 reclaim: inert until proven)	NOTE	2026-11-16T18:46:08Z	http=200
+ENV-04	tenant B naming tenant A's credential ref cannot prove ownership	PASS	2026-11-16T18:46:08Z	http=503 code=PROVIDER_UNAVAILABLE verified=
+ENV-04	tenant B proves its own number with its own credential	PASS	2026-11-16T18:46:08Z	http=200 {"enabled":true,"outboundEnabled":false,"webhookVerified":true}
+ENV-04	tenant A integration unchanged after tenant B activity	PASS	2026-11-16T18:46:09Z	{"phoneNumberId":"100000000000001","webhookVerified":true,"outboundEnabled":false}
+SUITE	total provider send calls in suite	PASS	2026-11-16T18:46:09Z	stub sends=0 (before B probes=0)
+SUITE	global switch OFF at end	PASS	2026-11-16T18:46:09Z	env=false
+ENV-04	tenant B cannot PROVE tenant A's already-proven number	PASS	2026-11-16T18:46:28Z	http=400 code=INVALID_INPUT verified=
+ENV-04	tenant A keeps its proof after B's attempt	PASS	2026-11-16T18:46:28Z	{"phoneNumberId":"100000000000001","webhookVerified":true}
+ENV-04	restore tenant B to its own proven number	NOTE	2026-11-16T18:46:28Z	http=200 {"phoneNumberId":"100000000000002","webhookVerified":true,"outboundEnabled":false}
+ENV-01	[api] clean stack at 3807963: postgres/keycloak/oidc-bridge/backend/frontend healthy, migrate exited 0	PASS	2026-11-16T18:47:34Z	fresh volume project dokene-qa333; Flyway V1..V39 all success
+ENV-01	[api] backend logs: no ERROR; only WARNs = webhook verifier refusing while refs unset (expected default)	PASS	2026-11-16T18:47:34Z	2 WARN lines, 0 ERROR, 0 exceptions
+ENV-01	[browser] OWNER OIDC login (Keycloak form) lands on workbench with seeded follow-up	PASS	2026-11-16T18:47:34Z	console: only the expected pre-login GET /api/session 401; all workbench reads 200
+ENV-03	[browser] OWNER panel: form + Editar/Verificar propiedad; credential shown as reference name only	PASS	2026-11-16T18:47:34Z	no canary in DOM; no JS-visible cookies; no localStorage; sessionStorage holds only active tenant id
+ENV-03	[browser] ADMIN panel shows Editar + Verificar propiedad	PASS	2026-11-16T18:47:34Z	role label Administrador(a)
+ENV-03	[browser] OPERATOR panel read-only (0 buttons, 0 inputs, 'Solo lectura' note)	PASS	2026-11-16T18:47:34Z	role label Operador(a)
+ENV-03	[browser] VIEWER panel read-only (0 buttons, 0 inputs, 'Solo lectura' note)	PASS	2026-11-16T18:47:34Z	role label Lector(a)
+ENV-04	[browser] invalid phone id blocked client-side with focus on the field	PASS	2026-11-16T18:47:34Z	'Debe tener entre 5 y 32 digitos.'
+ENV-04	[browser] OWNER creates integration via UI; readiness = No lista (envios pausados, propiedad sin comprobar, ninguna plantilla lista)	PASS	2026-11-16T18:47:34Z	PUT 200
+ENV-04	[browser] ownership proof for a number the provider does not list -> safe error, stays unproven	PASS	2026-11-16T18:47:34Z	POST 400, generic Spanish copy, no provider text
+ENV-04	[browser] edit to owned number + Verificar propiedad -> Propiedad comprobada	PASS	2026-11-16T18:47:35Z	POST 200
+ENV-04	[browser] ADMIN disables via form -> confirmation dialog -> Deshabilitada, proof cleared, readiness lists integracion deshabilitada	PASS	2026-11-16T18:47:35Z	re-enable + re-prove via UI -> Propiedad comprobada
+ENV-04	[harness] first proof attempt 503 was a QA stub permission artifact (stub could not write its log), not product	NOTE	2026-11-16T18:47:35Z	stub re-run as host uid; not counted
+ENV-05	[browser] template list: 1 de 5 listas, GENERAL_FOLLOW_UP 'Lista' after APPROVED refresh; unmapped 'Sin asignar'	PASS	2026-11-16T18:47:35Z	UI list is read-only; mapping edits are API-only on this SHA
+ENV-05	[browser] template row stays 'Lista' while the integration is disabled/unproven (template-level sendable per ADR 0025); panel readiness says No lista	NOTE	2026-11-16T18:47:35Z	UX observation for #338, not a contract failure
+ENV-06	[browser] switch Norte->Sur on Configuracion: first render already Sur 'sin configurar'; no tenant-A value in any DOM mutation	PASS	2026-11-16T18:47:35Z	MutationObserver: 0 snapshots with A values
+ENV-06	[browser] reload keeps selected workspace (Sur)	PASS	2026-11-16T18:47:35Z	sessionStorage scoped by identity
+ENV-06	[browser] session revoked (Keycloak admin logout -> back-channel) then switch Sur->Norte: integration GET 401 -> 'Tu sesion ya no esta activa' + login button; no tenant-A value rendered	PASS	2026-11-16T18:47:35Z	intermediate state 'Comprobando...' only
+ENV-06	[browser] re-login required fresh credentials after revocation	PASS	2026-11-16T18:47:35Z	Keycloak form shown
+ENV-06	[browser] app 'Cerrar sesion' is local-only: next 'Iniciar sesion' silently re-enters as previous user	NOTE	2026-11-16T18:47:35Z	known residual: ADR 0007 / security audit 2026-11-02 M3 item 4 (#307); not a new defect
+ENV-03	[api] another tenant's credential ref is not resolvable by tenant B (proof refused)	PASS	2026-11-16T18:47:35Z	answered 503 PROVIDER_UNAVAILABLE: safe but generic copy
+
+## GraphStub request log, aggregated (path with synthetic ids, kind, credential tag; the stub never logs bearer values)
+     12 GET /200000000000001/message_templates kind=templates token=A
+     10 GET /200000000000001/phone_numbers kind=phones token=A
+      3 GET /200000000000002/phone_numbers kind=phones token=B
+send calls (kind=send): 0
+
+## Post-review verification of the fail-safe proof-gate cleanup (2026-11-16, same stack and SHA)
+# Not part of the recorded suite run above. Run against the loopback stub only, global switch ON per window as in the
+# approved deviation. Order: (1) normal run; (2) forced abort: an open message blocks the submit (expected FAIL line
+#   'submit failed', exit 1, cleanup PASS); (3) SIGTERM after 4 s with cleanup v1 (traps reset): the signal killed the
+#   cleanup during the backend restart before it recorded anything; backend left created-not-started (fail closed),
+#   recovered with global OFF; (4) cleanup v2 (signals ignored): SIGTERM after 2 s PASS, after 5 s FAIL (docker compose
+#   re-arms SIGTERM and died; script printed CLEANUP FAILED), recovered with global OFF; (5) cleanup v3 (restart in its
+#   own session via setsid): SIGTERM after 1 s (exit 130), 5 s and 8 s all PASS. Global OFF was restored by the script
+#   in every run except the two failed ones in (3) and (4), which were restored by hand. 0 stub send calls, 0 send
+#   attempts and all probe messages CANCELLED throughout.
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:51:04Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:51:04Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:51:05Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:51:05Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:51:05Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:51:06Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:51:06Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:51:06Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:51:20Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:51:50Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:51:51Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] submit failed	FAIL	2026-11-16T19:51:51Z	http=409
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:52:05Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:52:34Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:52:35Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:52:35Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:52:35Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:52:36Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:52:36Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:52:36Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:52:36Z	status=CANCELLED
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:55:51Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:55:52Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:55:53Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:55:53Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:55:53Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:55:53Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:55:53Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:55:54Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:56:07Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:56:20Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:56:20Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:56:21Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:56:21Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:56:21Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:56:21Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:56:21Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:56:22Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	FAIL	2026-11-16T19:56:25Z	global=ON enabled/proven/tenantOutbound=
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:57:15Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:57:15Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:57:28Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:57:40Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:57:40Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:57:41Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:57:41Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:57:41Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:57:41Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:57:41Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:57:42Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:57:54Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:58:04Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:58:05Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:58:06Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:58:06Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:58:06Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:58:06Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:58:06Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:58:06Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:58:17Z	global=off enabled/proven/tenantOutbound=true/true/false
