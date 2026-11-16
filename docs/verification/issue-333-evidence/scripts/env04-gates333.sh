@@ -55,3 +55,4 @@ integ; req testuser "$A" PUT /api/integrations/whatsapp/outbound '{"enabled":fal
 rec $C "OWNER turns tenant switch back off" $([ "$(printf '%s' "$BODY" | jq -r .outboundEnabled)" = false ] && echo PASS || echo FAIL) "http=$CODE"
 S1=$(stub_sends) || S1=; rec $C "zero provider send calls during ENV-04" $([ -n "$S0" ] && [ "$S1" = "$S0" ] && echo PASS || echo FAIL) "stub sends before=$S0 after=$S1"
 c=$(psqlq "select count(*) from dokene.outbound_send_attempts" 2>/dev/null || echo n/a); rec $C "send attempt rows" NOTE "count=$c"
+qa_finish

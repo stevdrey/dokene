@@ -65,6 +65,19 @@ Reading `outputs.txt`:
     - the disabled-integration and provider-5xx checks require the exact error code;
     - the global-route probe sends `enabled:false`;
     - fixtures stop on a missing tenant and do not duplicate customers on a rerun.
+  - After the review on #408, the proof-gate cleanup was made fail-safe. It is installed before anything can abort.
+    It restores the tenant first, then restarts the backend with the global switch OFF and verifies the effective
+    global and tenant values after the restart. It ignores further interrupts and runs the restart in its own session,
+    so a process-group signal cannot cut it short. It exits nonzero on a cleanup failure, and every script exits
+    nonzero when a FAIL was recorded (`qa_finish`). Verified on the stub stack with:
+    - a normal run;
+    - a forced abort;
+    - SIGTERM at five points.
+
+    Two SIGTERM runs with earlier versions of the cleanup left the backend stopped (fail closed) and were recovered
+    by hand. The last version passed every case. The details are in the "Post-review verification" section of
+    `outputs.txt`. That verification covers the cleanup only; the six case verdicts are still those of the recorded
+    run.
 
 ### Controlled deviation (approved by the user in the session)
 

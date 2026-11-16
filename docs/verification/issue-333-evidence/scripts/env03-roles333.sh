@@ -31,3 +31,4 @@ for u in testuser testoperator testviewer; do req $u "$A" GET /api/templates -; 
 # global switch has no route
 req testuser "$A" PUT /api/integrations/whatsapp/global-outbound '{"enabled":false}' -H "If-Match: ${BASE_ETAG:-\"0\"}"
 rec $C "[$L] no API route for the global kill switch" $([ "$CODE" = 404 ] || [ "$CODE" = 405 ] && echo PASS || echo FAIL) "http=$CODE"
+qa_finish

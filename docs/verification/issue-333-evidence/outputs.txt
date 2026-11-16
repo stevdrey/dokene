@@ -152,3 +152,74 @@ ENV-03	[api] another tenant's credential ref is not resolvable by tenant B (proo
      10 GET /200000000000001/phone_numbers kind=phones token=A
       3 GET /200000000000002/phone_numbers kind=phones token=B
 send calls (kind=send): 0
+
+## Post-review verification of the fail-safe proof-gate cleanup (2026-11-16, same stack and SHA)
+# Not part of the recorded suite run above. Run against the loopback stub only, global switch ON per window as in the
+# approved deviation. Order: (1) normal run; (2) forced abort: an open message blocks the submit (expected FAIL line
+#   'submit failed', exit 1, cleanup PASS); (3) SIGTERM after 4 s with cleanup v1 (traps reset): the signal killed the
+#   cleanup during the backend restart before it recorded anything; backend left created-not-started (fail closed),
+#   recovered with global OFF; (4) cleanup v2 (signals ignored): SIGTERM after 2 s PASS, after 5 s FAIL (docker compose
+#   re-arms SIGTERM and died; script printed CLEANUP FAILED), recovered with global OFF; (5) cleanup v3 (restart in its
+#   own session via setsid): SIGTERM after 1 s (exit 130), 5 s and 8 s all PASS. Global OFF was restored by the script
+#   in every run except the two failed ones in (3) and (4), which were restored by hand. 0 stub send calls, 0 send
+#   attempts and all probe messages CANCELLED throughout.
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:51:04Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:51:04Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:51:05Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:51:05Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:51:05Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:51:06Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:51:06Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:51:06Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:51:20Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:51:50Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:51:51Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] submit failed	FAIL	2026-11-16T19:51:51Z	http=409
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:52:05Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:52:34Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:52:35Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:52:35Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:52:35Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:52:36Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:52:36Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:52:36Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:52:36Z	status=CANCELLED
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:55:51Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:55:52Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:55:53Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:55:53Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:55:53Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:55:53Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:55:53Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:55:54Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:56:07Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:56:20Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:56:20Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:56:21Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:56:21Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:56:21Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:56:21Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:56:21Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:56:22Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	FAIL	2026-11-16T19:56:25Z	global=ON enabled/proven/tenantOutbound=
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:57:15Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:57:15Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:57:28Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:57:40Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:57:40Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:57:41Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:57:41Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:57:41Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:57:41Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:57:41Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:57:42Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:57:54Z	global=off enabled/proven/tenantOutbound=true/true/false
+ENV-04	[proof-gate] precondition: Graph base URL is the loopback stub, global switch ON	PASS	2026-11-16T19:58:04Z	base=loopback-stub global=true
+ENV-04	[proof-gate] integration unproven, enabled, tenant switch ON	PASS	2026-11-16T19:58:05Z	{"webhookVerified":false,"enabled":true,"outboundEnabled":true}
+ENV-04	[proof-gate] message submitted and approved	NOTE	2026-11-16T19:58:06Z	status=APPROVED
+ENV-04	[proof-gate] UNPROVEN integration cannot send	PASS	2026-11-16T19:58:06Z	http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] disabling the integration clears the proof	PASS	2026-11-16T19:58:06Z	{"enabled":false,"webhookVerified":false,"outboundEnabled":true}
+ENV-04	[proof-gate] DISABLED integration cannot send	PASS	2026-11-16T19:58:06Z	pre=APPROVED http=409 code=INTEGRATION_DISABLED
+ENV-04	[proof-gate] zero provider send calls	PASS	2026-11-16T19:58:06Z	stub sends before=0 after=0
+ENV-04	[proof-gate] cleanup: probe message	NOTE	2026-11-16T19:58:06Z	status=CANCELLED
+ENV-04	[proof-gate] cleanup: global OFF, tenant OFF, integration enabled+proven (verified after restart)	PASS	2026-11-16T19:58:17Z	global=off enabled/proven/tenantOutbound=true/true/false

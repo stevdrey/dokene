@@ -48,3 +48,4 @@ qa_login testowner2; req testowner2 "$B" GET /api/templates -
 rec $C "tenant B does not see tenant A mapping" $([ "$(printf '%s' "$BODY" | jq -r --arg i $I '.items[]|select(.templateIntent==$i).mapped')" = false ] && echo PASS || echo FAIL) "B.mapped=$(printf '%s' "$BODY" | jq -r --arg i $I '.items[]|select(.templateIntent==$i).mapped')"
 echo "final: $(cur)"
 grep -c 'kind=templates' "$STUBDIR/requests.log" | sed 's/^/stub template lookups: /'; grep 'kind=templates' "$STUBDIR/requests.log" | grep -v -c 'token=A' | sed 's/^/lookups with a token other than A: /'
+qa_finish

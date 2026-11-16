@@ -45,3 +45,4 @@ case ",$na," in *",QA333 Ana Vencida,"*) case ",$nb," in *",QA333 Elena Sur Venc
   case ",$na," in *Elena*) ;; *) case ",$nb," in *Ana*) ;; *) iso=PASS ;; esac ;; esac ;; esac ;; esac
 rec $C "customer lists are tenant scoped (disjoint names)" "$iso" "A=$(printf '%s' "$na" | tr ',' '\n' | grep -c .) B=$(printf '%s' "$nb" | tr ',' '\n' | grep -c .)"
 req testuser - GET /api/customers -; rec $C "no tenant selected -> refused" $([ "${CODE:0:1}" = 4 ] && echo PASS || echo FAIL) "http=$CODE code=$(printf '%s' "$BODY" | jq -r '.code // empty' 2>/dev/null)"
+qa_finish

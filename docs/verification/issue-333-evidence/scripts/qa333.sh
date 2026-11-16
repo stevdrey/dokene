@@ -60,7 +60,13 @@ hdr() { printf '%s\n' "$HDRS" | grep -i "^$1:" | tr -d '\r' | cut -d' ' -f2-; }
 rid() { hdr x-request-id; }
 
 # rec <case> <check> <PASS|FAIL|BLOCKED|NOTE> <note>   (manual/API observations only; sanitized notes)
-rec() { printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(date -u +%FT%TZ)" "$4" | tee -a "$RESULTS"; }
+QA_FAILS=0
+rec() {
+  [ "$3" = FAIL ] && QA_FAILS=$((QA_FAILS + 1))
+  printf '%s\t%s\t%s\t%s\t%s\n' "$1" "$2" "$3" "$(date -u +%FT%TZ)" "$4" | tee -a "$RESULTS"
+}
+# qa_finish: exit 1 when any recorded check failed, so a FAIL never ends a script successfully.
+qa_finish() { [ "$QA_FAILS" -eq 0 ] || { echo "$QA_FAILS check(s) FAILED" >&2; exit 1; }; exit 0; }
 psqlq() { docker compose -f "$WT/compose.yaml" exec -T postgres psql -U "$DOKENE_DB_BOOTSTRAP_USERNAME" -d "$DOKENE_DB_NAME" -At -c "$1"; }
 
 # kc_admin_token: Keycloak master-realm admin token (password on stdin, never in an argument list).
