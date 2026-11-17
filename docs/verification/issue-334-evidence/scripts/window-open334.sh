@@ -13,7 +13,7 @@ TOKEN="$L-$$-$(date +%s)"; printf '%s\n' "$TOKEN" > "$OUTD/window.open"
 # Watchdog: whatever happens in the browser, the window closes itself after 10 minutes. window-close334.sh kills it.
 setsid bash -c "sleep 600; [ \"\$(cat '$OUTD/window.open' 2>/dev/null)\" = '$TOKEN' ] && bash '$HERE/window-close334.sh' watchdog >>'$OUTD/watchdog.log' 2>&1" </dev/null >/dev/null 2>&1 &
 echo $! > "$OUTD/window.watchdog"
-QA333_OUTBOUND=true bash "$QA333_DIR/stack333.sh" restart >&2 || { bash "$HERE/window-close334.sh" failed-open; exit 3; }
+QA333_OUTBOUND=true bash "$STACK333" restart >&2 || { bash "$HERE/window-close334.sh" failed-open; exit 3; }
 assert_safe_stack true || { bash "$HERE/window-close334.sh" unsafe; exit 3; }
 qa_login testuser || { bash "$HERE/window-close334.sh" failed-open; exit 3; }
 ok() { [ "$CODE" = 200 ] && echo PASS || echo FAIL; }

@@ -17,3 +17,7 @@ integ() { req testuser "$A" GET /api/integrations/whatsapp -; }
 # snap_body <message-id> <name>: keep the submitted body (synthetic text) to compare later for equality.
 snap_body() { req testuser "$A" GET "/api/messages/$1" -; (umask 077; printf '%s' "$BODY" | jq -r .body > "$OUTD/$2.body"); }
 tenant_state() { integ; printf '%s' "$BODY" | jq -r '"\(.enabled)/\(.webhookVerified)/\(.outboundEnabled)"'; }
+# Backend control for the window scripts (overridable in the offline close test).
+STACK333=${STACK333:-$QA333_DIR/stack333.sh}
+stop_backend() { docker compose -f "$WT/compose.yaml" stop backend >/dev/null 2>&1; }
+backend_running() { [ -n "$(docker compose -f "$WT/compose.yaml" ps --status running -q backend 2>/dev/null)" ]; }

@@ -89,7 +89,22 @@ below; none covers them.
    - the body check compares with a snapshot taken at submit;
    - the window watchdog is tokenised and stopped on close;
    - window open, mapping setup and cleanup check their HTTP codes and exit nonzero on failure;
-   - cleanup cancels only this suite's messages and keeps the customer's current phones.
+   - cleanup cancels only this suite's messages and keeps the customer's current phones;
+   - `window-close334.sh` fails closed:
+     - closes are serialized with a lock;
+     - it restarts with the global switch OFF first, then switches tenant A OFF;
+     - it clears the window token and stops the watchdog only after both are verified OFF;
+     - after two failed attempts it stops the backend and keeps the window state and watchdog armed, so a later close
+       retries.
+
+     `window-close-test334.sh` checks this offline against a fake stack:
+     - normal close;
+     - injected restart failure;
+     - global stuck ON;
+     - concurrent manual and watchdog close;
+     - watchdog no-op.
+
+     A variant that disarms before verifying fails it.
 5. Customer state was changed through the API only to set up cases (template mapping, due dates, a rename). Cleanup
    (`cleanup334.sh`) cancelled every open message and restored the customer's name, due date and the second customer's
    state. Final counts: 15 `CANCELLED` (10 from #333), 1 `REJECTED`, 1 `SENT`; 1 send attempt; tenant A outbound off.
