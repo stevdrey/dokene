@@ -67,11 +67,14 @@ try {
   const search = page.getByRole('searchbox').first();
   await tabTo(/^Buscar/, { label: 'search-focus', back: true });
   // Screenshots hide the caret, so identical images mean no visible focus indicator.
-  const focusedPng = await search.screenshot({ path: `${process.env.HOME}/qa338/shots/ux03-${BROWSER}-search-focused.png` });
+  // The ring is drawn outside the box (outline-offset), so capture a 6 px margin around it.
+  const sb = await search.boundingBox();
+  const clip = { x: sb.x - 6, y: sb.y - 6, width: sb.width + 12, height: sb.height + 12 };
+  const focusedPng = await page.screenshot({ clip, path: `${process.env.HOME}/qa338/shots/ux03-${BROWSER}-search-focused.png` });
   const ring = await search.evaluate(el => { const s = getComputedStyle(el); return `border ${s.borderColor}, shadow ${s.boxShadow}, outline ${s.outlineStyle}`; });
   await tabTo(CUSTOMER_START, { label: 'order-return' });
   const ring2 = await search.evaluate(el => { const s = getComputedStyle(el); return `border ${s.borderColor}, shadow ${s.boxShadow}, outline ${s.outlineStyle}`; });
-  const unfocusedPng = await search.screenshot({ path: `${process.env.HOME}/qa338/shots/ux03-${BROWSER}-search-unfocused.png` });
+  const unfocusedPng = await page.screenshot({ clip, path: `${process.env.HOME}/qa338/shots/ux03-${BROWSER}-search-unfocused.png` });
   check('the search box shows a visible focus state', !focusedPng.equals(unfocusedPng), `focused: ${ring}; unfocused: ${ring2}; images ${focusedPng.equals(unfocusedPng) ? 'identical' : 'differ'}`);
 
   // 3. Open the customer and run the AI recommendation and draft.

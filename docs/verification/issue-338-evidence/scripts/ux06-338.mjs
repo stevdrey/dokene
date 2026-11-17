@@ -55,9 +55,19 @@ try {
   const preview = [(await composeSection.innerText()), ...(await composeSection.locator('textarea').evaluateAll(t => t.map(x => x.value)))].join('\n').replace(/\r/g, '');
   check('the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)', BODY.split('\n').every(l => preview.includes(l)) && clean(await injected()) && dialogs === 0, JSON.stringify(preview.slice(0, 200)));
   // Only the compose's own copy (not the body, whose filler text says "ajuste de línea") can carry the warning.
-  const composeCopy = await composeSection.innerText();
+  const composeCopy = (await composeSection.innerText()).replace(BODY, '');
   if (MULTI) check('before submitting, the compose warns that line breaks cannot be sent', /(saltos? de línea|varias líneas|una sola línea)/i.test(composeCopy), /(saltos? de línea|varias líneas|una sola línea)/i.test(composeCopy) ? 'warning shown' : 'no warning in the compose');
-  await page.getByRole('button', { name: 'Enviar a aprobación' }).click();
+  // Retest of #417: a body the server would refuse is stopped in the compose, before any request.
+  const submitBtn = page.getByRole('button', { name: 'Enviar a aprobación' });
+  if (MULTI && await submitBtn.isDisabled()) {
+    const warning = (await composeSection.innerText()).match(/WhatsApp no admite[^.]*\./)?.[0] ?? '';
+    check('the unsendable body is stopped before submit: submit disabled with the reason shown', warning !== '' && (await composeSection.locator('textarea').first().getAttribute('aria-invalid')) === 'true', warning);
+    check('no markup from customer or body text was executed or inserted anywhere', clean(await injected()) && dialogs === 0, JSON.stringify(await injected()));
+    save(`ux06-${BROWSER}-multiline.json`, { browser: BROWSER, version: browser.version(), body: BODY, checks });
+    await browser.close();
+    process.exit(0);
+  }
+  await submitBtn.click();
   await page.getByRole('button', { name: 'Confirmar envío a aprobación' }).click();
   await page.waitForTimeout(3000);
   const outcome = `${(await page.getByRole('status').allInnerTexts()).join(' | ')} ${(await page.getByRole('alert').allInnerTexts()).join(' | ')}`.replace(/\s+/g, ' ');

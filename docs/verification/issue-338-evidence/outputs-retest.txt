@@ -1,0 +1,218 @@
+# Suite #338 retest on fix candidate 91dc65a (PR #420), real Chromium 156 and Firefox 160, local stack with the
+# frontend image rebuilt at 91dc65a (backend unchanged). Fresh QA338 fixtures; sanitized console output.
+
+SETUP	QA338 fixtures: 7 customers due today with WhatsApp consent; VP pending, VA approved	PASS	2026-11-17T19:05:45Z	VP=1f006c89 VA=2f768a8d
+== candidate 91dc65a
+== ux01 chromium
+1440x900           queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=28 unreachable=0 missing=-
+1440x900           review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=36 unreachable=0 missing=-
+1440x900           approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=38 unreachable=0 missing=-
+1440x900           review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1440x900           send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=37 unreachable=0 missing=-
+1440x900           history                overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1440x900           integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+1440x900           integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+1024x768           queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=28 unreachable=0 missing=-
+1024x768           review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=36 unreachable=0 missing=-
+1024x768           approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=38 unreachable=0 missing=-
+1024x768           review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1024x768           send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=37 unreachable=0 missing=-
+1024x768           history                overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1024x768           integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+1024x768           integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+768x1024           queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+768x1024           review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+768x1024           approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+768x1024           review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+768x1024           send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+768x1024           history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+768x1024           integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+768x1024           integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+390x844            queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+390x844            review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+390x844            approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+390x844            review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+390x844            send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+390x844            history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+390x844            integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+390x844            integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+320x568            queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+320x568            review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+320x568            approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+320x568            review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+320x568            send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+320x568            history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+320x568            integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+320x568            integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+zoom200-1440x900   queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom200-1440x900   review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom200-1440x900   approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+zoom200-1440x900   review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom200-1440x900   send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+zoom200-1440x900   history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom200-1440x900   integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+zoom200-1440x900   integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+zoom400-1280x1024  queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom400-1280x1024  review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom400-1280x1024  approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+zoom400-1280x1024  review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom400-1280x1024  send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+zoom400-1280x1024  history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom400-1280x1024  integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+zoom400-1280x1024  integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+== ux01 firefox
+1440x900           queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=28 unreachable=0 missing=-
+1440x900           review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=36 unreachable=0 missing=-
+1440x900           approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=38 unreachable=0 missing=-
+1440x900           review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1440x900           send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=37 unreachable=0 missing=-
+1440x900           history                overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1440x900           integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+1440x900           integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+1024x768           queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=28 unreachable=0 missing=-
+1024x768           review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=36 unreachable=0 missing=-
+1024x768           approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=38 unreachable=0 missing=-
+1024x768           review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1024x768           send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=37 unreachable=0 missing=-
+1024x768           history                overflowX=false overflow=0 clipped=0 broken=0 controls=35 unreachable=0 missing=-
+1024x768           integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+1024x768           integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+768x1024           queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+768x1024           review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+768x1024           approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+768x1024           review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+768x1024           send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+768x1024           history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+768x1024           integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+768x1024           integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+390x844            queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+390x844            review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+390x844            approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+390x844            review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+390x844            send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+390x844            history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+390x844            integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+390x844            integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+320x568            queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+320x568            review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+320x568            approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+320x568            review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+320x568            send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+320x568            history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+320x568            integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+320x568            integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+zoom200-1440x900   queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom200-1440x900   review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom200-1440x900   approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+zoom200-1440x900   review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom200-1440x900   send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+zoom200-1440x900   history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom200-1440x900   integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+zoom200-1440x900   integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+zoom400-1280x1024  queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom400-1280x1024  review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=21 unreachable=0 missing=-
+zoom400-1280x1024  approve-confirm        overflowX=false overflow=0 clipped=0 broken=0 controls=23 unreachable=0 missing=-
+zoom400-1280x1024  review-approved        overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom400-1280x1024  send-refused-error     overflowX=false overflow=0 clipped=0 broken=0 controls=22 unreachable=0 missing=-
+zoom400-1280x1024  history                overflowX=false overflow=0 clipped=0 broken=0 controls=20 unreachable=0 missing=-
+zoom400-1280x1024  integration-templates  overflowX=false overflow=0 clipped=0 broken=0 controls=7 unreachable=0 missing=-
+zoom400-1280x1024  integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
+== ux03 chromium
+PASS  sign-in completed with the keyboard only  (Keycloak focus started on username)
+PASS  first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)  (Saltar al contenido > Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 13 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Conflicto Paralelo check_circle verified Contacto autorizado (Wh > QA333 Ana Vencida verified Contacto autorizado (WhatsApp) Pendiente pa > QA338 Sesion Vencida verified Contacto autorizado (WhatsApp) Pendiente)
+PASS  a skip link to the main content is offered  (first stop: Saltar al contenido)
+PASS  every recorded stop paints a focus indicator  (all visible)
+PASS  the search box shows a visible focus state  (focused: border rgb(189, 201, 198), shadow none, outline solid; unfocused: border rgb(189, 201, 198), shadow none, outline none; images differ)
+PASS  focus is kept (not lost to body) after the recommendation loads  (Recomendación de la IA)
+PASS  focus moves to the review form after "Revisar y enviar"  (Revisar y enviar)
+PASS  submit confirmation takes focus  (Confirmar envío a aprobación in Confirmar envío a aprobación)
+PASS  Escape closes the submit confirmation and focus returns to "Enviar a aprobación"  (Enviar a aprobación)
+PASS  the submit result is in a live region (status/alert)
+PASS  after submitting, focus is not lost to the page body  (focus on QA338 Teclado Final Chromium)
+PASS  after submitting, the review of the new message is shown
+PASS  approval confirmation takes focus  (Confirmar aprobación in Confirmar aprobación)
+PASS  Escape closes the approval confirmation and focus returns to "Aprobar"  (Aprobar)
+PASS  approved by keyboard; result announced; focus kept  (focus on QA338 Teclado Final Chromium)
+PASS  send confirmation takes focus  (Confirmar envío in Confirmar envío)
+PASS  a refused send is announced as an alert while focus stays on the confirm button  (Confirmar envío)
+PASS  Escape closes the refused send group and focus returns to "Enviar"  (Enviar)
+PASS  the snooze dialog takes focus  (Cerrar modal)
+PASS  Tab and Shift+Tab stay inside the dialog
+PASS  Escape closes the dialog and focus returns to "Posponer"  (schedule Posponer)
+PASS  the workspace selector opens from the keyboard  (focus on Seleccionar espacio de trabajo)
+PASS  Escape closes the workspace selector and focus returns to it  (Seleccionar espacio de trabajo)
+== ux03 firefox
+PASS  sign-in completed with the keyboard only  (Keycloak focus started on username)
+PASS  first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)  (Saltar al contenido > Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 13 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Conflicto Paralelo check_circle verified Contacto autorizado (Wh > QA333 Ana Vencida verified Contacto autorizado (WhatsApp) Pendiente pa > QA338 Sesion Vencida verified Contacto autorizado (WhatsApp) Pendiente)
+PASS  a skip link to the main content is offered  (first stop: Saltar al contenido)
+PASS  every recorded stop paints a focus indicator  (all visible)
+PASS  the search box shows a visible focus state  (focused: border rgb(189, 201, 198), shadow none, outline solid; unfocused: border rgb(189, 201, 198), shadow none, outline none; images differ)
+PASS  focus is kept (not lost to body) after the recommendation loads  (Recomendación de la IA)
+PASS  focus moves to the review form after "Revisar y enviar"  (Revisar y enviar)
+PASS  submit confirmation takes focus  (Confirmar envío a aprobación in Confirmar envío a aprobación)
+PASS  Escape closes the submit confirmation and focus returns to "Enviar a aprobación"  (Enviar a aprobación)
+PASS  the submit result is in a live region (status/alert)
+PASS  after submitting, focus is not lost to the page body  (focus on QA338 Teclado Final Firefox)
+PASS  after submitting, the review of the new message is shown
+PASS  approval confirmation takes focus  (Confirmar aprobación in Confirmar aprobación)
+PASS  Escape closes the approval confirmation and focus returns to "Aprobar"  (Aprobar)
+PASS  approved by keyboard; result announced; focus kept  (focus on QA338 Teclado Final Firefox)
+PASS  send confirmation takes focus  (Confirmar envío in Confirmar envío)
+PASS  a refused send is announced as an alert while focus stays on the confirm button  (Confirmar envío)
+PASS  Escape closes the refused send group and focus returns to "Enviar"  (Enviar)
+PASS  the snooze dialog takes focus  (Cerrar modal)
+PASS  Tab and Shift+Tab stay inside the dialog
+PASS  Escape closes the dialog and focus returns to "Posponer"  (schedule Posponer)
+PASS  the workspace selector opens from the keyboard  (focus on Seleccionar espacio de trabajo)
+PASS  Escape closes the workspace selector and focus returns to it  (Seleccionar espacio de trabajo)
+== ux05b chromium
+PASS  tenant B integration opened (ADMIN); original reference read from the panel  (reference qa333-token-b)
+PASS  unresolvable reference: refused, no provider request  (ui "No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.")
+PASS  unresolvable reference: the copy points at the credential reference, not at a provider outage  (ui "No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.")
+PASS  number not owned by the credential: refused with the "No se pudo comprobar la propiedad…" guidance  (ui "No se pudo comprobar la propiedad del número con la referencia configurada. Revisa que la integración esté habilitada y que los identificadores sean correctos.", provider requests 1)
+PASS  restored: ownership proven again, the panel shows "Propiedad comprobada"  (ui "Propiedad del número comprobada.")
+== ux05b firefox
+PASS  tenant B integration opened (ADMIN); original reference read from the panel  (reference qa333-token-b)
+PASS  unresolvable reference: refused, no provider request  (ui "No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.")
+PASS  unresolvable reference: the copy points at the credential reference, not at a provider outage  (ui "No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.")
+PASS  number not owned by the credential: refused with the "No se pudo comprobar la propiedad…" guidance  (ui "No se pudo comprobar la propiedad del número con la referencia configurada. Revisa que la integración esté habilitada y que los identificadores sean correctos.", provider requests 1)
+PASS  restored: ownership proven again, the panel shows "Propiedad comprobada"  (ui "Propiedad del número comprobada.")
+== ux06 chromium multi
+PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Multilínea Final Chromium ✨)
+PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Multilínea Final Chromium ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar ")
+PASS  the edited body is held exactly (code points, newlines)  (720 code points, 4 lines)
+PASS  the length counter counts code points (emoji count as their code points, max 1000)  (720 / 1000)
+PASS  "Copiar borrador" puts exactly the shown text on the clipboard  (identical)
+PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Multilínea Final Chromium ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0071\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (")
+PASS  before submitting, the compose warns that line breaks cannot be sent  (warning shown)
+PASS  the unsendable body is stopped before submit: submit disabled with the reason shown  (WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos en este mensaje.)
+PASS  no markup from customer or body text was executed or inserted anywhere  ({"flag":null,"b":0,"img":0,"script":0})
+== ux06 firefox multi
+PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Multilínea Final Firefox ✨)
+PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Multilínea Final Firefox ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar n")
+PASS  the edited body is held exactly (code points, newlines)  (720 code points, 4 lines)
+PASS  the length counter counts code points (emoji count as their code points, max 1000)  (720 / 1000)
+PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Multilínea Final Firefox ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0072\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nTexto fina")
+PASS  before submitting, the compose warns that line breaks cannot be sent  (warning shown)
+PASS  the unsendable body is stopped before submit: submit disabled with the reason shown  (WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos en este mensaje.)
+PASS  no markup from customer or body text was executed or inserted anywhere  ({"flag":null,"b":0,"img":0,"script":0})
+== ux06 chromium single
+PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Única Final 🎉 <i>x</i>)
+PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Única Final 🎉 <i>x</i>, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar nuev")
+PASS  the edited body is held exactly (code points, newlines)  (720 code points, 1 lines)
+PASS  the length counter counts code points (emoji count as their code points, max 1000)  (720 / 1000)
+PASS  "Copiar borrador" puts exactly the shown text on the clipboard  (identical)
+PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Única Final 🎉 <i>x</i>\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0073\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (Lati")
+PASS  submitting the multiline body gives a clear outcome (submitted, or a readable refusal)  (Borrador copiado | Mensaje enviado a aprobación. Aún no se ha enviado al cliente. |)
+PASS  the review renders the stored body with the same lines, accents and emoji  (28 lines rendered)
+PASS  no markup from customer or body text was executed or inserted anywhere  ({"flag":null,"b":0,"img":0,"script":0})
+PASS  long text at 390 px: no page overflow, nothing clipped  (scrollWidth 390/390; )
+PASS  long text at 320 px: no page overflow, nothing clipped  (scrollWidth 320/320; )
+== copy chromium
+PASS  the AI disclaimer matches the approval-and-send flow  (Sugerencia generada por IA · La IA no envía nada. Un mensaje solo se envía después de revisarlo, aprobarlo y enviarlo, y la decisión es tuya.)
+PASS  the workbench footer no longer says contacts are manual only  (Dokene te ayuda a recordar tus compromisos. Puedes contactar por tu canal habitual o enviar por WhatsApp un mensaje aprobado.)
+== copy firefox
+PASS  the AI disclaimer matches the approval-and-send flow  (Sugerencia generada por IA · La IA no envía nada. Un mensaje solo se envía después de revisarlo, aprobarlo y enviarlo, y la decisión es tuya.)
+PASS  the workbench footer no longer says contacts are manual only  (Dokene te ayuda a recordar tus compromisos. Puedes contactar por tu canal habitual o enviar por WhatsApp un mensaje aprobado.)
+
+RETEST-CLEANUP	retest data cancelled/archived; switches off; tenant B restored	PASS	2026-11-17T19:09:49Z	cancelled=5 archived=12 A=true/true/false B=true/true/false/qa333-token-b stub_sends=29

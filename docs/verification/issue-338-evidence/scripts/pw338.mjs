@@ -60,6 +60,8 @@ export async function layoutProbe(page) {
         if (n.parentElement.closest('.material-symbols-outlined')) continue;
         const re = /[^\s\-‐–—]+/g; let m;
         while ((m = re.exec(n.data))) {
+          // Synthetic unspaced HTML-like tokens in test names ("<b>Negrita</b>") may wrap anywhere, like any long data.
+          if (m[0].includes('<')) continue;
           const range = document.createRange(); range.setStart(n, m.index); range.setEnd(n, m.index + m[0].length);
           const tops = new Set([...range.getClientRects()].filter(q => q.width > 0).map(q => Math.round(q.top)));
           if (tops.size > 1) out.brokenWords.push(`${m[0]} in "${name(el)}"`);
@@ -84,6 +86,8 @@ export async function reachProbe(page) {
       const s = getComputedStyle(el); const r = el.getBoundingClientRect();
       if (s.visibility === 'hidden' || s.display === 'none' || r.width === 0 || r.height === 0) return null;
       if (el.closest('[aria-hidden=true],[inert]')) return null;
+      // A skip link sits off screen until it is focused; ux03 checks it by keyboard.
+      if (el.matches('.skip-link')) return null;
       el.scrollIntoView({ block: 'center', inline: 'center' });
       const r2 = el.getBoundingClientRect();
       const x = Math.min(Math.max(r2.left + r2.width / 2, 0), innerWidth - 1), y = Math.min(Math.max(r2.top + r2.height / 2, 0), innerHeight - 1);

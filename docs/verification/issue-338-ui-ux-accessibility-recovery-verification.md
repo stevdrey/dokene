@@ -3,13 +3,17 @@
 Suite of the Phase 3 manual QA epic [#332](https://github.com/stevdrey/dokene/issues/332). Cases P3-MQA-UX-01 to
 UX-07.
 
-**Verdict: FAIL (scoped)** for candidate `42eec817fe3f305d4245852755e390c9a0693276` (`main`, 2026-11-17), on the local
+**Verdict after retest: PASS (scoped), with the screen-reader part of UX-03 BLOCKED.** The four defects were fixed in
+[#420](https://github.com/stevdrey/dokene/pull/420) and retested on that fix's own SHA `91dc65a` (see *Retest*): all 7
+cases pass there. That fix is not yet merged, so `main` still shows the original result.
+
+**Original run: FAIL (scoped)** for candidate `42eec817fe3f305d4245852755e390c9a0693276` (`main`, 2026-11-17), on the local
 stack with the loopback Graph stub. 4 PASS (UX-01, UX-02, UX-04, UX-07), 3 FAIL (UX-03, UX-05, UX-06), and the
 screen-reader part of UX-03 BLOCKED. Four new defects, D1 to D4 ([#415](https://github.com/stevdrey/dokene/issues/415) to [#418](https://github.com/stevdrey/dokene/issues/418)): keyboard focus, word breaks in labels, the
 multiline draft body, and misleading copy. None of them is a safety, tenant or security problem. Every recovery path
 kept the server state correct: no lost response, offline period, ambiguous 500, parallel change, ended session, revoked
 member, rate limit or double activation created a second approval or a second provider request. The failures are about
-comprehension and accessibility. Fix and retest are pending.
+comprehension and accessibility.
 
 ## Environment
 
@@ -45,7 +49,7 @@ real Meta.
 | UX-06 Long, accented, emoji, multiline, HTML-like text | **FAIL** | Browser, both browsers. The customer names with accents, emoji, `<b>…</b>`, `&` and typographic quotes render literally in the queue, detail and AI draft. A 720-code-point body (ñ, accents, emoji and a ZWJ sequence, quotes, `<b>`, `<script>`, `<img onerror>`, `&amp;`, `{{7*7}}`) is held exactly in the editor. The counter counts code points (720/1000). *Copiar borrador* puts exactly that text on the clipboard (Chromium). The compose shows it verbatim. Nothing was executed or inserted (no flag, `b`, `img` or `script` element, no dialog), and nothing overflows at 390 or 320 px. As a single line the body is submitted, and the review renders every character | **D3**: a multiline body is refused at submit with the generic *El texto del mensaje no pasó la validación.* (`409 BODY_REJECTED`). Over HTTP the rule is newlines, tabs or long runs of spaces (Meta's template-parameter rules); accents, emoji, HTML-like text and length are accepted. The draft editor accepts Enter, nothing warns before submit, and the refusal does not say what to change. A multiline AI draft cannot reach approval without guesswork |
 | UX-07 Stale responses and navigation | **PASS** | Browser, both browsers (delays injected). A slow history read for customer 1, then customer 2 opened: customer 2's view and messages only. A slow tenant A read, then a switch to tenant B: no tenant A name, message or text in B. An approval held 3 s on the response side while the operator opened another customer (Chromium): no foreign confirmation, 1 approval, and the first customer shows *Aprobado, sin enviar* on return. A viewport change to 390 px during an approval: 1 approval, result shown in the narrow layout. Back and forward land on a consistent queue with no stale data. Logout and relogin with an edited AI draft: a clear signed-out page, and on return the assistant starts over (*Obtener recomendación*), with no half-restored state | Observations: O2, the app keeps no in-app history (Back returns to the OIDC callback entry, which reloads the queue; Firefox restores from bfcache). O3, logging out discards an edited draft without a warning; recovery is understandable but silent |
 
-Totals in `issue-338-evidence/outputs.txt`: 129 PASS, 14 FAIL (all mapped to D1, D3 and D4), 1 HARNESS-ERROR (setup
+Totals of the original run in `issue-338-evidence/outputs.txt`: 129 PASS, 14 FAIL (all mapped to D1, D3 and D4), 1 HARNESS-ERROR (setup
 note 4), and 112 viewport-sweep rows.
 
 ## Defects and observations
@@ -56,10 +60,10 @@ paths; nothing matched.
 
 | Id | Defect | Severity | Issue |
 | --- | --- | --- | --- |
-| D1 | Keyboard focus gaps: the queue search box has no focus indicator; focus is lost after submit to approval; there is no skip link (WCAG 2.4.7, 2.4.3, 2.4.1) | Medium | [#415](https://github.com/stevdrey/dokene/issues/415) |
-| D2 | Button labels wrap inside a word: the history row's *Actualizar* at ≥768 px, *Posponer* and *Descartar* at 320 px | Low | [#416](https://github.com/stevdrey/dokene/issues/416) |
-| D3 | A multiline (or tab or space-run) draft body is accepted by the editor but refused at submit with a generic sentence; no warning before and no guidance after | Medium | [#417](https://github.com/stevdrey/dokene/issues/417) |
-| D4 | Misleading copy: an unresolvable credential reference reads as a temporary provider outage; the AI panel and footer still say Dokene sends nothing and sending is manual | Medium | [#418](https://github.com/stevdrey/dokene/issues/418) |
+| D1 | Keyboard focus gaps: the queue search box has no focus indicator; focus is lost after submit to approval; there is no skip link (WCAG 2.4.7, 2.4.3, 2.4.1) | Medium | [#415](https://github.com/stevdrey/dokene/issues/415); fixed in #420, retest **PASS** on `91dc65a` |
+| D2 | Button labels wrap inside a word: the history row's *Actualizar* at ≥768 px, *Posponer* and *Descartar* at 320 px | Low | [#416](https://github.com/stevdrey/dokene/issues/416); fixed in #420, retest **PASS** on `91dc65a` |
+| D3 | A multiline (or tab or space-run) draft body is accepted by the editor but refused at submit with a generic sentence; no warning before and no guidance after | Medium | [#417](https://github.com/stevdrey/dokene/issues/417); fixed in #420, retest **PASS** on `91dc65a` |
+| D4 | Misleading copy: an unresolvable credential reference reads as a temporary provider outage; the AI panel and footer still say Dokene sends nothing and sending is manual | Medium | [#418](https://github.com/stevdrey/dokene/issues/418); fixed in #420, retest **PASS** on `91dc65a` |
 
 | Id | Observation | Classification |
 | --- | --- | --- |
@@ -67,6 +71,35 @@ paths; nothing matched.
 | O2 | No in-app browser history; Back and Forward reload or restore the queue | By design of the current shell; consistent state |
 | O3 | Logout discards an edited AI draft without a prompt | Understandable; optional improvement |
 | O4 | Queue cards expose their whole content as the accessible name; Configuración has no `h1`, and the workbench heading order is h1, h3…, h2 (as noted in #122) | Screen-reader verbosity; to confirm in the BLOCKED session |
+
+## Retest on the fix SHA
+
+The fix PR [#420](https://github.com/stevdrey/dokene/pull/420) (frontend only) passed an independent verification
+(fresh subagent, round 2 PASS 7/7 for base `42eec81`, head `91dc65a`, tree `ae049b5`; round 1 had failed on a real
+blocker, a multiline *fixed* template wrongly blocked, which `91dc65a` fixed). The suite was then rerun on that exact
+SHA: the stack's frontend image was rebuilt at `91dc65a` (the backend is unchanged; `git diff --stat 42eec81 91dc65a`
+touches only `frontend/`), the served bundle was checked for the new strings, and fresh `QA338` fixtures were created.
+Recorded in [`issue-338-evidence/outputs-retest.txt`](issue-338-evidence/outputs-retest.txt): **88 PASS, 0 FAIL**, plus
+112 viewport rows with no overflow, clipping, unreachable control or broken word.
+
+| Case | Original | Retest on `91dc65a` | Evidence |
+| --- | --- | --- | --- |
+| UX-01 | PASS (D2 noted) | **PASS** | Both browsers, 7 viewports × 8 screens: *Actualizar*, *Posponer* and *Descartar* stay whole at every width |
+| UX-02 | PASS | **PASS** | Same matrix at 200 % and 400 % zoom |
+| UX-03 | FAIL / BLOCKED | **PASS** (keyboard) / **BLOCKED** (screen reader) | Both browsers: *Saltar al contenido* is the first stop and moves focus to `main`; the search box paints a 2 px ring (focused and unfocused captures differ); after *Confirmar envío a aprobación* focus lands on the new review's heading; every other UX-03 check still passes |
+| UX-04 | PASS (D4 noted) | **PASS** | The AI disclaimer reads *La IA no envía nada. Un mensaje solo se envía después de revisarlo, aprobarlo y enviarlo…*; the footer reads *Puedes contactar por tu canal habitual o enviar por WhatsApp un mensaje aprobado.* |
+| UX-05 | FAIL | **PASS** | An unresolvable credential reference now reads *No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.*; the not-owned and restored proofs as before. The recovery and safety checks, which passed originally, are untouched by the frontend fix (no request logic changed) |
+| UX-06 | FAIL | **PASS** | Both browsers: a multiline body shows *WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos…*, the field is `aria-invalid` and *Enviar a aprobación* is disabled before any request; a single-line body with accents, emoji and HTML-like text is still submitted and rendered exactly |
+| UX-07 | PASS | PASS | Not affected by the fix (no request or state logic changed); not rerun |
+
+Retest harness changes (no verdict depended on them in the product's favour): the reach probe skips the skip link,
+which by design sits off screen until focused and is checked by keyboard in UX-03; the word-break probe ignores
+synthetic unspaced HTML-like tokens in test names (`<b>Negrita</b>`, `<i>x</i>`), as it already did for one of them;
+the search-box focus capture includes a 6 px margin, because the ring is drawn outside the box and a Firefox element
+capture cropped it (a dry run on `0d7edf0` showed this; the ring was confirmed visible in both browsers). UX-06 records
+a blocked submit when the compose stops the body before any request. Dry runs on the intermediate candidate `0d7edf0`
+were superseded by the run on `91dc65a`. Cleanup: 5 messages cancelled, 12 retest customers archived, switches off,
+tenant B on its own reference, stub send count still 29.
 
 ## Setup notes
 
@@ -117,6 +150,9 @@ through the environment (`QA_PW`, `QA_PW_OP` from `scripts/lib/test-passwords.sh
    `node ux04-338.mjs copy <browser>` (after `due_today` on the sent customers), `w1-338.sh reconcile`,
    `window-close334.sh W1`.
 4. `final338.sh`, then `python3 -I build-outputs338.py ~/qa338/out outputs.txt`.
+5. Retest: check out the fix SHA in the stack worktree, `docker compose build frontend` and recreate it, then with a fresh
+   `OUTD`: `fixtures338.sh`, `ux01-338.mjs`, `ux03-338.mjs`, `ux05b-338.mjs`, `ux06-338.mjs` (multiline and single),
+   `retest338.mjs <browser> "QA338 Vista Pendiente"`, in both browsers.
 
 The scripts are in [`issue-338-evidence/scripts/`](issue-338-evidence/scripts/), and the recorded run is
 [`issue-338-evidence/outputs.txt`](issue-338-evidence/outputs.txt). Screenshots stayed local (`~/qa338/shots`) because
