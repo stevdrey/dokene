@@ -8,8 +8,8 @@ qa_login testuser || exit 3
 req testuser "$A" GET /api/integrations/whatsapp -; ta="$(jb .enabled)/$(jb .webhookVerified)/$(jb .outboundEnabled)"
 req testuser "$B" GET /api/integrations/whatsapp -; tb="$(jb .enabled)/$(jb .webhookVerified)/$(jb .outboundEnabled)/$(jb .secretRef)/$(jb .phoneNumberId)"
 rec END "global switch off (backend env), tenant A enabled/proven/outbound off, tenant B restored to its own number and reference" "$( { [ "$ta" = true/true/false ] && [ "$tb" = true/true/false/qa333-token-b/100000000000002 ]; } && echo PASS || echo FAIL)" "A=$ta B=$tb"
-rec END "no provider send during the whole suite (stub send count 22 at start)" "$( { [ "$(stub_sends)" = 22 ]; } && echo PASS || echo FAIL)" "stub_sends=$(stub_sends)"
-for v in MA PT XM NX; do m=${!v}; req testuser "$A" GET "/api/messages/$m" -
+rec END "no provider send during the whole suite (stub send count unchanged since fixtures337.sh)" "$( { [ "$(stub_sends)" = "${STUB0:?run fixtures337.sh first}" ]; } && echo PASS || echo FAIL)" "stub_sends=$(stub_sends) start=$STUB0"
+for v in MA PC PT XM NX; do m=${!v}; req testuser "$A" GET "/api/messages/$m" -
   case "$(jb .status)" in PENDING_APPROVAL|APPROVED) ;; *) continue ;; esac
   req testuser "$A" POST "/api/messages/$m/cancellations" '{"note":"QA337 cleanup"}' -H "If-Match: $(etag)" -H "Idempotency-Key: $(uuidgen)"
   rec CLEANUP "cancel open tenant A message $v" "$( { [ "$(jb .status)" = CANCELLED ]; } && echo PASS || echo FAIL)" "http=$CODE"

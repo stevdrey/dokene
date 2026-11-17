@@ -4,6 +4,9 @@
 set -uo pipefail
 . "$(dirname "$0")/qa337.sh"
 C=SETUP
+# Suite baselines, captured once before any probe: provider sends at the stub and denial audit rows.
+[ -n "${STUB0:-}" ] || setid STUB0 "$(stub_sends)"
+[ -n "${DENY_BEFORE:-}" ] || setid DENY_BEFORE "$(deny_n)"
 T=$(kc_admin_token); [ -n "$T" ] || { echo "Keycloak admin login failed" >&2; exit 1; }
 kc_user() { # username first last: create only when missing; the password comes from the 600 file through the environment
   local n code

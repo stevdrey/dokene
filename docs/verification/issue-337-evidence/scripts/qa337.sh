@@ -18,6 +18,8 @@ export QA_TAG=QA337 QA_PHONE_PREFIX=+5698337
 export OUTD=$QA337_OUTD RESULTS=$QA337_RESULTS QA_TAG=QA337 QA_PHONE_PREFIX=+5698337
 mkdir -p "$OUTD"
 [ -f "$OUTD/ids" ] && . "$OUTD/ids"
+# Every side-effect check compares stub counts: without the log they would compare two empty strings, so stop here.
+[ -f "$QA_HOME/stub/requests.log" ] || { echo "stub log $QA_HOME/stub/requests.log missing" >&2; exit 1; }
 
 # Side-effect counters: audit rows, denial rows, messages, attempts, approvals, stub sends, AI invocations.
 audit_n() { psqlq "select count(*) from dokene.audit_events${1:+ where $1}"; }

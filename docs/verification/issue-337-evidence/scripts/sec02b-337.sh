@@ -33,7 +33,7 @@ putB 100000000000001 qa333-token-b
 rec $C "B claims A's phone number id: stored unverified (by design, no oracle)" "$( { [ "$CODE" = 200 ] && [ "$(jb .webhookVerified)" = false ]; } && echo PASS || echo FAIL)" "http=$CODE webhookVerified=$(jb .webhookVerified)"
 # B's own proof (if any) was cleared by the number change above, so compare the mappings that matter, not v0.
 proveB
-rec $C "B ownership proof of A's number is refused, A keeps the verified mapping" "$( { [ "$CODE" = 400 ] && [ "$(code)" = INVALID_INPUT ] && vf=$(verified); printf '%s' "$vf" | grep -q 'A:100000000000001' && ! printf '%s' "$vf" | grep -q 'B:100000000000001'; } && echo PASS || echo FAIL)" "http=$CODE code=$(code) verified=$(verified)"
+rec $C "B ownership proof of A's number is refused, A keeps the verified mapping" "$( { [ "$CODE" = 400 ] && [ "$(code)" = INVALID_INPUT ] && vf=$(verified) && printf '%s' "$vf" | grep -q 'A:100000000000001' && ! printf '%s' "$vf" | grep -q 'B:100000000000001'; } && echo PASS || echo FAIL)" "http=$CODE code=$(code) verified=$(verified)"
 # A signed callback for A's number still lands in tenant A only.
 W=wamid.SYNTHETIC-qa337-route-$(date +%s)
 wh_body "$OUTD/route.json" 100000000000001 "$W:delivered"; wh_post "$OUTD/route.json"; sleep 2

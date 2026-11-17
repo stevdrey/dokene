@@ -103,6 +103,22 @@ contradicted by these results and no new behaviour needs one.
    archived. End checks: global, tenant A and tenant B outbound off; A and B enabled and proven; stub send count 22.
    Final database counts (all suites on this stack): messages 69 `CANCELLED`, 2 `DELIVERED`, 5 `FAILED`, 2 `READ`,
    1 `REJECTED`, 13 `SENT`; 22 attempts.
+10. A code review after the recorded run hardened the scripts. These changes were not rerun because the stack is down.
+    They make reruns and reproductions stricter; they do not change any recorded verdict:
+    - `fixtures337.sh` records the stub send count (`STUB0`) and the denial row count (`DENY_BEFORE`) before any
+      probe. `browser337.sh`, `final337.sh` and `sec07-337.sh` compare against those values, no longer against the
+      constants 22 and 68 from this run.
+    - `qa337.sh` stops when the stub request log is missing. Before, every stub check would have compared two empty
+      counts and passed.
+    - SEC-03 replays an ended session through a read-only copy of its cookie jar, with `-b` and no `/api/session`
+      call. In the recorded run the jar was writable, but the 401s still came from the ended session's own cookie.
+      The BFF creates no session for an anonymous request (`SessionBoundCsrfTokenRepository` saves nothing without
+      a session; ADR 0007 and #311, covered by `AnonymousSessionCreationIntegrationTest`). So the 401 responses
+      set no new cookie and the jar kept the old one.
+    - The SEC-04 key-reuse check now requires `409 IDEMPOTENCY_KEY_REUSED`, which is what the recorded run
+      returned; before, any 4xx passed. An unused submit on `IA` was removed.
+    - Other changes: the SEC-02 proof verdict is one unbroken `&&` chain, the tenant B message fixture is created
+      only once, the fixture ids are stored only after a 201, and `final337.sh` also cancels the SEC-03 fixture `PC`.
 
 ## Reproducing
 

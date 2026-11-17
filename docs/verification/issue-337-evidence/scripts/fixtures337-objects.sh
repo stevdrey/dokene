@@ -29,14 +29,17 @@ req testuser "$B" POST /api/customers "$(jq -cn --arg p "$PH" '{displayName:"QA3
 [ "$CODE" = 201 ] || { echo "B customer: $CODE $(code)" >&2; exit 1; }
 setid IB "$(jb .id)"; setid IB_C "$(jb '.phones[0].id')"
 fi
-req testuser "$B" GET "/api/customers/$IB/contact-policy" -
-req testuser "$B" PUT "/api/customers/$IB/contacts/$IB_C/consents/WHATSAPP" '{"status":"GRANTED","source":"CUSTOMER_VERBAL"}' -H "If-Match: $(etag)"
-req testuser "$B" POST "/api/customers/$IB/purchases" "$(jq -cn --arg t "$(date -u -d '-40 days' +%FT%TZ)" '{purchasedAt:$t,description:"Compra sintetica QA337 sur"}')" -H "Idempotency-Key: qa337-p-$IB"
-req testuser "$B" GET "/api/customers/$IB/follow-up-policy" -; TZB=$(jb '.timeZone // "UTC"')
-req testuser "$B" PUT "/api/customers/$IB/follow-up-policy" "$(jq -cn --arg d "$(TZ=$TZB date +%F)" '{cadenceDays:null,explicitNextDate:$d,snoozedUntil:null}')" -H "If-Match: $(etag)"
-req testuser "$B" POST "/api/customers/$IB/messages" '{"contactId":"'"$IB_C"'","action":"GENERAL_CHECK_IN","templateIntent":"GENERAL_FOLLOW_UP","body":"QA337 mensaje sur sintetico","locale":"es-419","origin":"MANUAL"}' -H "If-Match: $(etag)" -H "Idempotency-Key: qa337-b-submit-$IB"
-[ "$CODE" = 201 ] || { echo "B submit: $CODE $(code)" >&2; exit 1; }
-setid MB "$(jb .messageId)"
-rec $C "tenant B foreign objects: customer, contact, pending message" "$( { [ "$(jb .status)" = PENDING_APPROVAL ]; } && echo PASS || echo FAIL)" "customer=${IB:0:8} message=${MB:0:8} status=$(jb .status)"
+# MB is created once: a rerun would replay the stored submit and record its old status.
+if [ -z "${MB:-}" ]; then
+  req testuser "$B" GET "/api/customers/$IB/contact-policy" -
+  req testuser "$B" PUT "/api/customers/$IB/contacts/$IB_C/consents/WHATSAPP" '{"status":"GRANTED","source":"CUSTOMER_VERBAL"}' -H "If-Match: $(etag)"
+  req testuser "$B" POST "/api/customers/$IB/purchases" "$(jq -cn --arg t "$(date -u -d '-40 days' +%FT%TZ)" '{purchasedAt:$t,description:"Compra sintetica QA337 sur"}')" -H "Idempotency-Key: qa337-p-$IB"
+  req testuser "$B" GET "/api/customers/$IB/follow-up-policy" -; TZB=$(jb '.timeZone // "UTC"')
+  req testuser "$B" PUT "/api/customers/$IB/follow-up-policy" "$(jq -cn --arg d "$(TZ=$TZB date +%F)" '{cadenceDays:null,explicitNextDate:$d,snoozedUntil:null}')" -H "If-Match: $(etag)"
+  req testuser "$B" POST "/api/customers/$IB/messages" '{"contactId":"'"$IB_C"'","action":"GENERAL_CHECK_IN","templateIntent":"GENERAL_FOLLOW_UP","body":"QA337 mensaje sur sintetico","locale":"es-419","origin":"MANUAL"}' -H "If-Match: $(etag)" -H "Idempotency-Key: qa337-b-submit-$IB"
+  [ "$CODE" = 201 ] || { echo "B submit: $CODE $(code)" >&2; exit 1; }
+  setid MB "$(jb .messageId)"
+  rec $C "tenant B foreign objects: customer, contact, pending message" "$( { [ "$(jb .status)" = PENDING_APPROVAL ]; } && echo PASS || echo FAIL)" "customer=${IB:0:8} message=${MB:0:8} status=$(jb .status)"
+fi
 # Recorded FAIL lines make the exit status nonzero.
 qa_finish

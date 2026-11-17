@@ -14,7 +14,8 @@ APPR() { # <message> [key] -> approve the current revision
   req testuser "$A" GET "/api/messages/$1" -; local r; r=$(jb .template.revision)
   req testuser "$A" POST "/api/messages/$1/approvals" "{\"decision\":\"APPROVE\",\"templateRevision\":\"$r\"}" -H "If-Match: $(etag)" -H "Idempotency-Key: ${2:-$(uuidgen)}"
 }
-SUB "$RA" "$RA_C" "QA337 aprobado original"; PT=$(jb .messageId); setid PT "$PT"
+SUB "$RA" "$RA_C" "QA337 aprobado original"; [ "$CODE" = 201 ] || { echo "fixture submit $CODE $(code)" >&2; exit 1; }
+PT=$(jb .messageId); setid PT "$PT"
 APPR "$PT"; rec $C "fixture: approved message" "$( { [ "$(jb .status)" = APPROVED ]; } && echo PASS || echo FAIL)" "msg=${PT:0:8}"
 req testuser "$A" GET "/api/messages/$PT" -; ET=$(etag); RECIP0=$(psqlq "select recipient_phone from dokene.outbound_messages where id='$PT'")
 # tamper <label> <want-http> <METHOD> <path> <json|-> [curl args]: refused, and the approved row (status, version, body
@@ -62,10 +63,9 @@ req testuser "$B" GET "/api/messages/$MB" -; RB=$(jb .template.revision)
 req testuser "$B" POST "/api/messages/$MB/approvals" "{\"decision\":\"APPROVE\",\"templateRevision\":\"$RB\"}" -H "If-Match: $(etag)" -H "Idempotency-Key: $KA"
 rec $C "A's approval key reused in B: B's own message is decided, A's response is not replayed" "$( { [ "$(jb .messageId)" = "$MB" ] && ! printf '%s' "$BODY" | grep -q "$NX"; } && echo PASS || echo FAIL)" "http=$CODE msg=$(jb .messageId | cut -c1-8) status=$(jb .status)"
 # 3. Same key, same tenant, another message: refused as an idempotency conflict, the second message stays pending.
-SUB "$IA" "$IA_C" "QA337 otra" 2>/dev/null; true   # IA still holds MA: expect MESSAGE_ALREADY_OPEN; MA is the target
 req testuser "$A" GET "/api/messages/$MA" -; RMA=$(jb .template.revision); m0=$(mrowv "$MA")
 req testuser "$A" POST "/api/messages/$MA/approvals" "{\"decision\":\"APPROVE\",\"templateRevision\":\"$RMA\"}" -H "If-Match: $(etag)" -H "Idempotency-Key: $KA"
-rec $C "A's approval key reused on another A message: conflict, that message unchanged" "$( { [ "${CODE:0:1}" = 4 ] && [ "$(mrowv "$MA")" = "$m0" ]; } && echo PASS || echo FAIL)" "http=$CODE code=$(code) status=$(psqlq "select status from dokene.outbound_messages where id='$MA'")"
+rec $C "A's approval key reused on another A message: conflict, that message unchanged" "$( { [ "$CODE" = 409 ] && [ "$(code)" = IDEMPOTENCY_KEY_REUSED ] && [ "$(mrowv "$MA")" = "$m0" ]; } && echo PASS || echo FAIL)" "http=$CODE code=$(code) status=$(psqlq "select status from dokene.outbound_messages where id='$MA'")"
 # 4. Byte-identical replay of the A approval: the same stored answer, no second approval row.
 ap0=$(psqlq "select count(*) from dokene.outbound_message_approvals where message_id='$NX'")
 req testuser "$A" GET "/api/messages/$NX" -
