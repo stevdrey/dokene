@@ -4,7 +4,7 @@ Suite of the Phase 3 manual QA epic [#332](https://github.com/stevdrey/dokene/is
 UX-07.
 
 **Verdict after retest: PASS (scoped), with the screen-reader part of UX-03 BLOCKED.** The four defects were fixed in
-[#420](https://github.com/stevdrey/dokene/pull/420) and retested on that fix's own SHA `91dc65a` (see *Retest*): all 7
+[#420](https://github.com/stevdrey/dokene/pull/420) and retested on that fix's own SHA `1ca019a` (see *Retest*): all 7
 cases pass there. That fix is not yet merged, so `main` still shows the original result.
 
 **Original run: FAIL (scoped)** for candidate `42eec817fe3f305d4245852755e390c9a0693276` (`main`, 2026-11-17), on the local
@@ -60,10 +60,10 @@ paths; nothing matched.
 
 | Id | Defect | Severity | Issue |
 | --- | --- | --- | --- |
-| D1 | Keyboard focus gaps: the queue search box has no focus indicator; focus is lost after submit to approval; there is no skip link (WCAG 2.4.7, 2.4.3, 2.4.1) | Medium | [#415](https://github.com/stevdrey/dokene/issues/415); fixed in #420, retest **PASS** on `91dc65a` |
-| D2 | Button labels wrap inside a word: the history row's *Actualizar* at ≥768 px, *Posponer* and *Descartar* at 320 px | Low | [#416](https://github.com/stevdrey/dokene/issues/416); fixed in #420, retest **PASS** on `91dc65a` |
-| D3 | A multiline (or tab or space-run) draft body is accepted by the editor but refused at submit with a generic sentence; no warning before and no guidance after | Medium | [#417](https://github.com/stevdrey/dokene/issues/417); fixed in #420, retest **PASS** on `91dc65a` |
-| D4 | Misleading copy: an unresolvable credential reference reads as a temporary provider outage; the AI panel and footer still say Dokene sends nothing and sending is manual | Medium | [#418](https://github.com/stevdrey/dokene/issues/418); fixed in #420, retest **PASS** on `91dc65a` |
+| D1 | Keyboard focus gaps: the queue search box has no focus indicator; focus is lost after submit to approval; there is no skip link (WCAG 2.4.7, 2.4.3, 2.4.1) | Medium | [#415](https://github.com/stevdrey/dokene/issues/415); fixed in #420, retest **PASS** on `1ca019a` |
+| D2 | Button labels wrap inside a word: the history row's *Actualizar* at ≥768 px, *Posponer* and *Descartar* at 320 px | Low | [#416](https://github.com/stevdrey/dokene/issues/416); fixed in #420, retest **PASS** on `1ca019a` |
+| D3 | A multiline (or tab or space-run) draft body is accepted by the editor but refused at submit with a generic sentence; no warning before and no guidance after | Medium | [#417](https://github.com/stevdrey/dokene/issues/417); fixed in #420, retest **PASS** on `1ca019a` |
+| D4 | Misleading copy: an unresolvable credential reference reads as a temporary provider outage; the AI panel and footer still say Dokene sends nothing and sending is manual | Medium | [#418](https://github.com/stevdrey/dokene/issues/418); fixed in #420, retest **PASS** on `1ca019a` |
 
 | Id | Observation | Classification |
 | --- | --- | --- |
@@ -75,21 +75,24 @@ paths; nothing matched.
 ## Retest on the fix SHA
 
 The fix PR [#420](https://github.com/stevdrey/dokene/pull/420) (frontend only) passed an independent verification
-(fresh subagent, round 2 PASS 7/7 for base `42eec81`, head `91dc65a`, tree `ae049b5`; round 1 had failed on a real
-blocker, a multiline *fixed* template wrongly blocked, which `91dc65a` fixed). The suite was then rerun on that exact
-SHA: the stack's frontend image was rebuilt at `91dc65a` (the backend is unchanged; `git diff --stat 42eec81 91dc65a`
-touches only `frontend/`), the served bundle was checked for the new strings, and fresh `QA338` fixtures were created.
+(fresh subagent, round 3 PASS 7/7 for base `42eec81`, head `1ca019a`, tree `d24d663`, with 7 mutation probes caught;
+round 1 had failed on a real blocker, a multiline *fixed* template wrongly blocked, fixed in `91dc65a`; round 3 covers
+the `/code-review` findings: hidden characters named in the warning, which is now a live region, review-side
+`BODY_REJECTED` copy, the announcement after focus, `main` focusable only via the skip link, and shared body-format
+cases tested on both sides). The suite was then rerun on that exact
+SHA: the stack's frontend image was rebuilt at `1ca019a` (the backend is unchanged; `git diff --stat 42eec81 1ca019a`
+touches only `frontend/` and backend tests), the served bundle was checked for the new strings, and fresh `QA338` fixtures were created.
 Recorded in [`issue-338-evidence/outputs-retest.txt`](issue-338-evidence/outputs-retest.txt): **88 PASS, 0 FAIL**, plus
 112 viewport rows with no overflow, clipping, unreachable control or broken word.
 
-| Case | Original | Retest on `91dc65a` | Evidence |
+| Case | Original | Retest on `1ca019a` | Evidence |
 | --- | --- | --- | --- |
 | UX-01 | PASS (D2 noted) | **PASS** | Both browsers, 7 viewports × 8 screens: *Actualizar*, *Posponer* and *Descartar* stay whole at every width |
 | UX-02 | PASS | **PASS** | Same matrix at 200 % and 400 % zoom |
 | UX-03 | FAIL / BLOCKED | **PASS** (keyboard) / **BLOCKED** (screen reader) | Both browsers: *Saltar al contenido* is the first stop and moves focus to `main`; the search box paints a 2 px ring (focused and unfocused captures differ); after *Confirmar envío a aprobación* focus lands on the new review's heading; every other UX-03 check still passes |
 | UX-04 | PASS (D4 noted) | **PASS** | The AI disclaimer reads *La IA no envía nada. Un mensaje solo se envía después de revisarlo, aprobarlo y enviarlo…*; the footer reads *Puedes contactar por tu canal habitual o enviar por WhatsApp un mensaje aprobado.* |
 | UX-05 | FAIL | **PASS** | An unresolvable credential reference now reads *No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.*; the not-owned and restored proofs as before. The recovery and safety checks, which passed originally, are untouched by the frontend fix (no request logic changed) |
-| UX-06 | FAIL | **PASS** | Both browsers: a multiline body shows *WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos…*, the field is `aria-invalid` and *Enviar a aprobación* is disabled before any request; a single-line body with accents, emoji and HTML-like text is still submitted and rendered exactly |
+| UX-06 | FAIL | **PASS** | Both browsers: a multiline body shows *WhatsApp no admite saltos de línea, tabulaciones, más de cuatro espacios seguidos ni caracteres invisibles…* (a polite live region), the field is `aria-invalid` and *Enviar a aprobación* is disabled before any request; a single-line body with accents, emoji and HTML-like text is still submitted and rendered exactly |
 | UX-07 | PASS | PASS | Not affected by the fix (no request or state logic changed); not rerun |
 
 Retest harness changes (no verdict depended on them in the product's favour): the reach probe skips the skip link,
@@ -98,7 +101,7 @@ synthetic unspaced HTML-like tokens in test names (`<b>Negrita</b>`, `<i>x</i>`)
 the search-box focus capture includes a 6 px margin, because the ring is drawn outside the box and a Firefox element
 capture cropped it (a dry run on `0d7edf0` showed this; the ring was confirmed visible in both browsers). UX-06 records
 a blocked submit when the compose stops the body before any request. Dry runs on the intermediate candidate `0d7edf0`
-were superseded by the run on `91dc65a`. Cleanup: 5 messages cancelled, 12 retest customers archived, switches off,
+were superseded by the run on `1ca019a`. Cleanup: 5 messages cancelled, 12 retest customers archived, switches off,
 tenant B on its own reference, stub send count still 29.
 
 ## Setup notes

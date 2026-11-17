@@ -1,8 +1,8 @@
-# Suite #338 retest on fix candidate 91dc65a (PR #420), real Chromium 156 and Firefox 160, local stack with the
-# frontend image rebuilt at 91dc65a (backend unchanged). Fresh QA338 fixtures; sanitized console output.
+# Suite #338 retest on fix candidate 1ca019a (PR #420, after the review round), real Chromium 156 and Firefox 160, local
+# stack with the frontend image rebuilt at 1ca019a (backend runtime unchanged). Fresh QA338 fixtures; sanitized console output.
 
-SETUP	QA338 fixtures: 7 customers due today with WhatsApp consent; VP pending, VA approved	PASS	2026-11-17T19:05:45Z	VP=1f006c89 VA=2f768a8d
-== candidate 91dc65a
+SETUP	QA338 fixtures: 7 customers due today with WhatsApp consent; VP pending, VA approved	PASS	2026-11-17T19:48:55Z	VP=392ec05c VA=c3c73591
+== candidate 1ca019a
 == ux01 chromium
 1440x900           queue                  overflowX=false overflow=0 clipped=0 broken=0 controls=28 unreachable=0 missing=-
 1440x900           review-pending         overflowX=false overflow=0 clipped=0 broken=0 controls=36 unreachable=0 missing=-
@@ -119,7 +119,7 @@ zoom400-1280x1024  integration-templates  overflowX=false overflow=0 clipped=0 b
 zoom400-1280x1024  integration-edit       overflowX=false overflow=0 clipped=0 broken=0 controls=12 unreachable=0 missing=-
 == ux03 chromium
 PASS  sign-in completed with the keyboard only  (Keycloak focus started on username)
-PASS  first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)  (Saltar al contenido > Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 13 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Conflicto Paralelo check_circle verified Contacto autorizado (Wh > QA333 Ana Vencida verified Contacto autorizado (WhatsApp) Pendiente pa > QA338 Sesion Vencida verified Contacto autorizado (WhatsApp) Pendiente)
+PASS  first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)  (Saltar al contenido > Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 13 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Teclado R3 Chromium check_circle verified Contacto autorizado (W)
 PASS  a skip link to the main content is offered  (first stop: Saltar al contenido)
 PASS  every recorded stop paints a focus indicator  (all visible)
 PASS  the search box shows a visible focus state  (focused: border rgb(189, 201, 198), shadow none, outline solid; unfocused: border rgb(189, 201, 198), shadow none, outline none; images differ)
@@ -128,11 +128,11 @@ PASS  focus moves to the review form after "Revisar y enviar"  (Revisar y enviar
 PASS  submit confirmation takes focus  (Confirmar envío a aprobación in Confirmar envío a aprobación)
 PASS  Escape closes the submit confirmation and focus returns to "Enviar a aprobación"  (Enviar a aprobación)
 PASS  the submit result is in a live region (status/alert)
-PASS  after submitting, focus is not lost to the page body  (focus on QA338 Teclado Final Chromium)
+PASS  after submitting, focus is not lost to the page body  (focus on QA338 Teclado R3 Chromium)
 PASS  after submitting, the review of the new message is shown
 PASS  approval confirmation takes focus  (Confirmar aprobación in Confirmar aprobación)
 PASS  Escape closes the approval confirmation and focus returns to "Aprobar"  (Aprobar)
-PASS  approved by keyboard; result announced; focus kept  (focus on QA338 Teclado Final Chromium)
+PASS  approved by keyboard; result announced; focus kept  (focus on QA338 Teclado R3 Chromium)
 PASS  send confirmation takes focus  (Confirmar envío in Confirmar envío)
 PASS  a refused send is announced as an alert while focus stays on the confirm button  (Confirmar envío)
 PASS  Escape closes the refused send group and focus returns to "Enviar"  (Enviar)
@@ -143,7 +143,7 @@ PASS  the workspace selector opens from the keyboard  (focus on Seleccionar espa
 PASS  Escape closes the workspace selector and focus returns to it  (Seleccionar espacio de trabajo)
 == ux03 firefox
 PASS  sign-in completed with the keyboard only  (Keycloak focus started on username)
-PASS  first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)  (Saltar al contenido > Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 13 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Conflicto Paralelo check_circle verified Contacto autorizado (Wh > QA333 Ana Vencida verified Contacto autorizado (WhatsApp) Pendiente pa > QA338 Sesion Vencida verified Contacto autorizado (WhatsApp) Pendiente)
+PASS  first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)  (Saltar al contenido > Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 13 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Teclado R3 Chromium check_circle verified Contacto autorizado (W > QA333 Ana Vencida verified Contacto autorizado (WhatsApp) Pendiente pa > QA338 Ñandú José-María Pérez-Óñez 🎉 <b>Negrita</b> & “Comillas” — nom)
 PASS  a skip link to the main content is offered  (first stop: Saltar al contenido)
 PASS  every recorded stop paints a focus indicator  (all visible)
 PASS  the search box shows a visible focus state  (focused: border rgb(189, 201, 198), shadow none, outline solid; unfocused: border rgb(189, 201, 198), shadow none, outline none; images differ)
@@ -152,11 +152,11 @@ PASS  focus moves to the review form after "Revisar y enviar"  (Revisar y enviar
 PASS  submit confirmation takes focus  (Confirmar envío a aprobación in Confirmar envío a aprobación)
 PASS  Escape closes the submit confirmation and focus returns to "Enviar a aprobación"  (Enviar a aprobación)
 PASS  the submit result is in a live region (status/alert)
-PASS  after submitting, focus is not lost to the page body  (focus on QA338 Teclado Final Firefox)
+PASS  after submitting, focus is not lost to the page body  (focus on QA338 Teclado R3 Firefox)
 PASS  after submitting, the review of the new message is shown
 PASS  approval confirmation takes focus  (Confirmar aprobación in Confirmar aprobación)
 PASS  Escape closes the approval confirmation and focus returns to "Aprobar"  (Aprobar)
-PASS  approved by keyboard; result announced; focus kept  (focus on QA338 Teclado Final Firefox)
+PASS  approved by keyboard; result announced; focus kept  (focus on QA338 Teclado R3 Firefox)
 PASS  send confirmation takes focus  (Confirmar envío in Confirmar envío)
 PASS  a refused send is announced as an alert while focus stays on the confirm button  (Confirmar envío)
 PASS  Escape closes the refused send group and focus returns to "Enviar"  (Enviar)
@@ -178,32 +178,32 @@ PASS  unresolvable reference: the copy points at the credential reference, not a
 PASS  number not owned by the credential: refused with the "No se pudo comprobar la propiedad…" guidance  (ui "No se pudo comprobar la propiedad del número con la referencia configurada. Revisa que la integración esté habilitada y que los identificadores sean correctos.", provider requests 1)
 PASS  restored: ownership proven again, the panel shows "Propiedad comprobada"  (ui "Propiedad del número comprobada.")
 == ux06 chromium multi
-PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Multilínea Final Chromium ✨)
-PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Multilínea Final Chromium ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar ")
+PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Multilínea R3 Chromium ✨)
+PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Multilínea R3 Chromium ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar nue")
 PASS  the edited body is held exactly (code points, newlines)  (720 code points, 4 lines)
 PASS  the length counter counts code points (emoji count as their code points, max 1000)  (720 / 1000)
 PASS  "Copiar borrador" puts exactly the shown text on the clipboard  (identical)
-PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Multilínea Final Chromium ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0071\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (")
+PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Multilínea R3 Chromium ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0086\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (Lat")
 PASS  before submitting, the compose warns that line breaks cannot be sent  (warning shown)
-PASS  the unsendable body is stopped before submit: submit disabled with the reason shown  (WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos en este mensaje.)
+PASS  the unsendable body is stopped before submit: submit disabled with the reason shown  (WhatsApp no admite saltos de línea, tabulaciones, más de cuatro espacios seguidos ni caracteres invisibles (frecuentes en texto pegado).)
 PASS  no markup from customer or body text was executed or inserted anywhere  ({"flag":null,"b":0,"img":0,"script":0})
 == ux06 firefox multi
-PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Multilínea Final Firefox ✨)
-PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Multilínea Final Firefox ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar n")
+PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Multilínea R3 Firefox ✨)
+PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Multilínea R3 Firefox ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar nuev")
 PASS  the edited body is held exactly (code points, newlines)  (720 code points, 4 lines)
 PASS  the length counter counts code points (emoji count as their code points, max 1000)  (720 / 1000)
-PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Multilínea Final Firefox ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0072\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nTexto fina")
+PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Multilínea R3 Firefox ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0087\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nTexto final d")
 PASS  before submitting, the compose warns that line breaks cannot be sent  (warning shown)
-PASS  the unsendable body is stopped before submit: submit disabled with the reason shown  (WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos en este mensaje.)
+PASS  the unsendable body is stopped before submit: submit disabled with the reason shown  (WhatsApp no admite saltos de línea, tabulaciones, más de cuatro espacios seguidos ni caracteres invisibles (frecuentes en texto pegado).)
 PASS  no markup from customer or body text was executed or inserted anywhere  ({"flag":null,"b":0,"img":0,"script":0})
 == ux06 chromium single
-PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Única Final 🎉 <i>x</i>)
-PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Única Final 🎉 <i>x</i>, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar nuev")
+PASS  the customer name renders as literal text (accents, emoji, <b>, quotes)  (QA338 Única R3 🎉 <i>x</i>)
+PASS  the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup  ("Hola QA338 Única R3 🎉 <i>x</i>, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar nuevame")
 PASS  the edited body is held exactly (code points, newlines)  (720 code points, 1 lines)
 PASS  the length counter counts code points (emoji count as their code points, max 1000)  (720 / 1000)
 PASS  "Copiar borrador" puts exactly the shown text on the clipboard  (identical)
-PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Única Final 🎉 <i>x</i>\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0073\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (Lati")
-PASS  submitting the multiline body gives a clear outcome (submitted, or a readable refusal)  (Borrador copiado | Mensaje enviado a aprobación. Aún no se ha enviado al cliente. |)
+PASS  the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed)  ("QA338 Única R3 🎉 <i>x</i>\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0088\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (Latinoa")
+PASS  the single-line body with accents, emoji and HTML-like text is submitted to approval  (Borrador copiado | Mensaje enviado a aprobación. Aún no se ha enviado al cliente. |)
 PASS  the review renders the stored body with the same lines, accents and emoji  (28 lines rendered)
 PASS  no markup from customer or body text was executed or inserted anywhere  ({"flag":null,"b":0,"img":0,"script":0})
 PASS  long text at 390 px: no page overflow, nothing clipped  (scrollWidth 390/390; )
@@ -215,4 +215,4 @@ PASS  the workbench footer no longer says contacts are manual only  (Dokene te a
 PASS  the AI disclaimer matches the approval-and-send flow  (Sugerencia generada por IA · La IA no envía nada. Un mensaje solo se envía después de revisarlo, aprobarlo y enviarlo, y la decisión es tuya.)
 PASS  the workbench footer no longer says contacts are manual only  (Dokene te ayuda a recordar tus compromisos. Puedes contactar por tu canal habitual o enviar por WhatsApp un mensaje aprobado.)
 
-RETEST-CLEANUP	retest data cancelled/archived; switches off; tenant B restored	PASS	2026-11-17T19:09:49Z	cancelled=5 archived=12 A=true/true/false B=true/true/false/qa333-token-b stub_sends=29
+RETEST-CLEANUP	retest data cancelled/archived; switches off; tenant B restored	PASS	2026-11-17T19:53:14Z	cancelled=5 archived=12 A=true/true/false B=true/true/false/qa333-token-b stub_sends=29
