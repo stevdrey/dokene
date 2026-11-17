@@ -5,6 +5,12 @@
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/qa335.sh"
 assert_safe_stack true || exit 2
+# The W2 window this run belongs to: its token and live watchdog are required again before the crash restart turns the
+# global switch back on (w2-restart335.sh), so a window closed in between is never re-opened without a watchdog.
+W2_TOKEN=$(cat "$OUTD/window.open" 2>/dev/null || true)
+WD=$(cat "$OUTD/window.watchdog" 2>/dev/null || true)
+[ -n "$W2_TOKEN" ] && [ -n "$WD" ] && kill -0 "$WD" 2>/dev/null \
+  || { echo "no active W2 window (token and live watchdog): open it with window-open334.sh first" >&2; exit 2; }
 stub_reset
 qa_login testuser || exit 3
 # w2_env: the send policy overrides the running backend sees; W2_PAT: what W2 needs them to be.
@@ -38,12 +44,10 @@ rec $C "3 s into the provider call: claim committed (attempt STARTED, message SE
 docker compose -f "$WT/compose.yaml" kill backend >/dev/null 2>&1
 wait; rec $C "backend killed during the call (fault injection)" NOTE "client saw: $(cat "$OUTD/crash.http" 2>/dev/null) at $(date -u +%T)"
 stub_mode send accept
-# stack335.sh rebuilds its override from the environment it is given: pass the W2 values verified above explicitly,
-# so the restart keeps them even when the caller exported them only for window-open334.sh. It holds the window lock
-# that window-open334.sh and window-close334.sh share, so a watchdog close cannot restart the backend at the same time.
-flock "$OUTD/window.lock" env QA333_OUTBOUND=true QA335_MIN_INTERVAL=3m QA335_CLAIM_TIMEOUT=2m QA335_RECOVERY_INTERVAL=15s \
-  bash "$STACK333" restart >&2 || { rec $C "restart after crash" FAIL "restart failed"; exit 5; }
-assert_safe_stack true || exit 2
+# Restart with global ON and the W2 overrides only if the W2 window is still active, checked under the window lock
+# right before the restart; a closed or expired window aborts the probe without restarting (global stays OFF).
+bash "$QA335_DIR/w2-restart335.sh" "$W2_TOKEN"; RR=$?
+[ $RR = 0 ] || { rec $C "crash restart (W2 window still active)" FAIL "w2-restart335.sh exit=$RR (6: window closed or watchdog dead, outbound not re-enabled)"; exit 5; }
 E2=$(w2_env)
 [ "$E2" = "$E" ] || { rec $C "W2 policy overrides kept across the crash restart" FAIL "before: $E after: $E2"; exit 5; }
 qa_login testuser || exit 3

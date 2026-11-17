@@ -107,7 +107,12 @@ below; none covers them.
    - the mapping-disabled and unproven-integration checks require their exact codes;
    - the T12 check asserts the HTTP status;
    - the repeated-key check asserts that no idempotency record is kept for a refusal;
-   - the W2 crash restart holds the window lock.
+   - the W2 crash restart runs in `w2-restart335.sh`, which holds the window lock and, right before restarting with
+     the global switch ON, requires the W2 token this run opened and its live watchdog. A window that was closed
+     (manually or by the watchdog), replaced or left without a watchdog is never re-enabled; the probe aborts.
+     `w2-restart-test335.sh` checks this offline with the real `window-close334.sh` against a fake stack (12 checks):
+     active window, close first, close racing the restart, watchdog close, replaced token, dead watchdog, and a
+     negative control showing that an unguarded restart breaks the invariant.
 5. Every backend restart ends BFF sessions; the browser re-entered through the surviving Keycloak SSO session.
 6. Cleanup (`final335.sh`): every still-open suite message was cancelled, the 21 `QA335` customers were archived,
    and the stub was reset to `accept`. `GENERAL_FOLLOW_UP` had already been restored to `qa333_general_follow_up` by
@@ -133,7 +138,7 @@ From the #333 stack (see its report), with the global switch off:
    WINDOW_TTL=1200`, open W2, run `w2-335.sh`, then close W2. The script stops if the overrides are not in effect, and
    its crash restart passes the W2 values explicitly and checks they survived (the recorded run exported them in the
    same shell: recovery ran 2 minutes after the claim, and the second SEND-07 message was sent after 186 s).
-9. `final335.sh`.
+9. `final335.sh`. Offline, `w2-restart-test335.sh` checks the W2 crash-restart guard.
 
 The scripts are in [`issue-335-evidence/scripts/`](issue-335-evidence/scripts/), and the recorded run is
 [`issue-335-evidence/outputs.txt`](issue-335-evidence/outputs.txt).
