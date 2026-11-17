@@ -168,7 +168,8 @@ try {
   await page.getByRole('button', { name: 'Confirmar aprobación' }).click();
   await page.waitForTimeout(2500);
   const t401 = `${await alertText(page)} | ${(await page.locator('body').innerText()).replace(/\s+/g, ' ').slice(0, 300)}`;
-  check(C, 'after logout in another tab, approving reports the ended session and the message is unchanged', /sesión/i.test(t401) && db(ids['L1M' + IDSUF]) === l0, `db ${l0} -> ${db(ids['L1M' + IDSUF])}; ui "${t401.slice(0, 260)}"`);
+  // The ended-session sentence or the signed-out view itself, never a navigation label such as "Cerrar sesión".
+  check(C, 'after logout in another tab, approving reports the ended session and the message is unchanged', /(Tu sesión ya no está activa|Tu sesión terminó|Iniciar sesión con OIDC)/.test(t401) && db(ids['L1M' + IDSUF]) === l0, `db ${l0} -> ${db(ids['L1M' + IDSUF])}; ui "${t401.slice(0, 260)}"`);
   await shot(page, `ux05-${BROWSER}-401.png`);
 } catch (e) {
   check('UX-05', 'script completed', false, String(e).split('\n')[0]);

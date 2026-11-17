@@ -9,6 +9,14 @@ lines = []
 w = lines.append
 
 
+def first(*names):
+    """The first file that exists: the recorded run's name, then the name a plain reproduction writes."""
+    for n in names:
+        if (out / n).exists():
+            return n
+    return names[-1]
+
+
 def checks(file, title):
     p = out / file
     if not p.exists():
@@ -33,8 +41,11 @@ lines.extend(Path(out / 'results.tsv').read_text().splitlines())
 w('')
 for b in ('chromium', 'firefox'):
     d = json.loads((out / f'ux01-{b}.json').read_text())
-    z = {(r['viewport'], r['screen']): r for r in json.loads((out / f'ux01-{b}-zoom400.json').read_text())['results']}
-    w(f'== UX-01/UX-02 viewport sweep [{b} {d["version"]}] (zoom400 rows from the rerun after the reach-probe fix)')
+    # The recorded run reran the 400 % rows after a probe fix (ux01-<browser>-zoom400.json); a plain reproduction has
+    # them in the main file.
+    zf = out / f'ux01-{b}-zoom400.json'
+    z = {(r['viewport'], r['screen']): r for r in json.loads(zf.read_text())['results']} if zf.exists() else {}
+    w(f'== UX-01/UX-02 viewport sweep [{b} {d["version"]}]' + (' (zoom400 rows from the rerun after the reach-probe fix)' if z else ''))
     for r in d['results']:
         r = z.get((r['viewport'], r['screen']), r)
         if r['screen'] == 'ERROR':
@@ -56,13 +67,15 @@ for k, v in a.items():
 checks('ux04-send-chromium.json', 'W1 browser sends')
 checks('ux04-copy-chromium.json', 'UX-04 status copy')
 checks('ux04-copy-firefox.json', 'UX-04 status copy')
-w('== UX-05 Chromium lines recorded on the console of the first two runs (latency and 403; superseded runs otherwise)')
-w('PASS  [UX-05 latency] a slow message read shows the "Cargando mensaje…" loader (aria-busy region)  (1 busy region(s))')
-w('PASS  [UX-05 latency] while the approval is in flight the confirm button is aria-disabled and repeated activation sends no second request  (label "Cargando...", aria-disabled=true, requests=1, db PENDING_APPROVAL/v1/approvals=0 -> APPROVED/v2/approvals=1)')
-w('PASS  [UX-05 403] a revoked OPERATOR gets "No tienes permiso para esta acción." and the message is unchanged  (revoke 204; db unchanged PENDING_APPROVAL/v1/approvals=0)')
-w('PASS  [UX-05 403] cleanup: membership reactivated and accepted  (reactivate 200, accept 200)')
-checks('ux05-chromium-run3.json', 'UX-05 recovery')
-checks('ux05-firefoxF.json', 'UX-05 recovery (route.fetch cases skipped: BiDi)')
+ux05c = first('ux05-chromium-run3.json', 'ux05-chromium.json')
+if ux05c == 'ux05-chromium-run3.json':
+  w('== UX-05 Chromium lines recorded on the console of the first two runs (latency and 403; superseded runs otherwise)')
+  w('PASS  [UX-05 latency] a slow message read shows the "Cargando mensaje…" loader (aria-busy region)  (1 busy region(s))')
+  w('PASS  [UX-05 latency] while the approval is in flight the confirm button is aria-disabled and repeated activation sends no second request  (label "Cargando...", aria-disabled=true, requests=1, db PENDING_APPROVAL/v1/approvals=0 -> APPROVED/v2/approvals=1)')
+  w('PASS  [UX-05 403] a revoked OPERATOR gets "No tienes permiso para esta acción." and the message is unchanged  (revoke 204; db unchanged PENDING_APPROVAL/v1/approvals=0)')
+  w('PASS  [UX-05 403] cleanup: membership reactivated and accepted  (reactivate 200, accept 200)')
+checks(ux05c, 'UX-05 recovery')
+checks(first('ux05-firefoxF.json', 'ux05-firefox.json'), 'UX-05 recovery (route.fetch cases skipped: BiDi)')
 checks('ux05b-chromium.json', 'UX-05 invalid credentials')
 checks('ux05b-firefox.json', 'UX-05 invalid credentials')
 checks('ux06-chromium-multiline.json', 'UX-06 text fidelity, multiline body')
