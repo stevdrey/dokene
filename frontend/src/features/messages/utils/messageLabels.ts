@@ -96,7 +96,7 @@ const ERROR_CODE_SENTENCES = {
   CONTACT_FREQUENCY_EXCEEDED: 'Ya se contactó a este cliente recientemente.',
   TEMPLATE_NOT_MAPPED: 'No hay una plantilla configurada para este tipo de mensaje.',
   BODY_REJECTED:
-    'El texto del mensaje no pasó la validación. Escríbelo en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, y solo con datos de este cliente.',
+    'El texto del mensaje no pasó la validación. Revisa que esté en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, que solo use datos de este cliente y, si la plantilla es de texto fijo, que coincida con ella.',
   SEND_ATTEMPTS_EXHAUSTED: 'Se agotaron los intentos de envío.',
   CONTACT_NOT_OWNED: 'El teléfono ya no pertenece a este cliente.',
   MESSAGE_ALREADY_OPEN: 'Ya hay un mensaje abierto para este cliente.',

@@ -209,8 +209,10 @@ export function MessageCompose({
 
   const length = countCodePoints(text);
   const overLimit = length > DRAFT_BODY_MAX_CODE_POINTS;
-  // Line breaks, tabs, hidden characters or a run of five spaces would be refused at submit (#417); say so now.
-  const badFormat = hasUnsendableFormat(text);
+  // Line breaks, tabs, hidden characters or a run of five spaces would be refused at submit (#417); say so now. The
+  // rule applies to the body as a template parameter only: a fixed template (no message_body) sends its own text,
+  // which may span lines, and the body must equal it exactly.
+  const badFormat = offer?.fixedTemplate !== true && hasUnsendableFormat(text);
   const busy = phase.kind === 'submitting';
   const canAct = canActOnMessages(role);
   // A role that lost the right to act mid confirmation closes the group; the read only sentence takes its place.

@@ -127,6 +127,17 @@ describe('compose mode', () => {
       });
     });
 
+    it('accepts a fixed template text that spans lines: the format rule covers parameters only (#417)', async () => {
+      const multiline = 'Hello.\nThanks for your purchase.';
+      const slot = { ...englishSlot, content: { ...englishSlot.content!, bodyText: multiline } };
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templateList(slot));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      await waitFor(() => expect(textarea()).toHaveValue(multiline));
+      expect(screen.queryByText(/WhatsApp no admite saltos de línea/)).toBeNull();
+      expect(textarea()).not.toHaveAttribute('aria-invalid', 'true');
+      expect(submitButton()).toBeEnabled();
+    });
+
     it('never offers English while the deployment has not enabled it', async () => {
       server.on(templatesPath, templateList(englishSlot));
       renderCompose(composeMode({ origin: 'MANUAL' }));
@@ -301,7 +312,7 @@ describe('compose mode', () => {
       ['CUSTOMER_ARCHIVED', 'El cliente está archivado.'],
       ['FOLLOW_UP_INELIGIBLE', 'El cliente no está elegible para seguimiento ahora.'],
       ['TEMPLATE_NOT_MAPPED', 'No hay una plantilla configurada para este tipo de mensaje.'],
-      ['BODY_REJECTED', 'El texto del mensaje no pasó la validación. Escríbelo en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, y solo con datos de este cliente.'],
+      ['BODY_REJECTED', 'El texto del mensaje no pasó la validación. Revisa que esté en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, que solo use datos de este cliente y, si la plantilla es de texto fijo, que coincida con ella.'],
       ['IDEMPOTENCY_KEY_REUSED', 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.'],
       ['INVALID_INPUT', 'Revisa los datos e intenta de nuevo.'],
       ['LOCALE_NOT_ACCEPTED', 'Este idioma no está habilitado para enviar mensajes en este despliegue.'],
