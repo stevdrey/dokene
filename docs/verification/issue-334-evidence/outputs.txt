@@ -1,0 +1,108 @@
+# Suite #334 recorded run (sanitized). Synthetic data only; no tokens, cookies, CSRF values, passwords or real phone numbers.
+# Tested SHA: 1ad11c8168285cfd6448ee80aba8e557c3b6b4e6 (main). Product tree (backend/, frontend/, scripts/, compose.yaml) is
+#   byte-identical to 3807963 (#333 candidate); the stack images built from 3807963 were reused (backend sha256:66e6c0646b08,
+#   frontend sha256:3353423880b4). Run date: 2026-11-16 23:45Z to 2026-11-17 00:07Z (UTC).
+# Stack: compose project dokene-qa333 (same disposable volume as #333, Flyway V39), detached worktree moved to the SHA.
+# Docker 29.9.3, Compose 5.7.1. Browser: Claude desktop built-in browser, Chromium 156.0.8078.75 (Linux), driven by hand.
+# Provider modes: AI = real OpenAI (gpt-6-luna, user-authorised, 9 calls) for the run, reset to fake afterwards.
+#   WhatsApp Graph = loopback GraphStub (issue-149 evidence) with synthetic canary tokens; never real Meta.
+# Switches: global and tenant outbound OFF, except the user-approved stub-only window W1 (global ON 23:54:36Z to 23:57:05Z,
+#   tenant A ON in the same window), closed and verified OFF after a restart. Stub send calls in the whole run: 1 (FLOW-07).
+# Columns: case, check, result, time (UTC), sanitized note. [browser] = manual observation in the real UI; [api]/[db] or no
+#   tag = authenticated HTTP or DB check through the real BFF session; [stub] = controlled provider log. NOTE = observation.
+# Lines recorded with a harness bug (ETag read in a subshell, empty If-Match -> 400) or a login failure were removed and the
+#   checks rerun; see the report. Message ids are shortened to 8 hex characters.
+
+## results.tsv
+SETUP	map REPEAT_PURCHASE (API)	NOTE	2026-11-16T23:47:59Z	http=200 {"providerTemplateName":"qa334_repeat_purchase","approvalStatus":"UNVERIFIED","version":0}
+SETUP	refresh REPEAT_PURCHASE against the stub	NOTE	2026-11-16T23:47:59Z	http=200 {"approvalStatus":"APPROVED","sendable":true,"version":0}
+FLOW-01	[browser] OWNER testuser on Norte workbench, due customer QA333 Ana Vencida: Obtener recomendacion -> real OpenAI (provider=openai, model gpt-6-luna, no base URL override) NEXT_BEST_ACTION GENERATED: REPEAT_PURCHASE, 91 %, rationale cites the 7 Oct synthetic purchase	PASS	2026-11-16T23:48:20Z	log AiOutcomeReporter operation=NEXT_BEST_ACTION outcome=GENERATED 23:46:30Z
+FLOW-01	[browser] Generar borrador -> real OpenAI MESSAGE_DRAFT GENERATED; panel says 'Edicion local: no se guarda ni se envia' and 'Dokene no ha enviado nada'	PASS	2026-11-16T23:48:20Z	log operation=MESSAGE_DRAFT outcome=GENERATED 23:46:51Z; draft 139 chars
+FLOW-01	[browser] operator edit appended ' Saludos del equipo QA334.' (165 chars); Revisar y enviar opens 'Texto final antes de la aprobacion' with masked recipient '.... 0001', Accion 'Seguimiento por recompra', Plantilla 'Recompra', Origen 'Borrador de IA', Idioma 'Espanol (Latinoamerica)' (only option) and the edited final text	PASS	2026-11-16T23:48:20Z	review preview matches edited textarea byte for byte
+FLOW-01	[browser] REPEAT_PURCHASE unmapped: review warns no approved template; Enviar a aprobacion -> confirm -> refused 'No hay una plantilla configurada para este tipo de mensaje.', edited text kept	PASS	2026-11-16T23:48:20Z	server refused (no message row created)
+FLOW-01	[api/db] generation and refused submit created nothing: outbound_messages still 10 CANCELLED (pre-existing #333 probes), outbound_send_attempts 0, stub POST /messages 0	PASS	2026-11-16T23:48:20Z	messages=10 CANCELLED attempts=0 stub=0
+FLOW-01	observation: Enviar a aprobacion stays enabled while the review already states the message cannot be submitted (no mapped template); the server refuses safely	NOTE	2026-11-16T23:48:20Z	UX observation for #338, not a contract failure
+FLOW-02	[browser] REPEAT_PURCHASE now mapped (API, stub APPROVED); Enviar a aprobacion -> confirm -> 'Mensaje enviado a aprobacion. Aun no se ha enviado al cliente.'	PASS	2026-11-16T23:49:28Z	message 9a7e4015
+FLOW-02	[browser] review shows Revision 1, Pendiente de aprobacion, full phone, action/template/origin/language, 'Lo que recibira el cliente' = template qa334_repeat_purchase es with the rendered body; controls Aprobar/Rechazar/Cancelar/Corregir; history row 'Aun no enviado ... Pendiente de aprobacion'	PASS	2026-11-16T23:49:28Z	rendered body = 'Hola <name> ' + edited text
+FLOW-02	[api] detail status PENDING_APPROVAL, version 1, origin AI_DRAFT, locale es-419, body equals the edited text exactly, approval null, attempts []; events = [SUBMITTED by MEMBER]	PASS	2026-11-16T23:49:28Z	ETag "1"; template.revision present
+FLOW-02	[db/stub] no send attempt, no provider call after submit	PASS	2026-11-16T23:49:28Z	outbound_send_attempts=0 stub POST /messages=0
+FLOW-02	[browser] manual disposition still offered while pending: Registrar seguimiento opens 'Registrar seguimiento manual' (closed without saving here; saved in FLOW-05)	PASS	2026-11-16T23:49:28Z	-
+FLOW-02	[browser] Copiar borrador still offered and reports its outcome; in this browser it shows 'No se pudo copiar el borrador' because the in-app browser denies clipboard-write (permissions.query=denied, writeText NotAllowedError) - harness limitation, the draft text stays visible and selectable	NOTE	2026-11-16T23:49:28Z	copy success not observable in this browser
+FLOW-03	[browser] after full reload the history still shows the message 'Aun no enviado / Pendiente de aprobacion' with the exact edited text; Abrir en revision -> Aprobar -> confirm group 'Para QA333 Ana Vencida . .... 0001 / Se aprobara exactamente el texto mostrado. Aprobar no envia el mensaje.'	PASS	2026-11-16T23:50:29Z	-
+FLOW-03	[browser] Confirmar aprobacion -> 'Mensaje aprobado. Aun no se ha enviado.'; controls become Enviar/Cancelar/Corregir/Actualizar; network: POST /approvals 201 and no request to /sends	PASS	2026-11-16T23:50:29Z	request bodies verified on a later approval (FLOW-05)
+FLOW-03	[api] APPROVED is not SENT: status APPROVED, version 2, sentAt null, providerMessageId null, attempts []; events SUBMITTED, APPROVED (MEMBER)	PASS	2026-11-16T23:50:29Z	-
+FLOW-03	[db] approval row decision APPROVE with approval_fingerprint set; decided_by_membership_id 68cc65ad = OWNER membership of seeded subject ...0001 (testuser), the acting browser user	PASS	2026-11-16T23:50:29Z	-
+FLOW-03	[db] audit_events: MESSAGE_SUBMITTED and MESSAGE_APPROVED, SUCCESS, membership 68cc65ad, PENDING_APPROVAL->APPROVED; no send/dispatch audit; audit schema has no body/token columns; API detail and events contain no fingerprint/sendKey/token	PASS	2026-11-16T23:50:29Z	send-like audit rows=0; stub POST /messages=0; attempts=0
+FLOW-04	M1 (approved, then Corregir) is CANCELLED and its stored body is the original reviewed text	PASS	2026-11-16T23:51:38Z	status=CANCELLED bodyEndsWithOriginal=yes
+FLOW-04	PUT /api/messages/{id} (edit stored content) is not a route	PASS	2026-11-16T23:51:38Z	http=405 code=
+FLOW-04	PATCH /api/messages/{id} (edit stored content) is not a route	PASS	2026-11-16T23:51:38Z	http=405 code=
+FLOW-04	M1 body unchanged after edit attempts	PASS	2026-11-16T23:51:38Z	-
+FLOW-04	M2 (corrected copy) REJECTED, approval.decision REJECT	PASS	2026-11-16T23:51:38Z	status=REJECTED decision=REJECT
+FLOW-04	pending probe message cancelled via cancellations	PASS	2026-11-16T23:51:38Z	http=201 msg=6f4ef7ac
+FLOW-04	no provider side effect: no send attempt rows, no stub send	PASS	2026-11-16T23:51:38Z	attempts=0 stub=0
+FLOW-04	approve a CANCELLED message (current ETag "3") refused	PASS	2026-11-16T23:51:53Z	http=409 code=INVALID_TRANSITION
+FLOW-04	send a CANCELLED message refused	PASS	2026-11-16T23:51:53Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY
+FLOW-04	cancel a REJECTED message refused	PASS	2026-11-16T23:51:53Z	http=409 code=INVALID_TRANSITION
+FLOW-04	approve a REJECTED message refused	PASS	2026-11-16T23:51:53Z	http=409 code=INVALID_TRANSITION
+FLOW-04	send a REJECTED message refused	PASS	2026-11-16T23:51:53Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY
+FLOW-04	no provider side effect after the transition probes	PASS	2026-11-16T23:51:54Z	attempts=0 stub=0
+FLOW-04	[browser] APPROVED message -> Corregir -> confirm 'Corregir cancela este mensaje y abre una copia editable. El nuevo mensaje necesitara una nueva aprobacion.' -> POST /cancellations body {} If-Match "2" -> 'Mensaje cancelado. No se enviara al cliente.'; editable copy opens with the reviewed text	PASS	2026-11-16T23:52:08Z	M1 9a7e4015
+FLOW-04	[browser] edited copy (+' Version corregida.') -> Enviar a aprobacion -> new message (POST /customers/{id}/messages, origin AI_DRAFT, new If-Match = policy version) PENDING_APPROVAL, not an edit of M1	PASS	2026-11-16T23:52:08Z	M2 d3bead1d
+FLOW-04	[browser] Rechazar with note -> confirm 'El mensaje se rechazara y no se enviara al cliente.' -> POST /approvals {decision:REJECT,note} (no templateRevision) -> 'Mensaje rechazado. No se enviara al cliente.'; action buttons gone	PASS	2026-11-16T23:52:08Z	-
+FLOW-04	observation: on CANCELLED/REJECTED messages /sends answers 409 OUTBOUND_DISABLED_GLOBALLY (global gate evaluated before status), not INVALID_TRANSITION; consistent with ADR 0023 policy order, safe	NOTE	2026-11-16T23:52:08Z	-
+FLOW-05	[browser 2 tabs] same PENDING message M4 open in tab A and tab B; tab A opens Rechazar group; tab B approves (POST /approvals {decision:APPROVE, templateRevision:<64 hex>} If-Match "1") -> 'Mensaje aprobado. Aun no se ha enviado.'	PASS	2026-11-16T23:53:31Z	M4 3ed842bd
+FLOW-05	[browser] stale tab A confirms Rechazar with If-Match "1" -> refused; tab A re-reads and shows 'Este mensaje cambio: ahora esta Aprobado.', Revision 2, controls Enviar/Cancelar/Corregir/Actualizar (re-review guided)	PASS	2026-11-16T23:53:31Z	-
+FLOW-05	[api/db] M4 stays APPROVED v2 with decision APPROVE; events SUBMITTED, APPROVED only; audit has no rejection	PASS	2026-11-16T23:53:31Z	-
+FLOW-05	[api] a second open message for the same customer is refused 409 MESSAGE_ALREADY_OPEN while M4 is APPROVED	NOTE	2026-11-16T23:53:31Z	one open message per customer
+WINDOW	[W1] credential rotation (integration change after approval)	NOTE	2026-11-16T23:54:36Z	http=200 state=true/false/true
+WINDOW	[W1] ownership re-proven against the stub after rotation	NOTE	2026-11-16T23:54:36Z	http=200
+WINDOW	[W1] OPEN: Graph base URL loopback stub, global ON, tenant A enabled/proven/outbound=true/true/true	NOTE	2026-11-16T23:54:36Z	stub sends=0
+FLOW-05	[stub window W1] integration change after approval: credential rotation (credentialRevision+1) and ownership re-proven, tenant switch ON, global ON (loopback stub)	NOTE	2026-11-16T23:55:27Z	-
+FLOW-05	[browser] M4 (approved before the rotation) re-opened: Enviar is not offered; notice 'La aprobacion ya no cubre lo que se enviaria: cambio la plantilla, el cliente o la integracion. No se puede enviar. Corrige o cancela el mensaje.'; detail template preview absent; only Cancelar/Corregir	PASS	2026-11-16T23:55:27Z	-
+FLOW-05	[api] direct POST /sends on M4 with its current ETag -> 409 APPROVAL_INVALIDATED; message stays APPROVED v2, no attempt row, 0 stub sends	PASS	2026-11-16T23:55:27Z	attempts=0 stub=0
+FLOW-05	[browser] Corregir on the invalidated message -> POST /cancellations {} If-Match "2" -> 'Mensaje cancelado. No se enviara al cliente.'; editable copy keeps the exact reviewed text (not resubmitted)	PASS	2026-11-16T23:55:27Z	re-review guided; reviewed content preserved
+WINDOW	[W1] CLOSED: global off, tenant A enabled/proven/outbound=true/true/false (verified after restart)	PASS	2026-11-16T23:57:05Z	stub sends=1
+FLOW-07	[browser, stub window W1] OPERATOR testoperator (membership 6a67e937, role OPERATOR): Obtener recomendacion + Generar borrador (real OpenAI) -> Revisar y enviar -> Enviar a aprobacion -> Aprobar (own message, no second approver required) -> Enviar -> confirm 'Se enviara exactamente el texto mostrado arriba.' -> 'Envio procesado. Estado actual: Enviado.'	PASS	2026-11-16T23:57:23Z	M5 e48e073d
+FLOW-07	[api/db] M5 SENT with providerMessageId wamid.SYNTHETIC..., attempt 1 ACCEPTED; createdBy, approval.decidedBy and every audit row (SUBMITTED, APPROVED, SEND_REQUESTED, SENT) = operator membership 6a67e937	PASS	2026-11-16T23:57:23Z	SENT means provider accepted; delivery is suite #336
+FLOW-07	[stub] exactly one send call (token A, loopback stub); template qa334_repeat_purchase/es, parameters [customer_name, approved body] - body parameter equals the approved stored body byte for byte	PASS	2026-11-16T23:57:23Z	stub sends total=1; 0 canary hits in backend log
+SETUP	after the FLOW-07 send the customer became NOT_YET_DUE (timing LAST_OUTBOUND_MESSAGE, next 2026-12-16; submit refused 409 FOLLOW_UP_INELIGIBLE); rescheduled to today via PUT follow-up-policy explicitNextDate (API) -> DUE	NOTE	2026-11-16T23:58:29Z	expected product behaviour
+FLOW-07	OWNER testuser submits a probe -> PENDING_APPROVAL	PASS	2026-11-16T23:58:30Z	http=201 msg=251aa2a6 code=
+FLOW-07	VIEWER reads the pending message (MESSAGE_READ)	PASS	2026-11-16T23:58:30Z	http=200 etag="1"
+FLOW-07	VIEWER approve -> 403	PASS	2026-11-16T23:58:30Z	http=403 code=FORBIDDEN
+FLOW-07	VIEWER reject -> 403	PASS	2026-11-16T23:58:30Z	http=403 code=FORBIDDEN
+FLOW-07	VIEWER cancel -> 403	PASS	2026-11-16T23:58:30Z	http=403 code=FORBIDDEN
+FLOW-07	VIEWER send -> 403	PASS	2026-11-16T23:58:30Z	http=403 code=FORBIDDEN
+FLOW-07	VIEWER submit -> 403	PASS	2026-11-16T23:58:30Z	http=403 code=FORBIDDEN
+FLOW-07	VIEWER AI draft request -> refused	PASS	2026-11-16T23:58:30Z	http=403 code=
+FLOW-07	VIEWER compose locales (MESSAGE_DRAFT) -> 403	PASS	2026-11-16T23:58:30Z	http=403
+FLOW-07	after VIEWER attempts M6 unchanged (PENDING_APPROVAL, same ETag)	PASS	2026-11-16T23:58:30Z	etag="1"
+FLOW-07	audit records no VIEWER message command	PASS	2026-11-16T23:58:30Z	-
+FLOW-07	[browser] VIEWER testviewer: history shows the pending OWNER message with its text; Abrir en revision shows the message with 'Tu rol solo permite consultar mensajes.' and no Aprobar/Rechazar/Cancelar/Corregir/Enviar; no compose textarea	PASS	2026-11-16T23:59:03Z	-
+FLOW-07	[browser] VIEWER: AI panel says 'Tu rol no permite usar el asistente IA en este espacio de trabajo.' and Obtener recomendacion is disabled; Registrar seguimiento, Posponer, Descartar disabled	PASS	2026-11-16T23:59:03Z	-
+FLOW-07	OWNER journey = FLOW-01..04 in the browser (testuser OWNER submits, approves, rejects, cancels, corrects). Separate ADMIN identity not exercised: the four extra #333 Keycloak users (testadmin, testowner2, testoperator2, testnone) were not persisted across the Keycloak restart (bff_login authentication failed); OWNER and ADMIN hold the same MESSAGE_* permissions (TenantRolePermissions)	NOTE	2026-11-16T23:59:03Z	setup limitation, not a product defect
+FLOW-05	[browser+api] template preview change before approval: M6 opened in review showing 'Hola QA333 Ana Vencida ...'; customer renamed via API (renders customer_name) -> message ETag unchanged ("1") but template.revision changed	PASS	2026-11-17T00:00:10Z	M6 251aa2a6
+FLOW-05	[browser] approve on the stale preview sends {decision:APPROVE, templateRevision:<revision shown>} If-Match "1" -> refused; UI re-reads and shows the new preview 'Hola QA334 Ana Renombrada ...' with 'Este mensaje cambio: ahora esta Pendiente de aprobacion.'; message stays PENDING_APPROVAL, no approval row	PASS	2026-11-17T00:00:10Z	approval rows=0
+FLOW-05	observation: after a preview-only change the alert says 'Este mensaje cambio: ahora esta Pendiente de aprobacion.' although the status did not change; it does not name what changed (the preview). Re-review still forced	NOTE	2026-11-17T00:00:10Z	UX wording for #338
+FLOW-05	[api] the same approval (old templateRevision, current ETag) replayed with a fresh key -> 409 STALE_VERSION; message unchanged	PASS	2026-11-17T00:00:15Z	http=409
+FLOW-04	[browser] PENDING message M6 -> Cancelar -> confirm 'El mensaje se cancelara y no se enviara al cliente.' (optional note) -> POST /cancellations {} If-Match "1" -> 'Mensaje cancelado. No se enviara al cliente.'	PASS	2026-11-17T00:00:51Z	M6 251aa2a6; stub sends unchanged=1
+FLOW-07	[browser] history row of the operator's sent message reads 'Aceptado por el proveedor / Aun sin confirmacion de entrega' (SENT is not shown as delivered)	PASS	2026-11-17T00:00:51Z	-
+FLOW-05	[browser] real OpenAI declined the first draft ('La IA no pudo redactar un borrador: faltan datos verificados del negocio', citing the synthetic purchase name); Regenerar borrador produced one. Safe refusal, nothing created	NOTE	2026-11-17T00:02:42Z	live AI nondeterminism
+FLOW-05	[browser 2 tabs] policy change during review: tab A AI draft in review (source policy v3, confirm group open); tab B Registrar seguimiento manual -> Guardar (policy v4, customer NOT_YET_DUE); tab A Confirmar envio a aprobacion (If-Match "3") -> refused 'El cliente no esta elegible para seguimiento ahora.'; final text kept	PASS	2026-11-17T00:02:42Z	no message created
+FLOW-05	[browser] pure stale policy: policy changed again while staying DUE (explicit date today via API, v5); tab A resubmits with If-Match "3" -> refused 'La situacion del cliente cambio desde que se redacto este mensaje. Actualiza el seguimiento antes de enviarlo a aprobacion.' and the AI panel marks 'Esta recomendacion ya no esta actualizada porque el seguimiento cambio.'; final text kept	PASS	2026-11-17T00:02:42Z	-
+FLOW-05	[api] submit with the stale policy version If-Match "3" (current v5) -> 409 STALE_VERSION; open messages for tenant A = 0	PASS	2026-11-17T00:02:42Z	-
+FLOW-05	[db/stub] no provider call in FLOW-05 outside the W1 send of FLOW-07	PASS	2026-11-17T00:02:42Z	stub sends=1 attempts=1
+SETUP	FLOW-06: M7 pending for Ana (API, MANUAL); QA333 Dario Reciente made DUE today via explicitNextDate (API) so the Norte queue has two customers	NOTE	2026-11-17T00:03:21Z	-
+FLOW-06	[browser] Norte: AI draft (real OpenAI) edited with marker NORTE-EDIT-334 + pending M7 open in review with the 'Confirmar aprobacion' group open; switch workspace to QA Cafe Sur via the selector	PASS	2026-11-17T00:05:18Z	M7 91154966
+FLOW-06	[browser] Sur renders only Sur: queue 'QA333 Elena Sur Vencida', AI panel idle, history 'Este cliente no tiene mensajes todavia.', no textarea, no confirm group; a DOM MutationObserver armed before the click saw 0 mutations containing Norte name/phone/draft/message text	PASS	2026-11-17T00:05:18Z	sessionStorage holds only active-tenant ids
+FLOW-06	[api] M7 untouched by the switch (PENDING_APPROVAL v1); tenant B has 0 messages	PASS	2026-11-17T00:05:18Z	-
+FLOW-06	[browser] back to Norte: edited AI draft and review discarded, nothing resurrected (documented in ADR 0026 / issue-97 verification); the stored message M7 is still listed and reopenable (its text stays accessible; changing it = Corregir)	PASS	2026-11-17T00:05:18Z	documented behaviour: AI draft is local-only ('Edicion local: no se guarda ni se envia')
+FLOW-06	[browser] in-flight: Confirmar aprobacion clicked and workspace switched to Sur in the same task (~30 ms): the client aborted the approval response (AbortError) and Sur showed no Norte data and no 'Mensaje aprobado' (only Norte frames before the switch: 2 mutations at +4/+9 ms, ws=Norte)	PASS	2026-11-17T00:05:18Z	-
+FLOW-06	[api/browser] the explicitly confirmed approval had already reached the server and committed in Norte (M7 APPROVED v2 by the OWNER membership); returning to Norte the history shows 'Aprobado, sin enviar'. The switch never applied it to Sur (B messages 0) and no send happened	PASS	2026-11-17T00:05:18Z	stub sends=1
+FLOW-06	[browser] customer switch inside Norte: with M7's review open and the 'Confirmar envio' group open for Ana, selecting QA333 Dario Reciente shows Dario's detail, 'Este cliente no tiene mensajes todavia.', no action buttons, no confirm group; an observer saw 0 mutations with M7's text, the confirm group or its review heading	PASS	2026-11-17T00:06:17Z	-
+FLOW-02	[browser] manual disposition while a message is open: back on Ana with M7 APPROVED, Registrar seguimiento -> Guardar seguimiento saves (lastManualFollowUpDate=2026-11-17), Ana leaves the queue; M7 stays APPROVED and is not sent; customer now NOT_YET_DUE	PASS	2026-11-17T00:06:17Z	copy remains a harness limitation (see NOTE)
+CLEANUP	cancel open message 91154966	NOTE	2026-11-17T00:06:18Z	http=201 status=CANCELLED
+CLEANUP	restore customer name QA333 Ana Vencida (same contact id)	NOTE	2026-11-17T00:06:18Z	http=200 contact=a98c2dce
+CLEANUP	Ana due today again (explicitNextDate) for later suites	NOTE	2026-11-17T00:06:18Z	http=200
+CLEANUP	Dario back to NOT_YET_DUE	NOTE	2026-11-17T00:06:18Z	status=NOT_YET_DUE
+CLEANUP	final counts	NOTE	2026-11-17T00:06:18Z	messages=CANCELLED:15,REJECTED:1,SENT:1 attempts=1 stub_sends=1 tenantA=true/true/false
+SETUP	live OpenAI usage for the suite (audit_events since 23:40Z): NEXT_BEST_ACTION GENERATED x4, MESSAGE_DRAFT GENERATED x4 + MODEL_REFUSED x1 = 9 calls, model gpt-6-luna; provider reset to fake afterwards	NOTE	2026-11-17T00:06:50Z	user-authorised budget well under US$0.10
