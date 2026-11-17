@@ -95,8 +95,8 @@ const ERROR_CODE_SENTENCES = {
   FOLLOW_UP_INELIGIBLE: 'El cliente no está elegible para seguimiento ahora.',
   CONTACT_FREQUENCY_EXCEEDED: 'Ya se contactó a este cliente recientemente.',
   TEMPLATE_NOT_MAPPED: 'No hay una plantilla configurada para este tipo de mensaje.',
-  BODY_REJECTED:
-    'El texto del mensaje no pasó la validación. Revisa que esté en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, que solo use datos de este cliente y, si la plantilla es de texto fijo, que coincida con ella.',
+  // Also returned on approve and send, where the text cannot be edited: the remedy there is Corregir or Cancelar.
+  BODY_REJECTED: 'El texto del mensaje no pasó la validación. Corrígelo o cancélalo.',
   SEND_ATTEMPTS_EXHAUSTED: 'Se agotaron los intentos de envío.',
   CONTACT_NOT_OWNED: 'El teléfono ya no pertenece a este cliente.',
   MESSAGE_ALREADY_OPEN: 'Ya hay un mensaje abierto para este cliente.',
@@ -151,7 +151,10 @@ export const COPY = {
     'Esta plantilla tiene un texto fijo y solo envía ese texto (con los datos del cliente): el mensaje debe coincidir exactamente con él.',
   templateHeading: 'Lo que recibirá el cliente',
   bodyFormat:
-    'WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos en este mensaje. Escríbelo en una sola línea.',
+    'WhatsApp no admite saltos de línea, tabulaciones, más de cuatro espacios seguidos ni caracteres invisibles (frecuentes en texto pegado). Escríbelo en una sola línea o vuelve a escribir la parte pegada.',
+  /** The compose's own BODY_REJECTED sentence: there the text is editable, so it says what to check. */
+  composeBodyRejected:
+    'El texto del mensaje no pasó la validación. Revisa que esté en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, que solo use datos de este cliente y, si la plantilla es de texto fijo, que coincida con ella.',
   correctionContactRemoved:
     'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
 } as const;

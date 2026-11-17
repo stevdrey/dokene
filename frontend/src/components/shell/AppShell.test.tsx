@@ -66,14 +66,19 @@ describe('AppShell', () => {
     expect(screen.getByText('Administrador(a)')).toBeInTheDocument();
   });
 
-  it('offers a skip link as the first focusable control, pointing at the focusable main region (#415)', () => {
+  it('offers a skip link as the first focusable control that moves focus to main (#415)', () => {
     const { container } = render(<AppShell />);
-    const first = container.querySelector('a[href], button, input, select, textarea');
+    const first = container.querySelector('a[href], button, input, select, textarea') as HTMLAnchorElement;
     expect(first).toHaveTextContent('Saltar al contenido');
     expect(first).toHaveAttribute('href', '#contenido-principal');
     const main = screen.getByRole('main');
     expect(main).toHaveAttribute('id', 'contenido-principal');
-    expect(main).toHaveAttribute('tabindex', '-1');
+    // main is not focusable until the skip link is used, so clicks on its text do not focus the whole region.
+    expect(main).not.toHaveAttribute('tabindex');
+    fireEvent.click(first);
+    expect(main).toHaveFocus();
+    fireEvent.blur(main);
+    expect(main).not.toHaveAttribute('tabindex');
   });
 
   it('switches tabs when clicking navigation buttons', () => {

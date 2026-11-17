@@ -4,6 +4,11 @@ import { Button } from '@/shared/components/Button';
 import { CloseIcon } from '@/shared/components/Icons';
 
 describe('Button', () => {
+  it('wraps a label only between words, whatever the container allows (#416)', () => {
+    render(<Button>Actualizar</Button>);
+    expect(screen.getByRole('button', { name: 'Actualizar' })).toHaveStyle({ overflowWrap: 'normal', wordBreak: 'normal' });
+  });
+
   it('enforces a minimum 44px height and 44px width for icon-only buttons', () => {
     render(
       <Button size="sm" aria-label="Eliminar elemento">

@@ -1,0 +1,24 @@
+{
+  "description": "Template parameter values the backend refuses or accepts (TemplateParameterValues.acceptable). The frontend compose mirrors this rule (bodyFormat.ts); both sides test against these cases so the two cannot drift.",
+  "refused": [
+    { "name": "line feed", "value": "Hola\nAna" },
+    { "name": "carriage return", "value": "Hola\rAna" },
+    { "name": "tab", "value": "Hola\tAna" },
+    { "name": "five spaces", "value": "Hola     Ana" },
+    { "name": "line separator", "value": "Hola Ana" },
+    { "name": "paragraph separator", "value": "Hola Ana" },
+    { "name": "zero-width space", "value": "Hola​Ana" },
+    { "name": "right-to-left override", "value": "Hola‮Ana" },
+    { "name": "C1 next line", "value": "Hola\u0085Ana" },
+    { "name": "soft hyphen", "value": "Ho­la Ana" },
+    { "name": "byte order mark", "value": "﻿Hola Ana" }
+  ],
+  "accepted": [
+    { "name": "accents and enye", "value": "Hola Ñandú, ¿cómo estás?" },
+    { "name": "emoji with zero-width joiner", "value": "Equipo 👩‍💻 listo" },
+    { "name": "subdivision flag (tag block)", "value": "🏴󠁧󠁢󠁳󠁣󠁴󠁿" },
+    { "name": "four spaces", "value": "Hola    Ana" },
+    { "name": "HTML-like text", "value": "<b>no es negrita</b> &amp; {{7*7}}" },
+    { "name": "typographic quotes", "value": "Tu pedido “Café de Altura” está listo — ¡gracias!" }
+  ]
+}

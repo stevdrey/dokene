@@ -218,10 +218,16 @@ describe('compose mode', () => {
 
   it('warns about line breaks, tabs and five spaces before submit and keeps submit disabled (#417)', () => {
     renderCompose();
-    for (const text of ['Hola\nAna', 'Hola\tAna', 'Hola     Ana', 'Hola\u2028Ana']) {
+    // The warning is a live region that exists before any bad input, so its text is announced when it appears.
+    const warning = textarea().parentElement!.querySelector('[aria-live="polite"]');
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent('');
+    for (const text of ['Hola\nAna', 'Hola\tAna', 'Hola     Ana', 'Hola\u2028Ana', 'Hola\u200BAna']) {
       type(text);
       expect(textarea()).toHaveAttribute('aria-invalid', 'true');
       expect(screen.getByText(/WhatsApp no admite saltos de línea/)).toBeInTheDocument();
+      // Invisible characters (a pasted zero-width space) are named too (review of #420).
+      expect(warning).toHaveTextContent(/caracteres invisibles/);
       expect(submitButton()).toBeDisabled();
     }
     // Accents, emoji with a zero-width joiner, typographic quotes and four spaces are sendable.
@@ -269,7 +275,9 @@ describe('compose mode', () => {
     expect(call.body).toBe(JSON.stringify(draft));
     expect(call.headers['If-Match']).toBe('"7"');
     expect(call.headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
-    expect(screen.getByRole('status')).toHaveTextContent('Mensaje enviado a aprobación. Aún no se ha enviado al cliente.');
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Mensaje enviado a aprobación. Aún no se ha enviado al cliente.')
+    );
     expect(screen.getByText('Pendiente de aprobación')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
     expect(onSubmitted).toHaveBeenCalledWith(pendingApproval.messageId);
@@ -285,8 +293,9 @@ describe('compose mode', () => {
     fireEvent.click(submitButton());
     confirmSubmit();
     expect(await screen.findByText(`Revisión ${details.sent.version}`)).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Este mensaje ya se había enviado a aprobación. Estado actual: Enviado.'
+    // The review announces after taking focus, one effect later than the render.
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Este mensaje ya se había enviado a aprobación. Estado actual: Enviado.')
     );
   });
 

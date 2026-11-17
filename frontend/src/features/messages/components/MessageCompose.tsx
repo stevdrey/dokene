@@ -310,7 +310,10 @@ export function MessageCompose({
           setPhase({ kind: 'refused', message: rateLimitedSentence(failure.retryAfterSeconds ?? RATE_LIMIT_SECONDS) });
           return;
         case 'refused':
-          setPhase({ kind: 'refused', message: errorCodeSentence(failure.code) });
+          setPhase({
+            kind: 'refused',
+            message: failure.code === 'BODY_REJECTED' ? COPY.composeBodyRejected : errorCodeSentence(failure.code)
+          });
           return;
         default:
           setPhase({ kind: 'refused', message: COPY.actionFailed });
@@ -396,11 +399,14 @@ export function MessageCompose({
         >
           {length}/{DRAFT_BODY_MAX_CODE_POINTS}
         </span>
-        {badFormat && (
-          <p id={formatId} className="message-review__notice message-review__notice--warning">
-            {COPY.bodyFormat}
-          </p>
-        )}
+        {/* Always rendered: a live region must exist before its text changes to be announced. */}
+        <p
+          id={formatId}
+          aria-live="polite"
+          className={badFormat ? 'message-review__notice message-review__notice--warning' : undefined}
+        >
+          {badFormat ? COPY.bodyFormat : ''}
+        </p>
       </div>
 
       {stale && (

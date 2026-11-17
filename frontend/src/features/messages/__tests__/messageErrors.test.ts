@@ -93,6 +93,12 @@ describe('canActOnMessages', () => {
 });
 
 // covers: AC-5, AC-8, AC-14
+describe('BODY_REJECTED sentences', () => {
+  it('outside the compose points at Corregir or Cancelar, since the review text cannot be edited', () => {
+    expect(errorCodeSentence('BODY_REJECTED')).toBe('El texto del mensaje no pasó la validación. Corrígelo o cancélalo.');
+  });
+});
+
 describe('messageLabels', () => {
   it('has Spanish text for every status, event type and error code', () => {
     for (const status of MESSAGE_STATUSES) expect(statusLabel(status)).not.toBe(status);
