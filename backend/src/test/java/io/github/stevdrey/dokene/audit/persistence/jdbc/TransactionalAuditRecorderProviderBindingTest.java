@@ -11,6 +11,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
+import io.github.stevdrey.dokene.audit.application.DenialAuditBudget;
+import io.github.stevdrey.dokene.audit.application.DenialAuditTelemetry;
 import io.github.stevdrey.dokene.audit.domain.AuditMessageStatus;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.database.DatabaseUnavailability;
@@ -43,7 +45,8 @@ class TransactionalAuditRecorderProviderBindingTest {
     private final AuditExecutionContext execution = new AuditExecutionContext();
     private final TransactionalAuditRecorder recorder = new TransactionalAuditRecorder(store, contexts,
             providerContexts, signer, execution, Clock.fixed(NOW, ZoneOffset.UTC),
-            mock(PlatformTransactionManager.class), new DatabaseUnavailability(Duration.ofSeconds(5)));
+            mock(PlatformTransactionManager.class), new DatabaseUnavailability(Duration.ofSeconds(5)),
+            mock(DenialAuditBudget.class), mock(DenialAuditTelemetry.class));
     private final TenantId tenantId = new TenantId(UUID.randomUUID());
     private final UUID messageId = UUID.randomUUID();
 

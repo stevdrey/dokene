@@ -99,7 +99,8 @@ class TenantContextRequestFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(tenantContexts.current()).isEmpty();
-        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(audit).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
     }
 
     @Test
@@ -116,7 +117,8 @@ class TenantContextRequestFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(400);
         assertThat(tenantContexts.current()).isEmpty();
-        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(audit).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
     }
 
     @Test
@@ -134,7 +136,8 @@ class TenantContextRequestFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(400);
         assertThat(tenantContexts.current()).isEmpty();
-        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(audit).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
     }
 
     @Test
@@ -152,7 +155,8 @@ class TenantContextRequestFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(tenantContexts.current()).isEmpty();
-        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(audit).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
     }
 
     @Test
@@ -219,7 +223,8 @@ class TenantContextRequestFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentAsString()).isEmpty();
-        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(audit).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
     }
 
     @Test
@@ -261,7 +266,8 @@ class TenantContextRequestFilterTest {
 
         assertThat(response.getStatus()).isEqualTo(403);
         assertThat(response.getContentAsString()).isEmpty();
-        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(audit).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
         verifyNoMoreInteractions(audit);
     }
 
@@ -298,7 +304,27 @@ class TenantContextRequestFilterTest {
         assertThat(response.getContentAsString()).isEqualTo(expectedBody);
         assertThat(response.isCommitted()).isTrue();
         assertThat(tenantContexts.current()).isEmpty();
-        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(audit).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
+    }
+
+    /** covers: spec 0020 AC-11 */
+    @Test
+    void aSignedInPrincipalWithoutAnInternalIdentityIsDeniedWithNoIdentityToCharge() throws Exception {
+        SecurityContextHolder.getContext().setAuthentication(
+                new UsernamePasswordAuthenticationToken("not an internal identity", "not-used", List.of()));
+        AuditRecorder audit = mock();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        filter((identity, requestedTenant) -> context, audit)
+                .doFilter(requestWithoutTenant(), response, (ignoredRequest, ignoredResponse) -> {
+                    throw new AssertionError("The filter chain must not run");
+                });
+
+        assertThat(response.getStatus()).isEqualTo(403);
+        // Null charges the slot shared by every caller without an identity, never somebody else's budget.
+        verify(audit).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, null);
+        verifyNoMoreInteractions(audit);
     }
 
     @Test

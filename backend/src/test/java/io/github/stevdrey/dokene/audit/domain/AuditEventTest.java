@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Instant;
 import java.util.UUID;
@@ -244,5 +245,56 @@ class AuditEventTest {
                 AuditEventType.INTEGRATION_UPDATED, new AuditTarget(AuditTarget.Type.TEMPLATE_MAPPING, UUID.randomUUID()),
                 AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.IntegrationToggle(true)))
                 .as("integration events target an integration").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    /** covers: spec 0020 AC-16 */
+    @Test
+    void denialSummariesComeInExactlyThreeShapes() {
+        TenantId tenant = TenantId.random();
+        assertThatCode(() -> summary(tenant, new AuditMetadata.AuthorizationDenialsSuppressed(
+                TenantPermission.CUSTOMER_WRITE, AuditDenialReason.INSUFFICIENT_PERMISSION, 20)))
+                .doesNotThrowAnyException();
+        assertThatCode(() -> summary(tenant, new AuditMetadata.AuthorizationDenialsSuppressed(
+                null, AuditDenialReason.UNSPECIFIED, 1))).doesNotThrowAnyException();
+        assertThatCode(() -> summary(null, new AuditMetadata.AuthorizationDenialsSuppressed(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, 990))).doesNotThrowAnyException();
+        assertThatCode(() -> summary(null, new AuditMetadata.AuthorizationDenialsSuppressed(null, null, 7)))
+                .doesNotThrowAnyException();
+
+        assertThatThrownBy(() -> summary(tenant, new AuditMetadata.AuthorizationDenialsSuppressed(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, 5)))
+                .as("a tenant count never carries the reason of a denial without a tenant")
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> summary(tenant, new AuditMetadata.AuthorizationDenialsSuppressed(null, null, 5)))
+                .as("the tracker full count belongs to no tenant").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> summary(null, new AuditMetadata.AuthorizationDenialsSuppressed(
+                TenantPermission.CUSTOMER_WRITE, AuditDenialReason.INSUFFICIENT_PERMISSION, 5)))
+                .as("a tenant reason needs its tenant").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> summary(null, new AuditMetadata.AuthorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT)))
+                .as("only the summary metadata fits the summary type").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), null, null, null,
+                AuditEventType.AUTHORIZATION_DENIALS_SUPPRESSED, null, AuditOutcome.SUCCESS, UUID.randomUUID(),
+                new AuditMetadata.AuthorizationDenialsSuppressed(null, null, 5)))
+                .as("a count of denials is a denied outcome").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), null, null, null,
+                AuditEventType.AUTHORIZATION_DENIALS_SUPPRESSED,
+                new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()), AuditOutcome.DENIED,
+                UUID.randomUUID(), new AuditMetadata.AuthorizationDenialsSuppressed(null, null, 5)))
+                .as("a count has no target").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.AuthorizationDenialsSuppressed(
+                TenantPermission.TENANT_READ, null, 5))
+                .as("a permission needs a reason").isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditMetadata.AuthorizationDenialsSuppressed(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, 0))
+                .as("a count starts at 1").isInstanceOf(IllegalArgumentException.class);
+    }
+
+    private static AuditEvent summary(TenantId tenant, AuditMetadata metadata) {
+        return new AuditEvent(UUID.randomUUID(), Instant.now(), tenant,
+                tenant == null ? null : new IdentityId(UUID.randomUUID()),
+                tenant == null ? null : new TenantMembershipId(UUID.randomUUID()),
+                AuditEventType.AUTHORIZATION_DENIALS_SUPPRESSED, null, AuditOutcome.DENIED, UUID.randomUUID(),
+                metadata);
     }
 }

@@ -3,6 +3,8 @@ package io.github.stevdrey.dokene.audit.persistence.jdbc;
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.audit.application.AuditRecorder;
+import io.github.stevdrey.dokene.audit.application.DenialAuditBudget;
+import io.github.stevdrey.dokene.audit.application.DenialAuditTelemetry;
 import io.github.stevdrey.dokene.audit.domain.AiAuditDetail;
 import io.github.stevdrey.dokene.audit.domain.AiAuditOperation;
 import io.github.stevdrey.dokene.audit.domain.AiAuditOutcome;
@@ -18,6 +20,7 @@ import io.github.stevdrey.dokene.tenant.application.ProviderContextProvider;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
@@ -27,9 +30,12 @@ import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.TransientDataAccessException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.support.TransactionTemplate;
 
 @Service
@@ -44,12 +50,20 @@ class TransactionalAuditRecorder implements AuditRecorder {
     private final TransactionTemplate independent;
     private final TransactionTemplate mandatory;
     private final DatabaseUnavailability databaseUnavailability;
+    private final DenialAuditBudget denialBudget;
+    private final DenialAuditTelemetry denialTelemetry;
+
+    /** What became of one attempt to append a count of suppressed denials. */
+    enum SummaryWrite { WRITTEN, ALREADY_WRITTEN, RETRY, REJECTED }
 
     TransactionalAuditRecorder(JdbcAuditStore store, TenantContextProvider contexts,
             ProviderContextProvider providerContexts, DatabaseContextSigner signer, AuditExecutionContext execution,
-            Clock clock, PlatformTransactionManager transactions, DatabaseUnavailability databaseUnavailability) {
+            Clock clock, PlatformTransactionManager transactions, DatabaseUnavailability databaseUnavailability,
+            DenialAuditBudget denialBudget, DenialAuditTelemetry denialTelemetry) {
         this.store = store;
         this.databaseUnavailability = databaseUnavailability;
+        this.denialBudget = denialBudget;
+        this.denialTelemetry = denialTelemetry;
         this.contexts = contexts;
         this.providerContexts = providerContexts;
         this.signer = signer;
@@ -64,10 +78,87 @@ class TransactionalAuditRecorder implements AuditRecorder {
 
     @Override
     public void authorizationDenied(TenantPermission permission, AuditDenialReason reason) {
+        authorizationDenied(permission, reason, null);
+    }
+
+    /**
+     * Writes the denial row while its key and identity have budget left (spec 0020, ADR 0032); past that the denial
+     * is counted, signalled and left for the sweep's summary row. The caller's refusal never depends on which.
+     */
+    @Override
+    public void authorizationDenied(TenantPermission permission, AuditDenialReason reason, IdentityId identityId) {
         TenantContext context = contexts.current().orElse(null);
-        append(context, event(context, AuditEventType.AUTHORIZATION_DENIED, null, AuditOutcome.DENIED,
-                new AuditMetadata.AuthorizationDenied(permission, context == null ? AuditDenialReason.NO_TENANT_CONTEXT : reason)),
-                independent);
+        AuditDenialReason effectiveReason = context == null ? AuditDenialReason.NO_TENANT_CONTEXT : reason;
+        // Built before the budget is asked, so a missing correlation scope or an invalid event fails as it always did.
+        AuditEvent event = event(context, AuditEventType.AUTHORIZATION_DENIED, null, AuditOutcome.DENIED,
+                new AuditMetadata.AuthorizationDenied(permission, effectiveReason));
+        DenialAuditBudget.Decision decision;
+        try {
+            decision = denialBudget.decide(context, identityId, effectiveReason, permission, event.correlationId());
+        } catch (RuntimeException exception) {
+            // A broken budget must never cost a denial its row. The message could carry caller text: class only.
+            log.error("Denial audit budget failed; the denial row is written: exceptionClass={}",
+                    exception.getClass().getName());
+            append(context, event, independent);
+            return;
+        }
+        if (!decision.suppressed()) {
+            append(context, event, independent);
+            return;
+        }
+        denialTelemetry.suppressed(effectiveReason, decision.cause());
+        if (!decision.first()) {
+            return;
+        }
+        if (decision.cause() == DenialAuditBudget.Cause.TRACKER_FULL) {
+            log.error("Denial audit tracker is full; denials of untracked keys are counted without rows");
+        } else {
+            log.warn("Authorization denial rows suppressed for this window: identity={}, reason={}, permission={}, "
+                    + "cause={}", decision.identity() == null ? "unknown" : decision.identity().value(),
+                    effectiveReason, permission, decision.cause());
+        }
+    }
+
+    /**
+     * Appends one count of suppressed denials under its fixed row id, in its own transaction. Attributed counts are
+     * written under the tenant context stored with the window and a capability minted now; the database checks the
+     * signature and the verified tenant, not whether that membership is still active.
+     */
+    SummaryWrite writeSuppressionSummary(DenialAuditBudget.Summary summary) {
+        TenantContext context = summary.context();
+        try {
+            if (context == null) {
+                execution.runWithCorrelation(summary.correlationId(), () -> appendSummary(null, summary));
+            } else {
+                contexts.runWithContext(context, () -> execution.runWithCorrelation(summary.correlationId(),
+                        () -> appendSummary(context, summary)));
+            }
+            return SummaryWrite.WRITTEN;
+        } catch (DuplicateKeyException exception) {
+            // The row id is fixed per count, so a conflict means an earlier attempt committed.
+            return SummaryWrite.ALREADY_WRITTEN;
+        } catch (RuntimeException exception) {
+            boolean retry = databaseUnavailability.isCause(exception)
+                    || exception instanceof TransientDataAccessException
+                    || exception instanceof TransactionException;
+            // SQL/driver exceptions can include row values and statements. Never log their messages or causes.
+            log.error("Denial suppression summary was not written: retry={}, exceptionClass={}", retry,
+                    exception.getClass().getName());
+            return retry ? SummaryWrite.RETRY : SummaryWrite.REJECTED;
+        }
+    }
+
+    private void appendSummary(TenantContext context, DenialAuditBudget.Summary summary) {
+        AuditEvent event = new AuditEvent(summary.summaryId(), clock.instant(),
+                context == null ? null : context.tenantId(), context == null ? null : context.identityId(),
+                context == null ? null : context.membershipId(), AuditEventType.AUTHORIZATION_DENIALS_SUPPRESSED,
+                null, AuditOutcome.DENIED, execution.requireCurrent(),
+                new AuditMetadata.AuthorizationDenialsSuppressed(summary.permission(), summary.reason(),
+                        summary.suppressedCount()));
+        SignedDatabaseContext capability = context == null
+                ? null
+                : signer.issueAuditContext(context.tenantId(), context.identityId(), context.membershipId());
+        independent.executeWithoutResult(status -> store.append(event, capability));
     }
 
     @Override

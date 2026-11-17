@@ -46,3 +46,4 @@ Alternatives rejected: (A) leave it open to OPERATOR and only document it (least
 with synchronous durable denials. Audit failures propagate and produce generic HTTP
 503 responses rather than being swallowed before returning 403. Pure `evaluate`
 methods remain side-effect-free; enforcement methods (`require*`, `has*`) audit denials.
+Since [ADR 0032](0032-bounded-authorization-denial-audit.md) repeated denials of one key are counted in a summary row instead of each getting a row; the refusal itself is unchanged.

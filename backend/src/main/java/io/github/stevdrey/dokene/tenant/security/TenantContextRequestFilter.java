@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import jakarta.servlet.FilterChain;
@@ -18,6 +19,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -119,25 +121,29 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
             return;
         }
 
+        // Resolved once: every rejection below charges this identity's budget of denial rows (spec 0020).
+        Optional<IdentityId> identity = identityResolver.resolve(authentication);
+        IdentityId deniedIdentity = identity.orElse(null);
+
         List<String> selectors = Collections.list(request.getHeaders(TENANT_ID_HEADER));
         if (selectors.isEmpty()) {
-            reject(request, response, TenantSelectionRejection.ACCESS_DENIED);
+            reject(request, response, TenantSelectionRejection.ACCESS_DENIED, deniedIdentity);
             return;
         }
         if (selectors.size() != 1) {
-            reject(request, response, TenantSelectionRejection.INVALID_SELECTOR);
+            reject(request, response, TenantSelectionRejection.INVALID_SELECTOR, deniedIdentity);
             return;
         }
 
         TenantId requestedTenantId = parseTenantId(selectors.getFirst());
         if (requestedTenantId == null) {
-            reject(request, response, TenantSelectionRejection.INVALID_SELECTOR);
+            reject(request, response, TenantSelectionRejection.INVALID_SELECTOR, deniedIdentity);
             return;
         }
 
         try {
             TenantContext tenantContext = tenantContextResolver.resolve(
-                    identityResolver.resolve(authentication).orElseThrow(TenantContextAuthorizationException::new),
+                    identity.orElseThrow(TenantContextAuthorizationException::new),
                     requestedTenantId
             );
             try {
@@ -151,7 +157,7 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
                 throw new ServletException(exception);
             }
         } catch (TenantContextAuthorizationException exception) {
-            reject(request, response, TenantSelectionRejection.ACCESS_DENIED);
+            reject(request, response, TenantSelectionRejection.ACCESS_DENIED, deniedIdentity);
         }
     }
 
@@ -162,9 +168,11 @@ class TenantContextRequestFilter extends OncePerRequestFilter {
     private void reject(
             HttpServletRequest request,
             HttpServletResponse response,
-            TenantSelectionRejection rejection
+            TenantSelectionRejection rejection,
+            IdentityId deniedIdentity
     ) throws IOException {
-        auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        auditRecorder.authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, deniedIdentity);
         List<TenantSelectionRejectionResponder> owners = rejectionResponders.stream()
                 .filter(responder -> responder.handles(request)).toList();
         if (owners.size() == 1) {

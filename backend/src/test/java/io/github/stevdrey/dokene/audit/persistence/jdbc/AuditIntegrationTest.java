@@ -531,7 +531,7 @@ class AuditIntegrationTest {
     void auditFailureAbortsDenialAndRollsBackSuccessfulStateChange() throws SQLException {
         TenantContext context = tenant(TenantRole.ADMIN);
         IdentityId target = member(context, TenantRole.VIEWER);
-        migrationSql("REVOKE EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, INTEGER, BOOLEAN) FROM dokene_runtime");
+        migrationSql("REVOKE EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, INTEGER, BOOLEAN, INTEGER) FROM dokene_runtime");
         try {
             scoped(context, () -> {
                 assertThatThrownBy(() -> roles.changeRole(target, TenantRole.OPERATOR)).isInstanceOf(AuditPersistenceException.class);
@@ -541,7 +541,7 @@ class AuditIntegrationTest {
                         .isInstanceOf(AuditPersistenceException.class).hasMessage("Audit persistence unavailable").hasNoCause();
             });
         } finally {
-            migrationSql("GRANT EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, INTEGER, BOOLEAN) TO dokene_runtime");
+            migrationSql("GRANT EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, INTEGER, BOOLEAN, INTEGER) TO dokene_runtime");
         }
     }
 
