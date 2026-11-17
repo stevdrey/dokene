@@ -13,8 +13,8 @@ rec $C "page 1: 20 rows, newest first, a next cursor" "$([ "$(jb '.items|length'
 # Between pages: the open message is cancelled (status change) and a new message is submitted (newer than the cursor).
 cancel "$M_H6_26"; mkmsg M_H6_27 testuser "$H6" "$H6_C"
 page "$A" "$CUR"; P2=$(jb '[.items[].messageId]|join(" ")'); A2=$BODY
-ALL=$(printf '%s %s' "$P1" "$P2" | tr ' ' '\n' | sort)
-DB=$(psqlq "select id from dokene.outbound_messages where customer_id='$H6' and id<>'$M_H6_27' order by id")
+ALL=$(printf '%s %s' "$P1" "$P2" | tr ' ' '\n' | LC_ALL=C sort)
+DB=$(psqlq "select id from dokene.outbound_messages where customer_id='$H6' and id<>'$M_H6_27'" | LC_ALL=C sort)
 rec $C "page 2 after a change between pages: 6 rows, no duplicate, union equals the 26 earlier messages" \
   "$([ "$(jb '.items|length')" = 6 ] && [ "$(jb .nextCursor)" = null ] && [ -z "$(printf '%s\n' "$ALL" | uniq -d)" ] && [ "$ALL" = "$DB" ] && echo PASS || echo FAIL)" \
   "rows=$(jb '.items|length') dups=$(printf '%s\n' "$ALL" | uniq -d | wc -l) union=$(printf '%s\n' "$ALL" | wc -l) db=$(printf '%s\n' "$DB" | wc -l)"

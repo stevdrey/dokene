@@ -46,11 +46,13 @@ wh_post "$OUTD/h04-unknown.json";                             chk "signed report
 wh_body "$OUTD/h04-unsup.json" "$PNID_A" "$P:deleted:$(date +%s)"
 wh_post "$OUTD/h04-unsup.json";                               chk "signed unsupported status value -> 200, nothing stored" 200 0
 # Wrong provider reference in tenant A, and H4's real reference reported through tenant B's verified number.
-wh_body "$OUTD/h04-wrongref.json" "$PNID_A" "wamid.QA336-NO-SUCH-MESSAGE:delivered:$(date +%s)"
+# A new reference per run: the inbox keeps (tenant, id, state) for 30 days, so a fixed id would deduplicate on a rerun.
+WREF=wamid.QA336-NO-SUCH-$(uuidgen | tr -d -)
+wh_body "$OUTD/h04-wrongref.json" "$PNID_A" "$WREF:delivered:$(date +%s)"
 wh_post "$OUTD/h04-wrongref.json";                            chk "signed report with a wrong provider reference -> 200, parked, H4 unchanged" 200 1
 wh_body "$OUTD/h04-cross.json" "$PNID_B" "$P:read:$(date +%s)"
 wh_post "$OUTD/h04-cross.json";                               chk "H4's provider id reported through tenant B's number -> 200, parked under B, H4 unchanged" 200 2
-psqlq "select ''''||id||'''' from dokene.provider_webhook_events where state='PENDING' and (provider_message_id='wamid.QA336-NO-SUCH-MESSAGE' or (provider_message_id='$P' and tenant_id='$B'))" > "$OUTD/h04-parked.ids"
+psqlq "select ''''||id||'''' from dokene.provider_webhook_events where state='PENDING' and (provider_message_id='$WREF' or (provider_message_id='$P' and tenant_id='$B'))" > "$OUTD/h04-parked.ids"
 rec $C "parked rows: wrong reference under A, cross-tenant under B, both PENDING" "$([ "$(wc -l < "$OUTD/h04-parked.ids")" = 2 ] && echo PASS || echo FAIL)" \
   "rows=$(psqlq "select string_agg(case when tenant_id='$A' then 'A' else 'B' end||':'||delivery_status||'='||state, ',') from dokene.provider_webhook_events where id in ($(paste -sd, "$OUTD/h04-parked.ids"))")"
 # Verification challenge: a wrong token is 403 with no echo; no session either way.

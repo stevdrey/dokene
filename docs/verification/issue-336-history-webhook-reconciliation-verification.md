@@ -86,6 +86,12 @@ below; none covers them.
 5. Callback bodies are written to `$OUTD` and contain only synthetic values. The signing key reaches `python3` through
    the environment, never an argument. Webhook calls carry no session or CSRF value; the BFF calls go through the
    protected curl wrapper, which `qa336.sh` loads itself.
+   After code review the scripts were hardened without changing the recorded lines:
+   - the HIST-05 resend check requires the global-gate code `OUTBOUND_DISABLED_GLOBALLY` it actually tested (O5);
+   - the HIST-04 wrong-reference id is new on each run, so a rerun is not deduplicated by the inbox;
+   - `final336.sh` compares with the stub count `w1-sends336.sh` saves after W1, not a fixed number;
+   - the fixture helpers `next_phone`, `mkcust` and `mkmsg` are shared from `qa335.sh` with a per-suite tag and phone
+     range; `hist02-336.sh` refuses an unknown argument; the page union compares byte-sorted ids.
 6. Cleanup (`final336.sh`): the 4 still-open suite messages were cancelled, the 15 `QA336` customers were archived,
    and the stub was reset to `accept`. End checks: global and tenant A outbound off, stub send count still 22. Inbox at
    the end: tenant A `DELIVERED` 3 applied, 2 ignored, 1 unmatched; `READ` 2 applied; `FAILED` 1 applied, 1 ignored;

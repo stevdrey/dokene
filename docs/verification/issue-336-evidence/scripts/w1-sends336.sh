@@ -21,5 +21,6 @@ one M_H5F error401canary FAILED false
 one M_H5U paused SENDING true
 one M_H5R paused SENDING true
 stub_reset
+setid W1_STUB_END "$(stub_sends)"   # baseline for the final "no provider request since W1" check
 rec $C "side effects after the W1 sends" NOTE "attempts_total=$(attempts_all) stub_sends=$(stub_sends) inbox_rows=$(inbox_rows '')"
 qa_finish

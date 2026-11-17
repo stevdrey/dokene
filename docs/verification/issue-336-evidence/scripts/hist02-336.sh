@@ -8,10 +8,10 @@ set -uo pipefail
 assert_safe_stack false || exit 2
 qa_login testuser || exit 3
 C=HIST-02; M=$M_H2; ST=${1:?delivered|read}
+case $ST in delivered) want=DELIVERED ;; read) want=READ ;; *) echo "usage: $0 delivered|read" >&2; exit 2 ;; esac
 P=$(pmid "$M"); S0=$(stub_sends); E0=$(mevents "$M"); N0=$(msgs_total); R0=$(mrow "$M")
 F=$OUTD/h02-$ST.json; wh_body "$F" "$PNID_A" "$P:$ST:$(date +%s)"
 wh_post "$F"
-want=$([ "$ST" = delivered ] && echo DELIVERED || echo READ)
 rec $C "signed $ST callback over real HTTP: 200, no Set-Cookie" "$([ "$WCODE" = 200 ] && no_cookie && echo PASS || echo FAIL)" "http=$WCODE"
 R1=$(mrow "$M")
 rec $C "$ST advances the same message to $want; one applied event; attempts, messages and provider sends unchanged" \

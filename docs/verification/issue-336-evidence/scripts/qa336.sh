@@ -10,6 +10,8 @@ QA336_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export OUTD=${OUTD:-$HOME/qa336/out}
 export RESULTS=${RESULTS:-$OUTD/results.tsv}
 mkdir -p "$OUTD"
+# The shared fixture helpers (next_phone, mkcust, mkmsg) come from qa335.sh with this suite's tag and phone range.
+export QA_TAG=QA336 QA_PHONE_PREFIX=+5698336
 . "$QA336_DIR/../../issue-335-evidence/scripts/qa335.sh"
 . "$QA_HOME/out/ids"            # tenants A and B (fixtures333.sh)
 [ -f "$OUTD/ids" ] && . "$OUTD/ids"
@@ -19,41 +21,6 @@ mkdir -p "$OUTD"
 PNID_A=100000000000001   # tenant A verified mapping (stub phones.list)
 PNID_B=100000000000002   # tenant B verified mapping
 WH_SECRET_REF=qa333-app-secret
-
-# next_phone: the next CL test-range number +5698336NNNN not held by any customer yet (reruns never reuse a number).
-next_phone() {
-  printf '+5698336%04d' "$(psqlq "select coalesce(max(substr(normalized_phone,9)::int),0)+1 from dokene.customer_phone_contacts where normalized_phone ~ '^\\+5698336[0-9]{4}$'")"
-}
-
-# mkcust <var> <name>: disposable tenant A customer, WhatsApp consent GRANTED, purchase 40 days ago, due today.
-mkcust() {
-  local v=$1 name=$2 phone cid pid tz
-  phone=$(next_phone)
-  req testuser "$A" POST /api/customers "$(jq -cn --arg n "$name" --arg p "$phone" '{displayName:$n,phones:[{number:$p,region:"CL",primary:true}]}')"
-  [ "$CODE" = 201 ] || { echo "create $name: http=$CODE $(code)" >&2; return 1; }
-  cid=$(jb .id); pid=$(jb '.phones[0].id')
-  req testuser "$A" GET "/api/customers/$cid/contact-policy" -
-  req testuser "$A" PUT "/api/customers/$cid/contacts/$pid/consents/WHATSAPP" '{"status":"GRANTED","source":"CUSTOMER_VERBAL"}' -H "If-Match: $(etag)"
-  [ "$CODE" = 200 ] || { echo "consent $name: http=$CODE" >&2; return 1; }
-  req testuser "$A" POST "/api/customers/$cid/purchases" "$(jq -cn --arg t "$(date -u -d '-40 days' +%FT%TZ)" '{purchasedAt:$t,description:"Compra sintetica QA336"}')" -H "Idempotency-Key: qa336-p-$cid"
-  req testuser "$A" GET "/api/customers/$cid/follow-up-policy" -; tz=$(jb '.timeZone // "UTC"')
-  req testuser "$A" PUT "/api/customers/$cid/follow-up-policy" "$(jq -cn --arg d "$(TZ=$tz date +%F)" '{cadenceDays:null,explicitNextDate:$d,snoozedUntil:null}')" -H "If-Match: $(etag)"
-  [ "$CODE" = 200 ] || { echo "due $name: http=$CODE" >&2; return 1; }
-  setid "$v" "$cid"; setid "${v}_C" "$pid"
-}
-
-# mkmsg <var> <user> <customer> <contact> [approve]: manual REPEAT_PURCHASE message with a synthetic QA336 text.
-mkmsg() {
-  local v=$1 u=$2 c=$3 k=$4 mid pv rev
-  req "$u" "$A" GET "/api/customers/$c/follow-up-policy" -; pv=$(etag)
-  req "$u" "$A" POST "/api/customers/$c/messages" "$(jq -nc --arg c "$k" --arg b "QA336 seguimiento sintetico $v" '{contactId:$c,action:"REPEAT_PURCHASE_FOLLOW_UP",templateIntent:"REPEAT_PURCHASE",body:$b,locale:"es-419",origin:"MANUAL"}')" -H "If-Match: $pv" -H "Idempotency-Key: $(uuidgen)"
-  [ "$CODE" = 201 ] || { echo "submit $v: http=$CODE $(code)" >&2; return 1; }
-  mid=$(jb .messageId); setid "$v" "$mid"
-  [ "${5:-}" = approve ] || return 0
-  req "$u" "$A" GET "/api/messages/$mid" -; rev=$(jb .template.revision)
-  req "$u" "$A" POST "/api/messages/$mid/approvals" "$(jq -nc --arg r "$rev" '{decision:"APPROVE",templateRevision:$r}')" -H "If-Match: $(etag)" -H "Idempotency-Key: $(uuidgen)"
-  { [ "$CODE" = 200 ] || [ "$CODE" = 201 ]; } && [ "$(jb .status)" = APPROVED ] || { echo "approve $v: http=$CODE $(code)" >&2; return 1; }
-}
 
 # cancel <message>: cancel an open message as the OWNER (synthetic reason).
 cancel() {

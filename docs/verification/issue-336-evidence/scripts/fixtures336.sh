@@ -19,7 +19,7 @@ mk() { # var name [pending|approve|cancel|none]
     none) rec SETUP "customer $n (no message)" PASS "cust=${cv:0:8}"; return ;;
     pending) mkmsg "M_$v" testuser "$cv" "$kv" || r=1 ;;
     approve) mkmsg "M_$v" testuser "$cv" "$kv" approve || r=1 ;;
-    cancel) mkmsg "M_$v" testuser "$cv" "$kv" || r=1; local m="M_$v"; cancel "${!m}"; [ "$(jb .status)" = CANCELLED ] || r=1 ;;
+    cancel) if mkmsg "M_$v" testuser "$cv" "$kv"; then local m="M_$v"; cancel "${!m}"; [ "$(jb .status)" = CANCELLED ] || r=1; else r=1; fi ;;
   esac
   local mv="M_$v"
   rec SETUP "customer $n + message ($how)" "$([ $r = 0 ] && echo PASS || echo FAIL)" "msg=${!mv:0:8} status=$(mstate "${!mv}")"

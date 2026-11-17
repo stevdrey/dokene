@@ -33,7 +33,7 @@ t12)
   rec $C "H5U before T12: SENDING, outcomeUnknown=true, provider id kept, attempt OUTCOME_UNKNOWN" \
     "$([ "$(jb .status)" = SENDING ] && [ "$(jb .outcomeUnknown)" = true ] && [ "$(jb '[.attempts[].outcome]|join(",")')" = OUTCOME_UNKNOWN ] && echo PASS || echo FAIL)" "status=$(jb .status) unknown=$(jb .outcomeUnknown) version=$V"
   send testuser "$M"
-  rec $C "a resend on the unknown outcome is refused (no blind resend)" "$([ "$CODE" = 409 ] && [ "$(stub_sends)" = "$S0" ] && [ "$(attempts "$M")" = 1 ] && echo PASS || echo FAIL)" "http=$CODE code=$(code)"
+  rec $C "resend on the unknown outcome refused at the global gate, no attempt or provider request (transition guard: #335 SEND-06)" "$([ "$CODE" = 409 ] && [ "$(code)" = OUTBOUND_DISABLED_GLOBALLY ] && [ "$(stub_sends)" = "$S0" ] && [ "$(attempts "$M")" = 1 ] && echo PASS || echo FAIL)" "http=$CODE code=$(code)"
   req testoperator "$A" POST "/api/messages/$M/resolutions" '{"outcome":"FAILED","note":"QA336 operator"}' -H "If-Match: $V" -H "Idempotency-Key: $(uuidgen)"
   rec $C "T12 by OPERATOR (no INTEGRATION_MANAGE) -> 403" "$([ "$CODE" = 403 ] && echo PASS || echo FAIL)" "http=$CODE code=$(code)"
   req testuser "$A" POST "/api/messages/$M/resolutions" '{"outcome":"FAILED","note":"QA336 no if-match"}' -H "Idempotency-Key: $(uuidgen)"
