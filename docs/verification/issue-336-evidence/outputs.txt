@@ -1,0 +1,139 @@
+# Suite #336 recorded run (results.tsv): case, check, result, UTC time, sanitized note. Synthetic data only.
+SETUP	refresh REPEAT_PURCHASE approval evidence against the stub	PASS	2026-11-17T05:07:51Z	http=200 sendable=true
+SETUP	customer QA336 Abel SinMensajes (no message)	PASS	2026-11-17T05:07:52Z	cust=03ce2e87
+SETUP	customer QA336 Berta Pendiente + message (pending)	PASS	2026-11-17T05:07:52Z	msg=9107c36e status=PENDING_APPROVAL/unknown=false/attempts=0
+SETUP	customer QA336 Carla Aprobada + message (approve)	PASS	2026-11-17T05:07:53Z	msg=0d3e8e22 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Dario Cancelado + message (cancel)	HARNESS-ERROR	2026-11-17T05:07:53Z	msg=467adec2 status=PENDING_APPROVAL/unknown=false/attempts=0
+SETUP	customer QA336 Elena Aceptada + message (approve)	PASS	2026-11-17T05:07:54Z	msg=42292f65 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Olga Entregada + message (approve)	PASS	2026-11-17T05:07:55Z	msg=635bf589 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Fabio Entrega + message (approve)	PASS	2026-11-17T05:07:55Z	msg=d725645d status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Gina Repeticion + message (approve)	PASS	2026-11-17T05:07:56Z	msg=37ddbefa status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Hector Cruce + message (approve)	PASS	2026-11-17T05:07:57Z	msg=9a575b28 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Iris FalloEnvio + message (approve)	PASS	2026-11-17T05:07:57Z	msg=0aec50dc status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Jose FalloWebhook + message (approve)	PASS	2026-11-17T05:07:58Z	msg=a452f3e4 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Karen SinConfirmar + message (approve)	PASS	2026-11-17T05:07:58Z	msg=0108ece2 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA336 Luis Reconciliado + message (approve)	PASS	2026-11-17T05:07:59Z	msg=3b225d22 status=APPROVED/unknown=false/attempts=0
+SETUP	QA336 Mia Paginada: 25 cancelled + 1 pending	HARNESS-ERROR	2026-11-17T05:08:02Z	cancelled=0 total=1
+SETUP	customer QA336 Nico Vecino + message (pending)	PASS	2026-11-17T05:08:03Z	msg=3b10df99 status=PENDING_APPROVAL/unknown=false/attempts=0
+SETUP	side effects after setup	NOTE	2026-11-17T05:08:03Z	attempts_total=13 stub_sends=13 inbox_rows=0
+SETUP	customer QA336 Dario Cancelado: message cancelled (rerun)	PASS	2026-11-17T05:08:19Z	msg=467adec2 status=CANCELLED/unknown=false/attempts=0
+SETUP	QA336 Mia Paginada: 25 cancelled + 1 pending (rerun)	PASS	2026-11-17T05:08:24Z	cancelled=25 total=26
+SETUP	side effects after setup	NOTE	2026-11-17T05:08:25Z	attempts_total=13 stub_sends=13 inbox_rows=0
+WINDOW	[W1] tenant A outbound ON	PASS	2026-11-17T05:08:55Z	http=200
+WINDOW	[W1] OPEN: Graph base URL loopback stub, global ON, tenant A enabled/proven/outbound=true/true/true	PASS	2026-11-17T05:08:55Z	stub sends=13
+SETUP-W1	M_H1S send with stub=accept -> SENT unknown=false, one attempt, one provider request	PASS	2026-11-17T05:08:56Z	http=201 status=SENT unknown=false pid=present failure=null attempts=ACCEPTED
+SETUP-W1	M_H1D send with stub=accept -> SENT unknown=false, one attempt, one provider request	PASS	2026-11-17T05:08:56Z	http=201 status=SENT unknown=false pid=present failure=null attempts=ACCEPTED
+SETUP-W1	M_H2 send with stub=accept -> SENT unknown=false, one attempt, one provider request	PASS	2026-11-17T05:08:56Z	http=201 status=SENT unknown=false pid=present failure=null attempts=ACCEPTED
+SETUP-W1	M_H3 send with stub=accept -> SENT unknown=false, one attempt, one provider request	PASS	2026-11-17T05:08:57Z	http=201 status=SENT unknown=false pid=present failure=null attempts=ACCEPTED
+SETUP-W1	M_H4 send with stub=accept -> SENT unknown=false, one attempt, one provider request	PASS	2026-11-17T05:08:57Z	http=201 status=SENT unknown=false pid=present failure=null attempts=ACCEPTED
+SETUP-W1	M_H5W send with stub=accept -> SENT unknown=false, one attempt, one provider request	PASS	2026-11-17T05:08:57Z	http=201 status=SENT unknown=false pid=present failure=null attempts=ACCEPTED
+SETUP-W1	M_H5F send with stub=error401canary -> FAILED unknown=false, one attempt, one provider request	PASS	2026-11-17T05:08:58Z	http=201 status=FAILED unknown=false pid=none failure=AUTHENTICATION attempts=FAILED_PERMANENT
+SETUP-W1	M_H5U send with stub=paused -> SENDING unknown=true, one attempt, one provider request	PASS	2026-11-17T05:08:58Z	http=201 status=SENDING unknown=true pid=present failure=null attempts=OUTCOME_UNKNOWN
+SETUP-W1	M_H5R send with stub=paused -> SENDING unknown=true, one attempt, one provider request	PASS	2026-11-17T05:08:58Z	http=201 status=SENDING unknown=true pid=present failure=null attempts=OUTCOME_UNKNOWN
+SETUP-W1	side effects after the W1 sends	NOTE	2026-11-17T05:08:58Z	attempts_total=22 stub_sends=22 inbox_rows=0
+WINDOW	[W1] CLOSED: global off, tenant A enabled/proven/outbound=true/true/false (verified after restart)	PASS	2026-11-17T05:09:10Z	stub sends=22
+SETUP	H1S back on today's queue (policy only); message row unchanged	PASS	2026-11-17T05:12:31Z	http=200 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+SETUP	H1D back on today's queue (policy only); message row unchanged	PASS	2026-11-17T05:12:32Z	http=200 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+SETUP	H2 back on today's queue (policy only); message row unchanged	PASS	2026-11-17T05:12:32Z	http=200 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+SETUP	H3 back on today's queue (policy only); message row unchanged	PASS	2026-11-17T05:12:32Z	http=200 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+SETUP	H4 back on today's queue (policy only); message row unchanged	PASS	2026-11-17T05:12:33Z	http=200 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+SETUP	H5W back on today's queue (policy only); message row unchanged	PASS	2026-11-17T05:12:33Z	http=200 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+SETUP	H5F back on today's queue (policy only); message row unchanged	PASS	2026-11-17T05:12:33Z	http=200 row=FAILED/unknown=false/delivered=false/read=false/failure=AUTHENTICATION/v=5
+HIST-01	Browser (testuser, workbench history) H0 Abel: before any submission	PASS	2026-11-17T05:14:02Z	'Este cliente no tiene mensajes todavía.'; API rows=0
+HIST-01	Browser (testuser, workbench history) H1P Berta: PENDING_APPROVAL	PASS	2026-11-17T05:14:02Z	row 'Aún no enviado / Pendiente de aprobación'; expanded timeline 'Miembro · Enviado a aprobación'
+HIST-01	Browser (testuser, workbench history) H1A Carla: APPROVED	PASS	2026-11-17T05:14:02Z	row 'Aún no enviado / Aprobado, sin enviar'
+HIST-01	Browser (testuser, workbench history) H1C Dario: CANCELLED	PASS	2026-11-17T05:14:02Z	row 'Cancelado / No se enviará al cliente'
+HIST-01	Browser (testuser, workbench history) H1S Elena: SENT (stub accepted, no callback)	PASS	2026-11-17T05:14:02Z	row 'Aceptado por el proveedor / Aún sin confirmación de entrega' (not shown as delivered)
+HIST-01	Browser (testuser, workbench history) H5F Iris: FAILED synchronously (AUTHENTICATION)	PASS	2026-11-17T05:14:02Z	row 'Fallido / No se entregó al cliente.'; expanded: 'Error de autenticación con el proveedor', admin guidance, 'Este mensaje no se reenviará automáticamente.'; buttons only Actualizar historial/Actualizar/Abrir en revisión; no CANARY in DOM
+HIST-01	Browser (testuser, workbench history) H5U Karen: SENDING outcomeUnknown (stub paused)	PASS	2026-11-17T05:14:02Z	row 'Resultado sin confirmar' + 'No lo reenvíes; actualiza o pide a un administrador que lo resuelva.'; timeline ends 'Sistema · Resultado del envío desconocido'; no send button; no wamid/CANARY/raw members in DOM
+HIST-02	signed delivered callback over real HTTP: 200, no Set-Cookie	PASS	2026-11-17T05:14:15Z	http=200
+HIST-02	delivered advances the same message to DELIVERED; one applied event; attempts, messages and provider sends unchanged	PASS	2026-11-17T05:14:15Z	before=SENT/unknown=false/delivered=false/read=false/failure=-/v=5 after=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6 events=SUBMITTED:->PENDING_APPROVAL,APPROVED:PENDING_APPROVAL>APPROVED,SEND_REQUESTED:APPROVED>QUEUED,SEND_ATTEMPT_STARTED:QUEUED>SENDING,SENT:SENDING>SENT,DELIVERY_UPDATED:SENT>DELIVERED inbox=DELIVERED=APPLIED msgs_delta=0 stub_delta=0
+HIST-02	API detail agrees: status DELIVERED, deliveredAt/readAt set as reported, attempts 1 ACCEPTED	PASS	2026-11-17T05:14:15Z	status=DELIVERED delivered=true read=false attempts=ACCEPTED
+HIST-02	customer history (list API) shows one row, status DELIVERED	PASS	2026-11-17T05:14:16Z	rows=1 status=DELIVERED
+HIST-02	signed read callback over real HTTP: 200, no Set-Cookie	PASS	2026-11-17T05:14:34Z	http=200
+HIST-02	read advances the same message to READ; one applied event; attempts, messages and provider sends unchanged	PASS	2026-11-17T05:14:35Z	before=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6 after=READ/unknown=false/delivered=true/read=true/failure=-/v=7 events=SUBMITTED:->PENDING_APPROVAL,APPROVED:PENDING_APPROVAL>APPROVED,SEND_REQUESTED:APPROVED>QUEUED,SEND_ATTEMPT_STARTED:QUEUED>SENDING,SENT:SENDING>SENT,DELIVERY_UPDATED:SENT>DELIVERED,DELIVERY_UPDATED:DELIVERED>READ inbox=DELIVERED=APPLIED,READ=APPLIED msgs_delta=0 stub_delta=0
+HIST-02	API detail agrees: status READ, deliveredAt/readAt set as reported, attempts 1 ACCEPTED	PASS	2026-11-17T05:14:35Z	status=READ delivered=true read=true attempts=ACCEPTED
+HIST-02	customer history (list API) shows one row, status READ	PASS	2026-11-17T05:14:35Z	rows=1 status=READ
+HIST-02	Browser H2 Fabio before the callback: 'Aceptado por el proveedor / Aún sin confirmación de entrega'; after the delivered callback and before any refresh the page still shows the last server read	PASS	2026-11-17T05:14:51Z	no optimistic change
+HIST-02	Browser: 'Actualizar historial' after delivered -> row 'Entregado / Entregado al teléfono del cliente'	PASS	2026-11-17T05:14:51Z	matches API DELIVERED
+HIST-02	Browser: row 'Actualizar' after read -> 'Leído / El cliente abrió el mensaje', live 'El estado cambió: ahora Leído.'; timestamps Aceptado 11:08, Entregado 11:14, Leído 11:14; timeline ends 'Proveedor · Enviado → Entregado', 'Proveedor · Entregado → Leído'; no wamid/raw members/CANARY in DOM	PASS	2026-11-17T05:14:51Z	matches API READ and the event rows
+HIST-03	reordered: read arrives before delivered -> READ (SENT>READ applied)	PASS	2026-11-17T05:14:52Z	http=200 row=READ/unknown=false/delivered=false/read=true/failure=-/v=6 inbox=READ=APPLIED applied=1
+HIST-03	late delivered after read: acknowledged, status stays READ (recorded as not applied)	PASS	2026-11-17T05:14:53Z	http=200 row=READ/unknown=false/delivered=false/read=true/failure=-/v=7 inbox=READ=APPLIED,DELIVERED=IGNORED applied=1
+HIST-03	byte-identical replay of the read callback: no new inbox row, no event	PASS	2026-11-17T05:14:54Z	http=200 row=READ/unknown=false/delivered=false/read=true/failure=-/v=7 inbox=READ=APPLIED,DELIVERED=IGNORED applied=1
+HIST-03	read re-sent with another timestamp: deduplicated (one row per message and state)	PASS	2026-11-17T05:14:54Z	http=200 row=READ/unknown=false/delivered=false/read=true/failure=-/v=7 inbox=READ=APPLIED,DELIVERED=IGNORED applied=1
+HIST-03	replays left the message untouched (same version, same event count)	PASS	2026-11-17T05:14:54Z	row=READ/unknown=false/delivered=false/read=true/failure=-/v=7 events_delta=0
+HIST-03	one body with duplicated delivered, a stale sent and a repeated read: one new row (sent), status stays READ	PASS	2026-11-17T05:14:55Z	http=200 row=READ/unknown=false/delivered=false/read=true/failure=-/v=8 inbox=READ=APPLIED,DELIVERED=IGNORED,SENT=IGNORED applied=1
+HIST-03	failed after read: acknowledged, no regression, no failure category	PASS	2026-11-17T05:14:55Z	http=200 row=READ/unknown=false/delivered=false/read=true/failure=-/v=9 inbox=READ=APPLIED,DELIVERED=IGNORED,SENT=IGNORED,FAILED=IGNORED applied=1
+HIST-03	H3 end state: READ, failure none, one attempt, no provider request, no new message	PASS	2026-11-17T05:14:56Z	row=READ/unknown=false/delivered=false/read=true/failure=-/v=9 events=SUBMITTED:->PENDING_APPROVAL,APPROVED:PENDING_APPROVAL>APPROVED,SEND_REQUESTED:APPROVED>QUEUED,SEND_ATTEMPT_STARTED:QUEUED>SENDING,SENT:SENDING>SENT,DELIVERY_UPDATED:SENT>READ,DELIVERY_UPDATED:READ>READ(not applied),DELIVERY_UPDATED:READ>READ(not applied),DELIVERY_UPDATED:READ>READ(not applied) attempts=1 stub_delta=0 msgs_delta=0
+HIST-03	6 concurrent identical delivered callbacks (H1D): all acknowledged, one inbox row, one applied event, DELIVERED	PASS	2026-11-17T05:14:57Z	codes=6x200 inbox=DELIVERED=APPLIED row=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6 events_delta=1
+HIST-03	Browser H3 Gina after replays: one row 'Leído'; timestamps Aceptado + Leído only (no Entregado, the late delivered was not applied); timeline one 'Proveedor · Enviado → Leído', the 3 not-applied reports are not listed	PASS	2026-11-17T05:15:22Z	no duplicate or regressed entry
+HIST-01	Browser H1D Olga: DELIVERED (after 6 concurrent duplicates)	PASS	2026-11-17T05:15:22Z	one row 'Entregado / Entregado al teléfono del cliente'
+HIST-01	Browser H2 Fabio: DELIVERED then READ	PASS	2026-11-17T05:15:22Z	see HIST-02 browser lines
+HIST-05	synchronous provider refusal (stub 401): FAILED AUTHENTICATION, no provider id, attempt FAILED_PERMANENT, no canary in the body	PASS	2026-11-17T05:15:22Z	status=FAILED failure=AUTHENTICATION attempts=FAILED_PERMANENT
+HIST-05	signed failed callback (code 131026) on a SENT message: FAILED INVALID_RECIPIENT, one applied event, no provider request	PASS	2026-11-17T05:15:23Z	http=200 row=FAILED/unknown=false/delivered=false/read=false/failure=INVALID_RECIPIENT/v=6 events=SUBMITTED:->PENDING_APPROVAL,APPROVED:PENDING_APPROVAL>APPROVED,SEND_REQUESTED:APPROVED>QUEUED,SEND_ATTEMPT_STARTED:QUEUED>SENDING,SENT:SENDING>SENT,DELIVERY_UPDATED:SENT>FAILED inbox=FAILED=APPLIED
+HIST-05	reconciliation: a delivered callback for an unknown outcome (stub paused, id kept) -> DELIVERED, unknown cleared, no resend	PASS	2026-11-17T05:15:24Z	before=SENDING/unknown=true/delivered=false/read=false/failure=-/v=5 after=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6 events=SUBMITTED:->PENDING_APPROVAL,APPROVED:PENDING_APPROVAL>APPROVED,SEND_REQUESTED:APPROVED>QUEUED,SEND_ATTEMPT_STARTED:QUEUED>SENDING,SEND_OUTCOME_UNKNOWN:SENDING>SENDING,DELIVERY_UPDATED:SENDING>DELIVERED attempt=OUTCOME_UNKNOWN
+HIST-05	H5U before T12: SENDING, outcomeUnknown=true, provider id kept, attempt OUTCOME_UNKNOWN	PASS	2026-11-17T05:16:00Z	status=SENDING unknown=true version="5"
+HIST-05	a resend on the unknown outcome is refused (no blind resend)	PASS	2026-11-17T05:16:00Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY
+HIST-05	T12 by OPERATOR (no INTEGRATION_MANAGE) -> 403	PASS	2026-11-17T05:16:00Z	http=403 code=FORBIDDEN
+HIST-05	T12 by OWNER without If-Match, and with a stale ETag: both refused, message unchanged	PASS	2026-11-17T05:16:00Z	no_if_match=400/INVALID_INPUT stale=409/STALE_VERSION
+HIST-05	T12 by OWNER with the current ETag -> FAILED, unknown cleared, no provider request	PASS	2026-11-17T05:16:00Z	http=201 status=FAILED failure=UNKNOWN events=SUBMITTED:->PENDING_APPROVAL,APPROVED:PENDING_APPROVAL>APPROVED,SEND_REQUESTED:APPROVED>QUEUED,SEND_ATTEMPT_STARTED:QUEUED>SENDING,SEND_OUTCOME_UNKNOWN:SENDING>SENDING,SEND_FAILED:SENDING>FAILED
+HIST-05	a delivered callback after T12 is acknowledged but does not reopen the FAILED message (recorded as not applied)	PASS	2026-11-17T05:16:01Z	http=200 before=FAILED/unknown=false/delivered=false/read=false/failure=UNKNOWN/v=6 after=FAILED/unknown=false/delivered=false/read=false/failure=UNKNOWN/v=7 events_delta=1 inbox=DELIVERED=IGNORED
+HIST-05	Browser H5F Iris (sync 401): 'Fallido', 'Error de autenticación con el proveedor', 'La integración no pudo autenticarse con el proveedor. Pide a un administrador que revise la integración.', 'Este mensaje no se reenviará automáticamente.'	PASS	2026-11-17T05:16:34Z	no send control; no CANARY in DOM
+HIST-05	Browser H5W Jose (failed callback 131026): 'Fallido', 'Destinatario inválido', 'El número no es válido para WhatsApp. Verifica el teléfono del cliente antes de redactar otro mensaje.'; timeline 'Proveedor · Enviado → Fallido'	PASS	2026-11-17T05:16:34Z	no send control
+HIST-05	Browser H5U Karen before T12: 'Resultado sin confirmar' + 'No lo reenvíes; actualiza o pide a un administrador que lo resuelva.'; only Actualizar / Abrir en revisión; no resolve control in the browser (T12 is API-only)	PASS	2026-11-17T05:16:34Z	see HIST-01 line
+HIST-05	Browser H5U Karen after T12: 'Fallido', 'Error desconocido', 'No se conoce la causa. Revisa el historial del mensaje antes de volver a contactar al cliente.'; timeline 'Sistema · Resultado del envío desconocido' then 'Miembro · Enviando → Fallido'; the later delivered report is not shown	PASS	2026-11-17T05:16:34Z	matches API FAILED/UNKNOWN
+HIST-05	Browser H5R Luis (reconciled): 'Entregado'; timeline 'Sistema · Resultado del envío desconocido' then 'Proveedor · Enviando → Entregado'; 'Aceptado por el proveedor' shows the delivery time (11:15)	PASS	2026-11-17T05:16:34Z	matches API DELIVERED
+HIST-04	signature from another secret -> 403	PASS	2026-11-17T05:16:35Z	http=403 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	no signature header -> 403	PASS	2026-11-17T05:16:36Z	http=403 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	sha1= signature -> 403	PASS	2026-11-17T05:16:36Z	http=403 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	non-hex sha256 value -> 403	PASS	2026-11-17T05:16:37Z	http=403 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	two signature headers -> 403	PASS	2026-11-17T05:16:37Z	http=403 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	valid signature of another body (status changed after signing) -> 403	PASS	2026-11-17T05:16:38Z	http=403 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	signed malformed JSON -> 400	PASS	2026-11-17T05:16:38Z	http=400 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	signed body with a supplied tenantId member -> 400, nothing stored	PASS	2026-11-17T05:16:39Z	http=400 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	signed body for another object type -> 400	PASS	2026-11-17T05:16:40Z	http=400 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	signed body with a non-epoch timestamp -> 400	PASS	2026-11-17T05:16:40Z	http=400 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	declared length above the 4 MiB limit -> refused before reading	HARNESS-ERROR	2026-11-17T05:16:40Z	http=100 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	signed report for an unknown phone number id -> 200, nothing stored	PASS	2026-11-17T05:16:41Z	http=200 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	signed unsupported status value -> 200, nothing stored	PASS	2026-11-17T05:16:42Z	http=200 set_cookie=none inbox_delta=0 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	signed report with a wrong provider reference -> 200, parked, H4 unchanged	PASS	2026-11-17T05:16:42Z	http=200 set_cookie=none inbox_delta=1 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	H4's provider id reported through tenant B's number -> 200, parked under B, H4 unchanged	PASS	2026-11-17T05:16:43Z	http=200 set_cookie=none inbox_delta=2 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+HIST-04	parked rows: wrong reference under A, cross-tenant under B, both PENDING	PASS	2026-11-17T05:16:43Z	rows=A:DELIVERED=PENDING,B:READ=PENDING
+HIST-04	GET challenge with a wrong verify token -> 403, no echo, no Set-Cookie	PASS	2026-11-17T05:16:43Z	status=HTTP/1.1 403 
+HIST-04	a client that only called the webhook holds no cookie and /api/session answers 401	PASS	2026-11-17T05:16:43Z	cookies=0 session=401
+HIST-04	H4 end state unchanged: same row, events, no new message, no provider request	PASS	2026-11-17T05:16:43Z	row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5 events_delta=0 stub_delta=0
+HIST-04	declared length above the 4 MiB limit -> 403 before reading (rerun)	PASS	2026-11-17T05:16:59Z	http=403 set_cookie=none inbox_delta=0
+HIST-06	page 1: 20 rows, newest first, a next cursor	PASS	2026-11-17T05:17:04Z	rows=20 first_is_newest=yes
+HIST-06	page 2 after a change between pages: 6 rows, no duplicate, union equals the 26 earlier messages	PASS	2026-11-17T05:17:05Z	rows=6 dups=0 union=26 db=26
+HIST-06	a fresh first page shows the new message on top and the cancelled one updated	PASS	2026-11-17T05:17:05Z	top=d0feca8f? d0feca8f m26=CANCELLED
+HIST-06	tenant B: A's customer filter returns no row, A's message detail is 404 without A data, B's list holds no A message	PASS	2026-11-17T05:17:05Z	filter=200/0 detail=404 b_rows=0 leak=0
+HIST-06	history responses carry no raw callback members, signature or canary secret	PASS	2026-11-17T05:17:05Z	hits=none
+HIST-06	Browser H6 Mia: first page 20 rows (aria-controls ids unique) with 'Cargar más'; after 'Cargar más' 27 unique rows, live 'Se cargaron 7 mensajes más.', no further 'Cargar más'; the 27 ids equal the database set	PASS	2026-11-17T05:19:13Z	browser and DB id lists identical (27)
+HIST-06	Browser: 'Actualizar historial' on Mia held 5 s by a test-only fetch delay, then Nico opened: Nico's history shows only his 1 message, no Mia row	PASS	2026-11-17T05:19:13Z	Mia's held request never landed in Nico's view
+HIST-06	Browser: Mia 'Cargar más' held 5 s, then Nico opened: the page request was aborted (AbortError), Nico shows only his 1 message	PASS	2026-11-17T05:19:13Z	no dropped/duplicated rows, no stale customer
+HIST-06	Browser: Nico's row detail and events held 5 s, then workspace switched to QA Café Sur: both requests aborted; tenant B view holds no QA336 name, no tenant A message id, no raw callback member, wamid or CANARY	PASS	2026-11-17T05:19:13Z	no stale tenant detail
+HIST-04	after the park window: the wrong-reference and cross-tenant reports are UNMATCHED with the provider id cleared	PASS	2026-11-17T05:32:17Z	rows=A:DELIVERED=UNMATCHED/pid_null=true,B:READ=UNMATCHED/pid_null=true
+HIST-04	H4 still SENT and unchanged after the park window	PASS	2026-11-17T05:32:17Z	row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5
+END	Graph base URL loopback stub, global switch OFF (backend env), tenant A enabled/proven/outbound OFF	PASS	2026-11-17T05:32:31Z	tenant=true/true/false
+END	provider send requests since the W1 sends: none (every callback, refusal and T12 made zero provider requests)	PASS	2026-11-17T05:32:31Z	stub_sends=22 expected=22
+END	inbox summary	NOTE	2026-11-17T05:32:31Z	A/DELIVERED/APPLIED:3,A/DELIVERED/IGNORED:2,A/DELIVERED/UNMATCHED:1,A/FAILED/APPLIED:1,A/FAILED/IGNORED:1,A/READ/APPLIED:2,A/SENT/IGNORED:1,B/READ/UNMATCHED:1
+CLEANUP	cancel open suite message M_H1A 0d3e8e22	PASS	2026-11-17T05:32:31Z	http=201
+CLEANUP	cancel open suite message M_H1P 9107c36e	PASS	2026-11-17T05:32:31Z	http=201
+CLEANUP	cancel open suite message M_H6_27 d0feca8f	PASS	2026-11-17T05:32:33Z	http=201
+CLEANUP	cancel open suite message M_H6N 3b10df99	PASS	2026-11-17T05:32:33Z	http=201
+CLEANUP	archive disposable customer H0	PASS	2026-11-17T05:32:33Z	http=204
+CLEANUP	archive disposable customer H1A	PASS	2026-11-17T05:32:33Z	http=204
+CLEANUP	archive disposable customer H1C	PASS	2026-11-17T05:32:33Z	http=204
+CLEANUP	archive disposable customer H1D	PASS	2026-11-17T05:32:33Z	http=204
+CLEANUP	archive disposable customer H1P	PASS	2026-11-17T05:32:33Z	http=204
+CLEANUP	archive disposable customer H1S	PASS	2026-11-17T05:32:33Z	http=204
+CLEANUP	archive disposable customer H2	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H3	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H4	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H5F	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H5R	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H5U	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H5W	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H6	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	archive disposable customer H6N	PASS	2026-11-17T05:32:34Z	http=204
+CLEANUP	final counts	NOTE	2026-11-17T05:32:34Z	messages=CANCELLED:57,DELIVERED:2,FAILED:5,READ:2,REJECTED:1,SENT:13 attempts=ACCEPTED:17,FAILED_PERMANENT:1,OUTCOME_UNKNOWN:4 stub_sends=22 tenantA=true/true/false
