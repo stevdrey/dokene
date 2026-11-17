@@ -123,8 +123,10 @@ From the #333 stack (see its report), with the global switch off:
 5. `w1-dup335.sh`, `s6-unknown335.sh` and `w1-integration335.sh` (last: it rotates the credential).
 6. Close W1: `window-close334.sh W1`.
 7. `fixtures335.sh w2`.
-8. Open W2 with `QA335_MIN_INTERVAL=3m QA335_CLAIM_TIMEOUT=2m QA335_RECOVERY_INTERVAL=15s WINDOW_TTL=1200`, run
-   `w2-335.sh`, then close W2.
+8. In one shell, `export OUTD STACK333 QA335_MIN_INTERVAL=3m QA335_CLAIM_TIMEOUT=2m QA335_RECOVERY_INTERVAL=15s
+   WINDOW_TTL=1200`, open W2, run `w2-335.sh`, then close W2. The script stops if the overrides are not in effect, and
+   its crash restart passes the W2 values explicitly and checks they survived (the recorded run exported them in the
+   same shell: recovery ran 2 minutes after the claim, and the second SEND-07 message was sent after 186 s).
 9. `final335.sh`.
 
 The scripts are in [`issue-335-evidence/scripts/`](issue-335-evidence/scripts/), and the recorded run is

@@ -9,6 +9,7 @@ stub_reset
 qa_login testuser || exit 3
 E=$(docker compose -f "$WT/compose.yaml" exec -T backend sh -c 'env | grep -E "^DOKENE_MESSAGING_(MIN_CONTACT_INTERVAL|RECOVERY_CLAIM_TIMEOUT|RECOVERY_INTERVAL)=" | sort | tr "\n" " "')
 rec WINDOW "[W2] policy overrides in effect" "$(case "$E" in *MIN_CONTACT_INTERVAL=3m*CLAIM_TIMEOUT=2m*RECOVERY_INTERVAL=15s*) echo PASS;; *) echo FAIL;; esac)" "$E"
+case "$E" in *MIN_CONTACT_INTERVAL=3m*CLAIM_TIMEOUT=2m*RECOVERY_INTERVAL=15s*) ;; *) echo "W2 overrides missing: export QA335_MIN_INTERVAL, QA335_CLAIM_TIMEOUT and QA335_RECOVERY_INTERVAL before window-open334.sh" >&2; exit 5 ;; esac
 astate() { psqlq "select outcome from dokene.outbound_send_attempts where message_id='$1' order by attempt_number desc limit 1"; }
 
 # SEND-07 first send (starts the 3-minute interval clock while the crash case runs).
@@ -32,8 +33,13 @@ rec $C "3 s into the provider call: claim committed (attempt STARTED, message SE
 docker compose -f "$WT/compose.yaml" kill backend >/dev/null 2>&1
 wait; rec $C "backend killed during the call (fault injection)" NOTE "client saw: $(cat "$OUTD/crash.http" 2>/dev/null) at $(date -u +%T)"
 stub_mode send accept
-QA333_OUTBOUND=true bash "$STACK333" restart >&2 || { rec $C "restart after crash" FAIL "restart failed"; exit 5; }
+# stack335.sh rebuilds its override from the environment it is given: pass the W2 values verified above explicitly,
+# so the restart keeps them even when the caller exported them only for window-open334.sh.
+QA333_OUTBOUND=true QA335_MIN_INTERVAL=3m QA335_CLAIM_TIMEOUT=2m QA335_RECOVERY_INTERVAL=15s \
+  bash "$STACK333" restart >&2 || { rec $C "restart after crash" FAIL "restart failed"; exit 5; }
 assert_safe_stack true || exit 2
+E2=$(docker compose -f "$WT/compose.yaml" exec -T backend sh -c 'env | grep -E "^DOKENE_MESSAGING_(MIN_CONTACT_INTERVAL|RECOVERY_CLAIM_TIMEOUT|RECOVERY_INTERVAL)=" | sort | tr "\n" " "')
+[ "$E2" = "$E" ] || { rec $C "W2 policy overrides kept across the crash restart" FAIL "before: $E after: $E2"; exit 5; }
 qa_login testuser || exit 3
 S1=$(stub_sends)
 req testuser "$A" GET "/api/messages/$M_S6CRASH" -
