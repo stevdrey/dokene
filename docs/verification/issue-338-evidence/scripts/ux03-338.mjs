@@ -5,6 +5,8 @@ import { launch, APP, save, shot } from './pw338.mjs';
 
 const BROWSER = process.argv[2] ?? 'chromium';
 const CUSTOMER = process.argv[3] ?? 'QA338 Teclado Uno';
+// The customer name is data, never part of a pattern: match it as a plain prefix.
+const CUSTOMER_START = name => name.startsWith(CUSTOMER);
 const log = [];
 const checks = [];
 const check = (name, ok, note = '') => { checks.push({ name, result: ok ? 'PASS' : 'FAIL', note }); console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}${note ? '  (' + note + ')' : ''}`); };
@@ -32,7 +34,8 @@ async function tabTo(match, { max = 120, back = false, label = '' } = {}) {
     await page.keyboard.press(back ? 'Shift+Tab' : 'Tab');
     const f = await focused();
     log.push({ step: label, ...f });
-    if (typeof match === 'string' ? f.name === match : match.test(f.name)) return f;
+    const hit = typeof match === 'string' ? f.name === match : typeof match === 'function' ? match(f.name) : match.test(f.name);
+    if (hit) return f;
   }
   throw new Error(`focus never reached ${match} (${label})`);
 }
@@ -53,7 +56,7 @@ try {
 
   // 2. Tab order from the top of the app.
   const start = log.length;
-  await tabTo(new RegExp('^' + CUSTOMER), { label: 'order' });
+  await tabTo(CUSTOMER_START, { label: 'order' });
   const order = log.slice(start).map(s => s.name);
   check('first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)', true, order.slice(0, 12).join(' > '));
   const firstStop = order[0];
@@ -66,7 +69,7 @@ try {
   // Screenshots hide the caret, so identical images mean no visible focus indicator.
   const focusedPng = await search.screenshot({ path: `${process.env.HOME}/qa338/shots/ux03-${BROWSER}-search-focused.png` });
   const ring = await search.evaluate(el => { const s = getComputedStyle(el); return `border ${s.borderColor}, shadow ${s.boxShadow}, outline ${s.outlineStyle}`; });
-  await tabTo(new RegExp('^' + CUSTOMER), { label: 'order-return' });
+  await tabTo(CUSTOMER_START, { label: 'order-return' });
   const ring2 = await search.evaluate(el => { const s = getComputedStyle(el); return `border ${s.borderColor}, shadow ${s.boxShadow}, outline ${s.outlineStyle}`; });
   const unfocusedPng = await search.screenshot({ path: `${process.env.HOME}/qa338/shots/ux03-${BROWSER}-search-unfocused.png` });
   check('the search box shows a visible focus state', !focusedPng.equals(unfocusedPng), `focused: ${ring}; unfocused: ${ring2}; images ${focusedPng.equals(unfocusedPng) ? 'identical' : 'differ'}`);
