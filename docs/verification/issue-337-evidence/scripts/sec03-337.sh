@@ -81,3 +81,5 @@ rec $C "cleanup: membership reactivated and accepted" "$( { [ "$CODE" = 200 ]; }
 # Cleanup: cancel PC (approved above).
 req testuser "$A" GET "/api/messages/$PC" -; req testuser "$A" POST "/api/messages/$PC/cancellations" '{"note":"QA337 cleanup"}' -H "If-Match: $(etag)" -H "Idempotency-Key: $(uuidgen)"
 echo "cleanup PC: $CODE $(jb .status)"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

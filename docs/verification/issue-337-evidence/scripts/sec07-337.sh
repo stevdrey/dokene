@@ -17,3 +17,5 @@ rec $C "#307 M3 (IdP logout ends BFF sessions): confirmed by the back-channel lo
 rec $C "#310 L1 (denial audit amplification, open): every denied request still writes one AUTHORIZATION_DENIED row with no bound" NOTE "known open hardening; denial rows on the stack: $(deny_n), ${DENY_BEFORE:-68} before this suite; not a fresh regression"
 rec $C "ADR 0024 #210/#142: tenant B may store an unverified claim of A's phone number id or A's reference name; proof, routing and sends stay contained (SEC-02)" NOTE "by design (no oracle); not a finding"
 rec $C "#312 L3 (self-provisioning) and #318 L7 (redirect origin): outside this suite's routes, not probed" NOTE "open, unchanged; tracked in #305"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

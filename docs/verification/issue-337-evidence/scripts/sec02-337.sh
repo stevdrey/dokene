@@ -74,3 +74,5 @@ rec $C "template versions are per tenant (A and B differ; the A version was refu
 # --- audit: denials and refusals of these probes recorded none of A's object ids under tenant B
 n=$(psqlq "select count(*) from dokene.audit_events where tenant_id='$B' and (target_id::text in ('$MA','$IA','$IA_C'))")
 rec $C "tenant B audit rows never reference tenant A objects" "$( { [ "$n" = 0 ]; } && echo PASS || echo FAIL)" "rows=$n"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

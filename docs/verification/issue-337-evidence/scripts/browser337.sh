@@ -22,3 +22,5 @@ hits=0; for p in QA337-XSS onerror 'QA337 Canario' 'QA337 nota' QA333-CANARY 569
 rec SEC-05 "container logs (backend, frontend, oidc-bridge; last 3 h) hold no canary, name, note, phone, secret canary, session or CSRF value" "$( { [ $hits = 0 ]; } && echo PASS || echo FAIL)" "lines=$(printf '%s\n' "$L" | wc -l) hits=$hits"
 rec SEC-05 "audit rows hold no canary text (AI detail and denial reasons are closed codes)" "$( { [ "$(psqlq "select count(*) from dokene.audit_events where coalesce(ai_detail,'')||coalesce(denial_reason,'') ~* 'QA337|onerror|<'")" = 0 ]; } && echo PASS || echo FAIL)" "-"
 setid XM "$XM"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

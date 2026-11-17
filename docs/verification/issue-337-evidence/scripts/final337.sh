@@ -9,7 +9,7 @@ req testuser "$A" GET /api/integrations/whatsapp -; ta="$(jb .enabled)/$(jb .web
 req testuser "$B" GET /api/integrations/whatsapp -; tb="$(jb .enabled)/$(jb .webhookVerified)/$(jb .outboundEnabled)/$(jb .secretRef)/$(jb .phoneNumberId)"
 rec END "global switch off (backend env), tenant A enabled/proven/outbound off, tenant B restored to its own number and reference" "$( { [ "$ta" = true/true/false ] && [ "$tb" = true/true/false/qa333-token-b/100000000000002 ]; } && echo PASS || echo FAIL)" "A=$ta B=$tb"
 rec END "no provider send during the whole suite (stub send count 22 at start)" "$( { [ "$(stub_sends)" = 22 ]; } && echo PASS || echo FAIL)" "stub_sends=$(stub_sends)"
-for v in MA PT XM; do m=${!v}; req testuser "$A" GET "/api/messages/$m" -
+for v in MA PT XM NX; do m=${!v}; req testuser "$A" GET "/api/messages/$m" -
   case "$(jb .status)" in PENDING_APPROVAL|APPROVED) ;; *) continue ;; esac
   req testuser "$A" POST "/api/messages/$m/cancellations" '{"note":"QA337 cleanup"}' -H "If-Match: $(etag)" -H "Idempotency-Key: $(uuidgen)"
   rec CLEANUP "cancel open tenant A message $v" "$( { [ "$(jb .status)" = CANCELLED ]; } && echo PASS || echo FAIL)" "http=$CODE"
@@ -22,3 +22,5 @@ for v in RA IA XA; do c=${!v}; req testuser "$A" GET "/api/customers/$c" -; [ "$
 req testuser "$B" GET "/api/customers/$IB" -; req testuser "$B" DELETE "/api/customers/$IB" - -H "If-Match: $(etag)"
 rec CLEANUP "archive tenant B customer IB" "$( { [ "$CODE" = 204 ]; } && echo PASS || echo FAIL)" "http=$CODE"
 rec CLEANUP "final counts" NOTE "messages=$(psqlq "select string_agg(status||':'||n,',') from (select status,count(*) n from dokene.outbound_messages group by 1 order by 1) s") attempts=$(psqlq 'select count(*) from dokene.outbound_send_attempts') denials=$(deny_n) stub_sends=$(stub_sends)"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

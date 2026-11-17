@@ -45,3 +45,5 @@ rec $C "no stub request carried tenant A's token during the B probes" "$( { [ "$
 # Restore tenant B to its own number and credential and prove it again (a phone-list read at the stub, never a send).
 putB 100000000000002 qa333-token-b; proveB
 rec $C "cleanup: tenant B back on its own number, re-proven" "$( { [ "$CODE" = 200 ] && [ "$(jb .webhookVerified)" = true ] && [ "$(jb .secretRef)" = qa333-token-b ]; } && echo PASS || echo FAIL)" "http=$CODE verified=$(verified)"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

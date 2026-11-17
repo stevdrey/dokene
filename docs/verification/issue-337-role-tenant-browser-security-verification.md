@@ -92,9 +92,14 @@ contradicted by these results and no new behaviour needs one.
    CL test-range values.
 6. The ownership proof of tenant B used the stub's phone-list read with B's canary token (two calls). Tenant B ended on
    its own number and reference, proven again.
-7. The browser signed in with the seeded local `testuser`. The foreign-origin page was a static file served by a
+7. In the recorded run, SEC-04 left its idempotency fixture `NX` approved on the canary customer, and one open
+   message per customer would have blocked the SEC-05 submit. It was cancelled by hand (one `OWNER` cancellation,
+   201 `CANCELLED`) before the browser step; that is the cancelled row in the canary history. After review,
+   `sec04-337.sh` cancels and records it itself, and every suite script ends with `qa_finish`, so a recorded `FAIL`
+   gives a nonzero exit status.
+8. The browser signed in with the seeded local `testuser`. The foreign-origin page was a static file served by a
    loopback `python3 -m http.server`, stopped after the case.
-8. Cleanup (`final337.sh`): the four open suite messages were cancelled (A: 3, B: 1) and the four `QA337` customers
+9. Cleanup (`final337.sh`): the four open suite messages were cancelled (A: 3, B: 1) and the four `QA337` customers
    archived. End checks: global, tenant A and tenant B outbound off; A and B enabled and proven; stub send count 22.
    Final database counts (all suites on this stack): messages 69 `CANCELLED`, 2 `DELIVERED`, 5 `FAILED`, 2 `READ`,
    1 `REJECTED`, 13 `SENT`; 22 attempts.

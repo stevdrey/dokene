@@ -71,3 +71,9 @@ ap0=$(psqlq "select count(*) from dokene.outbound_message_approvals where messag
 req testuser "$A" GET "/api/messages/$NX" -
 req testuser "$A" POST "/api/messages/$NX/approvals" "{\"decision\":\"APPROVE\",\"templateRevision\":\"$(jb .template.revision)\"}" -H "If-Match: \"$(( $(etag | tr -d '"') - 1 ))\"" -H "Idempotency-Key: $KA"
 rec $C "control: replay of the A approval with its key returns the stored result, no new approval row" "$( { [ "$(jb .messageId)" = "$NX" ] && [ "$(psqlq "select count(*) from dokene.outbound_message_approvals where message_id='$NX'")" = "$ap0" ]; } && echo PASS || echo FAIL)" "http=$CODE code=$(code) approvals=$ap0"
+# NX stays APPROVED on the canary customer XA; one open message per customer would block the SEC-05 browser submit.
+req testuser "$A" GET "/api/messages/$NX" -
+req testuser "$A" POST "/api/messages/$NX/cancellations" '{"note":"QA337 cleanup"}' -H "If-Match: $(etag)" -H "Idempotency-Key: $(uuidgen)"
+rec CLEANUP "cancel the SEC-04 idempotency fixture NX before the browser case" "$( { [ "$(jb .status)" = CANCELLED ]; } && echo PASS || echo FAIL)" "http=$CODE"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

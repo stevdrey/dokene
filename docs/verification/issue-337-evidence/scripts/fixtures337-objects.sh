@@ -38,3 +38,5 @@ req testuser "$B" POST "/api/customers/$IB/messages" '{"contactId":"'"$IB_C"'","
 [ "$CODE" = 201 ] || { echo "B submit: $CODE $(code)" >&2; exit 1; }
 setid MB "$(jb .messageId)"
 rec $C "tenant B foreign objects: customer, contact, pending message" "$( { [ "$(jb .status)" = PENDING_APPROVAL ]; } && echo PASS || echo FAIL)" "customer=${IB:0:8} message=${MB:0:8} status=$(jb .status)"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

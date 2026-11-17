@@ -43,3 +43,5 @@ for m in "$MA:pending" "$PT:approved"; do id=${m%%:*}
   req testuser "$A" GET "/api/messages/$id" -; E=$(etag)
   denied $C testviewer "$A" POST "/api/messages/$id/cancellations" '{"note":"QA337 viewer"}' MESSAGE_DRAFT "#265 VIEWER cancel ${m#*:} message" -H "If-Match: $E" -H "Idempotency-Key: $(uuidgen)"
 done
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

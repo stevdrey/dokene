@@ -77,3 +77,5 @@ done
 req testuser "$A" GET /api/integrations/whatsapp -
 rec $C "integration unchanged after the probes" "$( { [ "$(etag)" = "$IE" ] && [ "$(jb .outboundEnabled)" = false ]; } && echo PASS || echo FAIL)" "etag_same=$([ "$(etag)" = "$IE" ] && echo y || echo n) outbound=$(jb .outboundEnabled)"
 setid P1 "$P1"; setid P2 "$P2"; setid P3 "$P3"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish

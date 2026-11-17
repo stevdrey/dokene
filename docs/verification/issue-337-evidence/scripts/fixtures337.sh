@@ -34,3 +34,5 @@ rec $C "roles in tenant A: OWNER testuser, ADMIN testadmin, OPERATOR testoperato
   "$( { [ "$(curl -s -b "$QA_TMP/jar-testuser.txt" -H "X-Tenant-Id: $A" "$BFF/api/memberships" | jq -r --arg a "$(identity testadmin)" --arg o "$(identity testoperator)" --arg v "$(identity testviewer)" '[.[]|select(.status=="ACTIVE" and ((.identityId==$a and .role=="ADMIN") or (.identityId==$o and .role=="OPERATOR") or (.identityId==$v and .role=="VIEWER")))]|length')" = 3 ]; } && echo PASS || echo FAIL)" "tenant=${A:0:8}"
 rec $C "tenant B: testuser ADMIN, testoperator2 OPERATOR" \
   "$( { [ "$(curl -s -b "$QA_TMP/jar-testuser.txt" -H "X-Tenant-Id: $B" "$BFF/api/memberships" | jq -r --arg u "$(identity testuser)" --arg o "$(identity testoperator2)" '[.[]|select(.status=="ACTIVE" and ((.identityId==$u and .role=="ADMIN") or (.identityId==$o and .role=="OPERATOR")))]|length')" = 2 ]; } && echo PASS || echo FAIL)" "tenant=${B:0:8}"
+# Recorded FAIL lines make the exit status nonzero.
+qa_finish
