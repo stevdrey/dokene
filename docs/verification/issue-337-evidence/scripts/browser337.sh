@@ -4,6 +4,8 @@
 # Usage: browser337.sh <xss-message-id>. The observations themselves were read from the page (innerText, DOM queries,
 # storage dump, network panel); this script writes them down next to the database checks.
 set -uo pipefail
+# This script sends session values: it loads the protected curl wrapper itself (scripts/tests/bff-login-test.sh, #401).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }
 . "$(dirname "$0")/qa337.sh"
 XM=$1
 rec SEC-03 "Browser: page on http://localhost:18337 (same site, session cookie attached): no-cors text/plain POST cancel -> 403; form POST cancel -> 403; credentialed send -> preflight 403, blocked; credentialed GET /api/session -> blocked by CORS" PASS "manual browser observation"

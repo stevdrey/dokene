@@ -2,6 +2,8 @@
 # ABOUTME: P3-MQA-SEC-03: unsafe Phase 3 /api operations without a CSRF token, with another session's or a forged token,
 # ABOUTME: with an ended session (app logout, IdP back-channel logout), after membership revocation and cross-origin.
 set -uo pipefail
+# This script sends session values: it loads the protected curl wrapper itself (scripts/tests/bff-login-test.sh, #401).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; exit 1; }
 . "$(dirname "$0")/qa337.sh"
 C=SEC-03
 assert_safe_stack false || exit 1
