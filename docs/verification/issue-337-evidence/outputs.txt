@@ -1,0 +1,254 @@
+SETUP	roles in tenant A: OWNER testuser, ADMIN testadmin, OPERATOR testoperator, VIEWER testviewer; testnone no membership	PASS	2026-11-17T06:45:28Z	tenant=88429dc5
+SETUP	tenant B: testuser ADMIN, testoperator2 OPERATOR	PASS	2026-11-17T06:45:28Z	tenant=952b9b18
+SETUP	XSS canary stored as text in the customer name and notes	HARNESS-ERROR	2026-11-17T06:46:47Z	http=400 code= | the update sent the phone read shape (e164) instead of number/region; fixed helper reran and PASSed below
+SETUP	XSS canary stored as text in the customer name and notes	PASS	2026-11-17T06:47:15Z	http=200 code=
+SETUP	XSS canary stored as text in the customer name and notes	PASS	2026-11-17T06:47:25Z	http=200 code=
+SETUP	tenant B foreign objects: customer, contact, pending message	PASS	2026-11-17T06:47:25Z	customer=c107c5be message=5824d253 status=PENDING_APPROVAL
+SEC-01	VIEWER submit: 403, one denial row naming MESSAGE_DRAFT, nothing else written	PASS	2026-11-17T06:49:02Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER AI draft: 403, one denial row naming MESSAGE_DRAFT, nothing else written	PASS	2026-11-17T06:49:03Z	http=403 code= denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER AI draft refused before any AI invocation	PASS	2026-11-17T06:49:03Z	ai_outcome_rows=+0
+SEC-01	non-member list messages (no tenant context): 403, one denial row naming TENANT_READ, nothing else written	PASS	2026-11-17T06:49:04Z	http=403 code=FORBIDDEN denials=+1 last=TENANT_READ|NO_TENANT_CONTEXT state_same=y stub_delta=0
+SEC-01	OPERATOR submit	PASS	2026-11-17T06:49:04Z	http=201 status=PENDING_APPROVAL msg=a367ef04
+SEC-01	VIEWER approve: 403, one denial row naming MESSAGE_APPROVE, nothing else written	PASS	2026-11-17T06:49:05Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_APPROVE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER cancel (any-of guard, #265): 403, one denial row naming MESSAGE_DRAFT, nothing else written	PASS	2026-11-17T06:49:05Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	OPERATOR self-approval of its own message is allowed (matrix: OPERATOR has MESSAGE_APPROVE)	PASS	2026-11-17T06:49:05Z	http=201 status=APPROVED
+SEC-01	VIEWER send: 403, one denial row naming MESSAGE_SEND, nothing else written	PASS	2026-11-17T06:49:06Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_SEND|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser send: authorized, stops at 409 OUTBOUND_DISABLED_GLOBALLY, nothing written	PASS	2026-11-17T06:49:06Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin send: authorized, stops at 409 OUTBOUND_DISABLED_GLOBALLY, nothing written	PASS	2026-11-17T06:49:07Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator send: authorized, stops at 409 OUTBOUND_DISABLED_GLOBALLY, nothing written	PASS	2026-11-17T06:49:08Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator resolve: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:08Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer resolve: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:09Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser resolve APPROVED: authorized, stops at 409 INVALID_TRANSITION, nothing written	PASS	2026-11-17T06:49:09Z	http=409 code=INVALID_TRANSITION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin resolve APPROVED: authorized, stops at 409 INVALID_TRANSITION, nothing written	PASS	2026-11-17T06:49:10Z	http=409 code=INVALID_TRANSITION denials=+0 state_same=y stub_delta=0
+SEC-01	OPERATOR cancels the approved message	PASS	2026-11-17T06:49:10Z	http=201 status=CANCELLED
+SEC-01	ADMIN approves the OWNER's message	PASS	2026-11-17T06:49:10Z	http=201 status=APPROVED msg=b2611ae8
+SEC-01	ADMIN cancels	PASS	2026-11-17T06:49:10Z	http=201 status=CANCELLED
+SEC-01	ADMIN submit	PASS	2026-11-17T06:49:11Z	http=201 msg=d33cbc79
+SEC-01	OWNER cancels the ADMIN's message	PASS	2026-11-17T06:49:11Z	http=201 status=CANCELLED
+SEC-01	VIEWER template write: 403, one denial row naming TEMPLATE_WRITE, nothing else written	PASS	2026-11-17T06:49:11Z	http=403 code=FORBIDDEN denials=+1 last=TEMPLATE_WRITE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER template refresh: 403, one denial row naming TEMPLATE_WRITE, nothing else written	PASS	2026-11-17T06:49:12Z	http=403 code=FORBIDDEN denials=+1 last=TEMPLATE_WRITE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser template write (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:12Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testuser template refresh (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:13Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin template write (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:13Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin template refresh (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:14Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator template write (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:14Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator template refresh (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:15Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator integration update: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:16Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testoperator tenant outbound switch: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:16Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testoperator ownership proof: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:17Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testoperator credential rotation: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:17Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer integration update: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:18Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer tenant outbound switch: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:18Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer ownership proof: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:19Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer credential rotation: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	PASS	2026-11-17T06:49:20Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser tenant outbound switch (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:20Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testuser ownership proof (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:21Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin tenant outbound switch (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:21Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin ownership proof (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	PASS	2026-11-17T06:49:22Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	integration unchanged after the probes	PASS	2026-11-17T06:49:22Z	etag_same=y outbound=false
+SEC-02	B ctx: read A message: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:42Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: read A message events: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:43Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: approve A message (A's ETag and revision): 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:43Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: cancel A message: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:44Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: send A message: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:45Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: resolve A message: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:46Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	A ctx: read B message: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:47Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	A ctx: approve B message (B's ETag and revision): 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:47Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: read A customer: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:48Z	http=404 code= leak=n state_same=y
+SEC-02	B ctx: update A customer: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:49Z	http=404 code= leak=n state_same=y
+SEC-02	B ctx: A customer purchases: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:50Z	http=404 code= leak=n state_same=y
+SEC-02	B ctx: A customer contact policy: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:51Z	http=404 code= leak=n state_same=y
+SEC-02	B ctx: revoke consent on A contact: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:52Z	http=404 code= leak=n state_same=y
+SEC-02	B ctx: A customer follow-up policy: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:52Z	http=404 code= leak=n state_same=y
+SEC-02	B ctx: AI draft for A customer: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:53Z	http=404 code= leak=n state_same=y
+SEC-02	B ctx: submit on A customer: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:54Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: submit on B customer with A's contact id: 404, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:55Z	http=404 code=NOT_FOUND leak=n state_same=y
+SEC-02	B ctx: customer search name=QA337%20Norte shows no tenant A customer	HARNESS-ERROR	2026-11-17T06:50:55Z	http=200 a_rows=0 b_rows=0 | wrong JSON path .items (the list is .customers), vacuous count; superseded by sec02b-337.sh
+SEC-02	B ctx: customer search phone=%2B56983360017 shows no tenant A customer	HARNESS-ERROR	2026-11-17T06:50:55Z	http=400 a_rows=0 b_rows=0 | wrong JSON path .items (the list is .customers), vacuous count; superseded by sec02b-337.sh
+SEC-02	B ctx: customer search name=QA337 shows no tenant A customer	HARNESS-ERROR	2026-11-17T06:50:55Z	http=200 a_rows=0 b_rows=0 | wrong JSON path .items (the list is .customers), vacuous count; superseded by sec02b-337.sh
+SEC-02	B ctx: message list filtered by A customer is empty	PASS	2026-11-17T06:50:55Z	http=200 rows=0
+SEC-02	B ctx: message list holds only tenant B messages	PASS	2026-11-17T06:50:55Z	http=200 rows=1 a_rows=0
+SEC-02	B ctx: follow-up queue holds no tenant A customer	PASS	2026-11-17T06:50:55Z	http=200
+SEC-02	A-only OPERATOR with tenant B header reads B message: 403, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:56Z	http=403 code=FORBIDDEN leak=n state_same=y
+SEC-02	B-only OPERATOR with tenant A header reads A message: 403, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:57Z	http=403 code=FORBIDDEN leak=n state_same=y
+SEC-02	B ctx: template write with A's template version as If-Match: 409, no foreign data in the body, nothing written	PASS	2026-11-17T06:50:58Z	http=409 code=STALE_VERSION leak=n state_same=y
+SEC-02	template versions are per tenant (A and B differ; the A version was refused above)	PASS	2026-11-17T06:50:58Z	a_version=8 b_version=0
+SEC-02	B ctx: integration update naming A's credential reference is refused	HARNESS-ERROR	2026-11-17T06:50:58Z	http=200 code= b_secret_ref=qa333-token-a stub_delta=0 | wrong expectation: ADR 0024 #210 accepts any unverified claim on PUT; containment rechecked by sec02b-337.sh
+SEC-02	B ctx: integration update claiming A's phone number id is refused	HARNESS-ERROR	2026-11-17T06:50:58Z	http=200 code= b_phone_number_id=100000000000001 | wrong expectation: ADR 0024 #210 accepts any unverified claim on PUT; containment rechecked by sec02b-337.sh
+SEC-02	tenant A integration untouched by the B probes	PASS	2026-11-17T06:50:58Z	a_ref=qa333-token-a
+SEC-02	tenant B audit rows never reference tenant A objects	PASS	2026-11-17T06:50:58Z	rows=0
+SEC-02	control: tenant A phone search finds its own customer	PASS	2026-11-17T06:52:38Z	http=200 rows=1
+SEC-02	B ctx: phone search for A's customer number finds nothing	PASS	2026-11-17T06:52:38Z	http=200 rows=0
+SEC-02	B ctx: name search QA337 lists only tenant B customers	PASS	2026-11-17T06:52:39Z	http=200 rows=1 foreign=0
+SEC-02	A ctx: name search for B's customer finds nothing	PASS	2026-11-17T06:52:39Z	http=200 rows=0
+SEC-02	control: A ctx name search finds its own customer	PASS	2026-11-17T06:52:39Z	http=200 rows=1
+SEC-02	start: only tenant A holds a verified mapping of its number	PASS	2026-11-17T06:52:39Z	verified=A:100000000000001
+SEC-02	B claims A's phone number id: stored unverified (by design, no oracle)	PASS	2026-11-17T06:52:39Z	http=200 webhookVerified=false
+SEC-02	B ownership proof of A's number is refused, A keeps the verified mapping	PASS	2026-11-17T06:52:39Z	http=400 code=INVALID_INPUT verified=A:100000000000001
+SEC-02	callback for A's number routes to tenant A only while B holds the unverified claim	PASS	2026-11-17T06:52:42Z	http=200 tenants=1 cookie=no
+SEC-02	B names A's credential reference: stored as a bare reference (resolved in B's namespace only)	PASS	2026-11-17T06:52:42Z	http=200
+SEC-02	B proof with A's reference cannot resolve A's token: no provider request is made	PASS	2026-11-17T06:52:42Z	http=503 code=PROVIDER_UNAVAILABLE stub_delta=0 tokenA_requests_delta=0
+SEC-02	no stub request carried tenant A's token during the B probes	PASS	2026-11-17T06:52:42Z	delta=0
+SEC-02	cleanup: tenant B back on its own number, re-proven	PASS	2026-11-17T06:52:42Z	http=200 verified=A:100000000000001,B:100000000000002
+SEC-03	no CSRF token: submit refused 403, no state, AI or provider change	PASS	2026-11-17T06:53:57Z	http=403 same=y
+SEC-03	another session's CSRF token: submit refused 403, no state, AI or provider change	PASS	2026-11-17T06:53:58Z	http=403 same=y
+SEC-03	forged CSRF token: submit refused 403, no state, AI or provider change	PASS	2026-11-17T06:53:59Z	http=403 same=y
+SEC-03	cross-origin request without a token: submit refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:00Z	http=403 same=y
+SEC-03	no CSRF token: draft refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:01Z	http=403 same=y
+SEC-03	another session's CSRF token: draft refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:02Z	http=403 same=y
+SEC-03	forged CSRF token: draft refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:03Z	http=403 same=y
+SEC-03	cross-origin request without a token: draft refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:04Z	http=403 same=y
+SEC-03	no CSRF token: approve refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:05Z	http=403 same=y
+SEC-03	another session's CSRF token: approve refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:06Z	http=403 same=y
+SEC-03	forged CSRF token: approve refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:07Z	http=403 same=y
+SEC-03	cross-origin request without a token: approve refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:08Z	http=403 same=y
+SEC-03	no CSRF token: cancel refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:09Z	http=403 same=y
+SEC-03	another session's CSRF token: cancel refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:10Z	http=403 same=y
+SEC-03	forged CSRF token: cancel refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:11Z	http=403 same=y
+SEC-03	cross-origin request without a token: cancel refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:12Z	http=403 same=y
+SEC-03	no CSRF token: send refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:13Z	http=403 same=y
+SEC-03	another session's CSRF token: send refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:14Z	http=403 same=y
+SEC-03	forged CSRF token: send refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:15Z	http=403 same=y
+SEC-03	cross-origin request without a token: send refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:16Z	http=403 same=y
+SEC-03	no CSRF token: consent refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:17Z	http=403 same=y
+SEC-03	another session's CSRF token: consent refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:18Z	http=403 same=y
+SEC-03	forged CSRF token: consent refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:19Z	http=403 same=y
+SEC-03	cross-origin request without a token: consent refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:20Z	http=403 same=y
+SEC-03	no CSRF token: template refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:21Z	http=403 same=y
+SEC-03	another session's CSRF token: template refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:22Z	http=403 same=y
+SEC-03	forged CSRF token: template refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:23Z	http=403 same=y
+SEC-03	cross-origin request without a token: template refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:24Z	http=403 same=y
+SEC-03	no CSRF token: outbound refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:25Z	http=403 same=y
+SEC-03	another session's CSRF token: outbound refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:25Z	http=403 same=y
+SEC-03	forged CSRF token: outbound refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:26Z	http=403 same=y
+SEC-03	cross-origin request without a token: outbound refused 403, no state, AI or provider change	PASS	2026-11-17T06:54:27Z	http=403 same=y
+SEC-03	CORS preflight from a foreign origin gets no Access-Control-Allow-Origin	PASS	2026-11-17T06:54:27Z	http=403
+SEC-03	control: the session's own token is accepted (approve)	PASS	2026-11-17T06:54:28Z	http=201
+SEC-03	app logout ends the session (old cookie: /api/session not authenticated)	PASS	2026-11-17T06:54:28Z	logout=204 session_http=401
+SEC-03	after app logout, old cookie and token: approve refused 401, no state, AI or provider change	PASS	2026-11-17T06:54:29Z	http=401 same=y
+SEC-03	after app logout, old cookie and token: cancel refused 401, no state, AI or provider change	PASS	2026-11-17T06:54:30Z	http=401 same=y
+SEC-03	after app logout, old cookie and token: send refused 401, no state, AI or provider change	PASS	2026-11-17T06:54:31Z	http=401 same=y
+SEC-03	after IdP back-channel logout, old cookie and token: approve refused 401, no state, AI or provider change	PASS	2026-11-17T06:54:34Z	http=401 same=y
+SEC-03	after IdP back-channel logout, old cookie and token: cancel refused 401, no state, AI or provider change	PASS	2026-11-17T06:54:35Z	http=401 same=y
+SEC-03	after IdP back-channel logout, old cookie and token: send refused 401, no state, AI or provider change	PASS	2026-11-17T06:54:36Z	http=401 same=y
+SEC-03	control: active OPERATOR reads B message before revocation	PASS	2026-11-17T06:54:37Z	http=200
+SEC-03	ADMIN revokes the OPERATOR membership in B	PASS	2026-11-17T06:54:37Z	http=204
+SEC-03	revoked member's live session: approve/cancel/read in B refused, nothing written	PASS	2026-11-17T06:54:37Z	approve=403 cancel=403 read=403 leak=0 denials=+3
+SEC-03	cleanup: membership reactivated and accepted	PASS	2026-11-17T06:54:37Z	reactivate=200 accept=200
+SEC-04	fixture: approved message	PASS	2026-11-17T06:55:29Z	msg=23866adb
+SEC-04	send with a body replacing text and recipient: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:29Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	send with an empty JSON object: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:30Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	re-approval carrying a new body: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:31Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	re-approval carrying a recipient: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:31Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	cancellation carrying a body: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:32Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	PUT on the message resource (no edit route): 405, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:33Z	http=405 code= row_same=y
+SEC-04	PATCH on the message resource (no edit route): 405, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:33Z	http=405 code= row_same=y
+SEC-04	DELETE on the message resource (no edit route): 405, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:34Z	http=405 code= row_same=y
+SEC-04	re-approval of an approved message (valid fields): 409, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:34Z	http=409 code=INVALID_TRANSITION row_same=y
+SEC-04	send with a non-numeric If-Match: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:35Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	send with a weak If-Match: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:36Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	send with If-Match *: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:36Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	send with two If-Match values: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:37Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	send without If-Match: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:37Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	send with a stale If-Match: 409, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:38Z	http=409 code=STALE_VERSION row_same=y
+SEC-04	send without Idempotency-Key: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:39Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	submit with an extra recipientPhone member: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:39Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	submit with a tenantId member: 400, approved body/recipient/version unchanged, no side effect	PASS	2026-11-17T06:55:40Z	http=400 code=INVALID_INPUT row_same=y
+SEC-04	tenant B's submit key reused in A: a new tenant A message, not B's replay	PASS	2026-11-17T06:55:40Z	http=201 new=fd2ac5e2 is_mb=n
+SEC-04	A approval with key KA	PASS	2026-11-17T06:55:40Z	msg=fd2ac5e2
+SEC-04	A's approval key reused in B: B's own message is decided, A's response is not replayed	PASS	2026-11-17T06:55:40Z	http=201 msg=5824d253 status=APPROVED
+SEC-04	A's approval key reused on another A message: conflict, that message unchanged	PASS	2026-11-17T06:55:41Z	http=409 code=IDEMPOTENCY_KEY_REUSED status=PENDING_APPROVAL
+SEC-04	control: replay of the A approval with its key returns the stored result, no new approval row	PASS	2026-11-17T06:55:41Z	http=200 code= approvals=1
+SEC-06	GET challenge with the verify token: 200 echoing the challenge, no cookie	PASS	2026-11-17T06:56:12Z	http=200 echo_ok=y cookie=n
+SEC-06	GET challenge with a wrong token: 403, no echo, no cookie	PASS	2026-11-17T06:56:12Z	http=403 cookie=n
+SEC-06	signed POST to /webhooks/whatsapp: 200 without session or CSRF, no cookie	PASS	2026-11-17T06:56:12Z	http=200 inbox_delta=0
+SEC-06	sibling /webhooks: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:12Z	get=403 post=403 cookie=n/n echo=n
+SEC-06	sibling /webhooks/: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=403 post=403 cookie=n/n echo=n
+SEC-06	sibling /webhooks/other: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=403 post=403 cookie=n/n echo=n
+SEC-06	sibling /webhooks/whatsapp/: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=403 post=403 cookie=n/n echo=n
+SEC-06	sibling /webhooks/whatsapp/status: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=403 post=403 cookie=n/n echo=n
+SEC-06	sibling /webhooks/WhatsApp: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=403 post=403 cookie=n/n echo=n
+SEC-06	sibling /webhooks/whatsapp2: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=403 post=403 cookie=n/n echo=n
+SEC-06	sibling /webhooks/whatsapp;x=1: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=400 post=400 cookie=n/n echo=n
+SEC-06	sibling /webhooks/whatsapp/..%2Fother: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:13Z	get=400 post=400 cookie=n/n echo=n
+SEC-06	sibling /webhooks/%2e%2e/api/session: GET and signed POST refused, no challenge echo, no cookie, nothing stored	PASS	2026-11-17T06:56:14Z	get=401 post=401 cookie=n/n echo=n
+SEC-06	PUT /webhooks/whatsapp: refused, no cookie	PASS	2026-11-17T06:56:14Z	http=405 cookie=n
+SEC-06	DELETE /webhooks/whatsapp: refused, no cookie	PASS	2026-11-17T06:56:14Z	http=405 cookie=n
+SEC-06	PATCH /webhooks/whatsapp: refused, no cookie	PASS	2026-11-17T06:56:14Z	http=405 cookie=n
+SEC-06	signed but session-less POST to an /api route: refused, nothing written	PASS	2026-11-17T06:56:14Z	http=401 cookie=n
+SEC-06	#265 VIEWER cancel pending message: 403, one denial row naming MESSAGE_DRAFT, nothing else written	PASS	2026-11-17T06:56:14Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-06	#265 VIEWER cancel approved message: 403, one denial row naming MESSAGE_DRAFT, nothing else written	PASS	2026-11-17T06:56:15Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-03	Browser: page on http://localhost:18337 (same site, session cookie attached): no-cors text/plain POST cancel -> 403; form POST cancel -> 403; credentialed send -> preflight 403, blocked; credentialed GET /api/session -> blocked by CORS	PASS	2026-11-17T07:00:01Z	manual browser observation
+SEC-03	Browser: page on http://127.0.0.1:18337 (cross site): the same four requests -> 403 or blocked	PASS	2026-11-17T07:00:01Z	manual browser observation
+SEC-03	after both foreign-origin pages: target approved message unchanged, no stub request	PASS	2026-11-17T07:00:01Z	status=APPROVED/v2 stub_sends=22
+SEC-05	Browser: queue, customer detail, AI recommendation and draft show the XSS canary as literal text; window flag unset, no injected img/svg, no on* attributes, {{7*7}} not evaluated	PASS	2026-11-17T07:00:01Z	manual browser observation
+SEC-05	Browser: canary AI draft submitted through the UI review; preview (Lo que recibirá el cliente), message history row and timeline render it as text; flag still unset	PASS	2026-11-17T07:00:01Z	manual browser observation; message d483f92a
+SEC-05	Browser storage: localStorage empty; sessionStorage holds only the active tenant id; no token, CSRF, canary or secret; document.cookie exposes no cookie (HttpOnly)	PASS	2026-11-17T07:00:01Z	manual browser observation
+SEC-05	Network: draft and message JSON carry the canary as an escaped JSON string; renderedBody keeps {{7*7}} literal; no QA333-CANARY secret in any page or response read	PASS	2026-11-17T07:00:01Z	manual browser observation
+SEC-05	Browser: workspace switched to QA Café Sur shows no tenant A name, canary, customer or message id	PASS	2026-11-17T07:00:01Z	manual browser observation
+SEC-05	canary message stored verbatim as text (AI_DRAFT origin, pending approval)	PASS	2026-11-17T07:00:01Z	msg=d483f92a
+SEC-05	container logs (backend, frontend, oidc-bridge; last 3 h) hold no canary, name, note, phone, secret canary, session or CSRF value	PASS	2026-11-17T07:00:01Z	lines=2399 hits=0
+SEC-05	audit rows hold no canary text (AI detail and denial reasons are closed codes)	PASS	2026-11-17T07:00:01Z	-
+SEC-07	forced row-level security on the tenant tables these probes touched (#149 P3-RLS posture)	PASS	2026-11-17T07:00:30Z	tables=9 not_forced=none
+SEC-07	runtime role is not superuser and has no BYPASSRLS	PASS	2026-11-17T07:00:31Z	-
+SEC-07	#265 (any-of denial writes two rows): fixed on this candidate, one row per denied cancel (SEC-01, SEC-06)	NOTE	2026-11-17T07:00:31Z	regression check, not a new finding
+SEC-07	#266 (cookie on /webhooks siblings): fixed on this candidate, no sibling sets a cookie (SEC-06)	NOTE	2026-11-17T07:00:31Z	regression check, not a new finding
+SEC-07	#307 M3 (IdP logout ends BFF sessions): confirmed by the back-channel logout probe (SEC-03)	NOTE	2026-11-17T07:00:31Z	closed finding, behaviour holds
+SEC-07	#310 L1 (denial audit amplification, open): every denied request still writes one AUTHORIZATION_DENIED row with no bound	NOTE	2026-11-17T07:00:31Z	known open hardening; denial rows on the stack: 112, 68 before this suite; not a fresh regression
+SEC-07	ADR 0024 #210/#142: tenant B may store an unverified claim of A's phone number id or A's reference name; proof, routing and sends stay contained (SEC-02)	NOTE	2026-11-17T07:00:31Z	by design (no oracle); not a finding
+SEC-07	#312 L3 (self-provisioning) and #318 L7 (redirect origin): outside this suite's routes, not probed	NOTE	2026-11-17T07:00:31Z	open, unchanged; tracked in #305
+END	global switch off (backend env), tenant A enabled/proven/outbound off, tenant B restored to its own number and reference	PASS	2026-11-17T07:00:46Z	A=true/true/false B=true/true/false/qa333-token-b/100000000000002
+END	no provider send during the whole suite (stub send count 22 at start)	PASS	2026-11-17T07:00:46Z	stub_sends=22
+CLEANUP	cancel open tenant A message MA	PASS	2026-11-17T07:00:46Z	http=201
+CLEANUP	cancel open tenant A message PT	PASS	2026-11-17T07:00:46Z	http=201
+CLEANUP	cancel open tenant A message XM	PASS	2026-11-17T07:00:46Z	http=201
+CLEANUP	cancel tenant B message MB	PASS	2026-11-17T07:00:46Z	http=201
+CLEANUP	archive tenant A customer RA	PASS	2026-11-17T07:00:46Z	http=204
+CLEANUP	archive tenant A customer IA	PASS	2026-11-17T07:00:46Z	http=204
+CLEANUP	archive tenant A customer XA	PASS	2026-11-17T07:00:46Z	http=204
+CLEANUP	archive tenant B customer IB	PASS	2026-11-17T07:00:46Z	http=204
+CLEANUP	final counts	NOTE	2026-11-17T07:00:47Z	messages=CANCELLED:69,DELIVERED:2,FAILED:5,READ:2,REJECTED:1,SENT:13 attempts=22 denials=112 stub_sends=22
+
+# First SEC-01 run, superseded (setup note 1): the verdict helper evaluated only the first condition of each check.
+SEC-01	VIEWER submit: 403, one denial row naming MESSAGE_DRAFT, nothing else written	HARNESS-ERROR	2026-11-17T06:48:13Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER AI draft: 403, one denial row naming MESSAGE_DRAFT, nothing else written	HARNESS-ERROR	2026-11-17T06:48:13Z	http=403 code= denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER AI draft refused before any AI invocation	HARNESS-ERROR	2026-11-17T06:48:14Z	ai_outcome_rows=+0
+SEC-01	non-member list messages: 403, one denial row naming MESSAGE_READ, nothing else written	HARNESS-ERROR	2026-11-17T06:48:14Z	http=403 code=FORBIDDEN denials=+1 last=TENANT_READ|NO_TENANT_CONTEXT state_same=y stub_delta=0
+SEC-01	OPERATOR submit	HARNESS-ERROR	2026-11-17T06:48:14Z	http=201 status=PENDING_APPROVAL msg=3675257c
+SEC-01	VIEWER approve: 403, one denial row naming MESSAGE_APPROVE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:15Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_APPROVE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER cancel (any-of guard, #265): 403, one denial row naming MESSAGE_DRAFT, nothing else written	HARNESS-ERROR	2026-11-17T06:48:16Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	OPERATOR self-approval of its own message is allowed (matrix: OPERATOR has MESSAGE_APPROVE)	HARNESS-ERROR	2026-11-17T06:48:16Z	http=201 status=APPROVED
+SEC-01	VIEWER send: 403, one denial row naming MESSAGE_SEND, nothing else written	HARNESS-ERROR	2026-11-17T06:48:16Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_SEND|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser send: authorized, stops at 409 OUTBOUND_DISABLED_GLOBALLY, nothing written	HARNESS-ERROR	2026-11-17T06:48:17Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin send: authorized, stops at 409 OUTBOUND_DISABLED_GLOBALLY, nothing written	HARNESS-ERROR	2026-11-17T06:48:17Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator send: authorized, stops at 409 OUTBOUND_DISABLED_GLOBALLY, nothing written	HARNESS-ERROR	2026-11-17T06:48:18Z	http=409 code=OUTBOUND_DISABLED_GLOBALLY denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator resolve: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:19Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer resolve: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:19Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser resolve APPROVED: authorized, stops at 409 INVALID_TRANSITION, nothing written	HARNESS-ERROR	2026-11-17T06:48:20Z	http=409 code=INVALID_TRANSITION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin resolve APPROVED: authorized, stops at 409 INVALID_TRANSITION, nothing written	HARNESS-ERROR	2026-11-17T06:48:21Z	http=409 code=INVALID_TRANSITION denials=+0 state_same=y stub_delta=0
+SEC-01	OPERATOR cancels the approved message	HARNESS-ERROR	2026-11-17T06:48:21Z	http=201 status=CANCELLED
+SEC-01	ADMIN approves the OWNER's message	HARNESS-ERROR	2026-11-17T06:48:21Z	http=201 status=APPROVED msg=b01fb372
+SEC-01	ADMIN cancels	HARNESS-ERROR	2026-11-17T06:48:21Z	http=201 status=CANCELLED
+SEC-01	ADMIN submit	HARNESS-ERROR	2026-11-17T06:48:21Z	http=201 msg=7d2b83f9
+SEC-01	OWNER cancels the ADMIN's message	HARNESS-ERROR	2026-11-17T06:48:21Z	http=201 status=CANCELLED
+SEC-01	VIEWER template write: 403, one denial row naming TEMPLATE_WRITE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:22Z	http=403 code=FORBIDDEN denials=+1 last=TEMPLATE_WRITE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	VIEWER template refresh: 403, one denial row naming TEMPLATE_WRITE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:22Z	http=403 code=FORBIDDEN denials=+1 last=TEMPLATE_WRITE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser template write (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:23Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testuser template refresh (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:23Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin template write (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:24Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin template refresh (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:24Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator template write (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:25Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator template refresh (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:25Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testoperator integration update: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:26Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testoperator tenant outbound switch: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:26Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testoperator ownership proof: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:27Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testoperator credential rotation: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:28Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer integration update: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:28Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer tenant outbound switch: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:29Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer ownership proof: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:29Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testviewer credential rotation: 403, one denial row naming INTEGRATION_MANAGE, nothing else written	HARNESS-ERROR	2026-11-17T06:48:30Z	http=403 code=FORBIDDEN denials=+1 last=INTEGRATION_MANAGE|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+SEC-01	testuser tenant outbound switch (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:30Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testuser ownership proof (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:31Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin tenant outbound switch (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:31Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	testadmin ownership proof (stale If-Match): authorized, stops at 409 STALE_VERSION, nothing written	HARNESS-ERROR	2026-11-17T06:48:32Z	http=409 code=STALE_VERSION denials=+0 state_same=y stub_delta=0
+SEC-01	integration unchanged after the probes	HARNESS-ERROR	2026-11-17T06:48:32Z	etag_same=y outbound=false
