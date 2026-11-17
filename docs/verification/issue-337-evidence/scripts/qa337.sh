@@ -6,14 +6,17 @@
 # Source it from the other scripts. QA_HOME (default ~/qa333) holds the #333 stack and stub; OUTD (default ~/qa337/out)
 # holds this suite's results and ids. Never prints tokens, cookies, CSRF values, passwords or secrets.
 QA337_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-export OUTD=${OUTD:-$HOME/qa337/out}
-export RESULTS=${RESULTS:-$OUTD/results.tsv}
+# A caller may point OUTD/RESULTS elsewhere to isolate a run; keep those values across the inherited helpers.
+QA337_OUTD=${OUTD:-$HOME/qa337/out}
+QA337_RESULTS=${RESULTS:-$QA337_OUTD/results.tsv}
+export OUTD=$QA337_OUTD RESULTS=$QA337_RESULTS
 mkdir -p "$OUTD"
 export QA_TAG=QA337 QA_PHONE_PREFIX=+5698337
 # qa336.sh brings qa335.sh (fixtures, send, refused), the protected curl wrapper and the signed-callback helpers.
 . "$QA337_DIR/../../issue-336-evidence/scripts/qa336.sh"
 # qa336.sh sets its own tag, phone range and OUTD default: restore this suite's values.
-export OUTD=$HOME/qa337/out RESULTS=$HOME/qa337/out/results.tsv QA_TAG=QA337 QA_PHONE_PREFIX=+5698337
+export OUTD=$QA337_OUTD RESULTS=$QA337_RESULTS QA_TAG=QA337 QA_PHONE_PREFIX=+5698337
+mkdir -p "$OUTD"
 [ -f "$OUTD/ids" ] && . "$OUTD/ids"
 
 # Side-effect counters: audit rows, denial rows, messages, attempts, approvals, stub sends, AI invocations.

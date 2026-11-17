@@ -62,7 +62,10 @@ rec $C "app logout ends the session (old cookie: /api/session not authenticated)
 for op in approve cancel send; do refuse "after app logout, old cookie and token" 401 opold $op -H "X-CSRF-TOKEN: $TOK"; done
 # --- ended session: IdP back-channel logout (Keycloak admin API) of a live session.
 qa_login testadmin; cp "$QA_TMP/jar-testadmin.txt" "$QA_TMP/jar-adold.txt"; TOK=$(csrf testadmin)
-bash "$QA_HOME/scripts/kc-logout.sh" testadmin >/dev/null; sleep 2
+# The checked-in #333 helper, resolved next to this script; stop if Keycloak did not end the sessions.
+lo=$(bash "$(dirname "${BASH_SOURCE[0]}")/../../issue-333-evidence/scripts/kc-logout.sh" testadmin) || lo=failed
+case $lo in *": 204") ;; *) echo "IdP back-channel logout failed: $lo" >&2; exit 1 ;; esac
+sleep 2
 for op in approve cancel send; do refuse "after IdP back-channel logout, old cookie and token" 401 adold $op -H "X-CSRF-TOKEN: $TOK"; done
 
 # --- revoked membership: testoperator2 keeps a live session in B while the ADMIN revokes its membership.
