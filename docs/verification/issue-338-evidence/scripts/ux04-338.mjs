@@ -90,16 +90,17 @@ try {
     check(C, 'repeated activation during a slow send: one request, one attempt, one provider call', sendKeys.length - k1 === 1 && /attempts=1\//.test(dx) && stubSends() - s0 === 1, `requests=${sendKeys.length - k1}; db ${dx}; stub +${stubSends() - s0}`);
   } else {
     // The status copy of every state, in the history row and in the review.
+    // [customer, label, history row must match, review must match (status badge and attempt outcome), never in either]
     const states = [
-      ['QA338 Vista Pendiente', 'submitted', /Aún no enviado.*Pendiente de aprobación/, /Entregado|Envío procesado|Aceptado/],
-      ['QA338 Vista Aprobada', 'approved', /Aún no enviado.*Aprobado, sin enviar/, /Entregado|Aceptado/],
-      ['QA338 Estado Aceptado', 'provider accepted', /Aceptado por el proveedor.*Aún sin confirmación de entrega/, /Entregado|Leído/],
-      ['QA338 Estado Entregado', 'delivered', /Entregado.*Entregado al teléfono del cliente/, /Fallido|sin confirmar/i],
-      ['QA338 Estado Leido', 'read', /Leído.*El cliente abrió el mensaje/, /Fallido|sin confirmar/i],
-      ['QA338 Estado Fallido', 'failed', /Fallido.*No se entregó al cliente/, /Entregado|Aceptado por el proveedor/],
-      ['QA338 Estado Sin Confirmar', 'uncertain', /Resultado sin confirmar.*No lo reenvíes/, /Entregado|Envío procesado/]
+      ['QA338 Vista Pendiente', 'submitted', /Aún no enviado.*Pendiente de aprobación/, /Revisión \d+ Pendiente de aprobación/, /Entregado|Envío procesado|Aceptado/],
+      ['QA338 Vista Aprobada', 'approved', /Aún no enviado.*Aprobado, sin enviar/, /Revisión \d+ Aprobado\b/, /Entregado|Aceptado/],
+      ['QA338 Estado Aceptado', 'provider accepted', /Aceptado por el proveedor.*Aún sin confirmación de entrega/, /Revisión \d+ Enviado\b.*Intento \d+ · Aceptado/, /Entregado|Leído/],
+      ['QA338 Estado Entregado', 'delivered', /Entregado.*Entregado al teléfono del cliente/, /Revisión \d+ Entregado\b.*Intento \d+ · Aceptado/, /Fallido|sin confirmar/i],
+      ['QA338 Estado Leido', 'read', /Leído.*El cliente abrió el mensaje/, /Revisión \d+ Leído\b.*Intento \d+ · Aceptado/, /Fallido|sin confirmar/i],
+      ['QA338 Estado Fallido', 'failed', /Fallido.*No se entregó al cliente/, /Revisión \d+ Fallido\b.*Intento \d+ · Falló definitivamente/, /Entregado|Aceptado por el proveedor/],
+      ['QA338 Estado Sin Confirmar', 'uncertain', /Resultado sin confirmar.*No lo reenvíes/, /Revisión \d+ Enviando\b.*El proveedor no confirmó el envío.*Intento \d+ · Resultado desconocido|Revisión \d+ Enviando\b.*Intento \d+ · Resultado desconocido.*El proveedor no confirmó el envío/, /Entregado|Envío procesado/]
     ];
-    for (const [name, label, want, never] of states) {
+    for (const [name, label, want, reviewWant, never] of states) {
       const row = await openCustomer(name);
       if ((await row.getAttribute('aria-expanded')) !== 'true') await row.click();
       await delay(1200);
@@ -111,7 +112,7 @@ try {
       await page.locator('section.message-review').filter({ hasText: /Revisión \d+/ }).first().waitFor({ timeout: 15000 });
       const rv = await reviewText();
       const canSend = await visible(page.getByRole('button', { name: 'Enviar', exact: true }));
-      const reviewOk = !never.test(rv) && (label === 'approved' ? canSend : !canSend);
+      const reviewOk = reviewWant.test(rv) && !never.test(rv) && (label === 'approved' ? canSend : !canSend);
       check('UX-04', `${label}: history and review copy are distinct and truthful`, rowOk && reviewOk,
         `history "${item.slice(0, 150)}"; review status "${(rv.match(/Revisión \d+ (\S+(?: de aprobación)?)/) ?? ['', ''])[1]}"; result "${(rv.match(/Intento \d+ · [^ ]+( [a-z]+)?/) ?? [''])[0]}"; notices "${(rv.match(/(El proveedor no confirmó[^.]*\.|No se entregó[^.]*\.|Aún sin confirmación[^.]*)/) ?? [''])[0]}"; Enviar offered=${canSend}`);
       await shot(page, `ux04-${BROWSER}-${label.replace(/ /g, '-')}.png`);

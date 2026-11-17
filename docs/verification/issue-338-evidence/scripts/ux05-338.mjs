@@ -178,6 +178,7 @@ try {
 await ctx.close();
 
 // --- 403: an OPERATOR's membership is revoked while the review is open.
+let revoked = false;
 if (!process.env.SKIP_403) try {
   const C = 'UX-05 403';
   const c2 = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'es-CL' });
@@ -186,17 +187,22 @@ if (!process.env.SKIP_403) try {
   await openReview(p2, 'QA338 Sin Permiso' + SUF);
   const g0 = db(ids['G1M' + IDSUF]);
   const rv = sh('api338.sh', 'revoke', 'testoperator');
+  revoked = /revoke 204/.test(rv);
   await p2.getByRole('button', { name: 'Aprobar', exact: true }).click();
   await p2.getByRole('button', { name: 'Confirmar aprobación' }).click();
   await p2.waitForTimeout(2500);
   const t403 = `${await alertText(p2)}`;
   check(C, 'a revoked OPERATOR gets "No tienes permiso para esta acción." and the message is unchanged', /No tienes permiso/.test(t403) && db(ids['G1M' + IDSUF]) === g0, `${rv}; db ${g0} -> ${db(ids['G1M' + IDSUF])}; ui "${t403}"`);
   await shot(p2, `ux05-${BROWSER}-403.png`);
-  const re = sh('api338.sh', 'reactivate', 'testoperator');
-  check(C, 'cleanup: membership reactivated and accepted', /reactivate 200/.test(re) && /accept 200/.test(re), re.replace(/\n/g, ', '));
   await c2.close();
 } catch (e) {
   check('UX-05 403', 'script completed', false, String(e).split('\n')[0]);
+} finally {
+  // A failed browser step must never leave the shared OPERATOR revoked for the next run.
+  if (revoked) {
+    const re = sh('api338.sh', 'reactivate', 'testoperator');
+    check('UX-05 403', 'cleanup: membership reactivated and accepted', /reactivate 200/.test(re) && /accept 200/.test(re), re.replace(/\n/g, ', '));
+  }
 }
 save(`ux05-${BROWSER}${IDSUF}.json`, { browser: BROWSER, version: browser.version(), checks });
 await browser.close();
