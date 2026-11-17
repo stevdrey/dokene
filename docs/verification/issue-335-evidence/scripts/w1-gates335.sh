@@ -30,8 +30,9 @@ req testuser "$A" GET "/api/customers/$S2ARCH" -
 req testuser "$A" DELETE "/api/customers/$S2ARCH" - -H "If-Match: $(etag)"
 P=$CODE; send testuser "$M_S2ARCH"; CODES="$CODES $(code)"; refused CUSTOMER_ARCHIVED "$M_S2ARCH" "$S0" "customer archived after approval (archive http=$P, send http=$CODE)"
 # Recipient contact replaced after approval (new number => the approved contact id no longer belongs to the customer).
+NEWP=$(next_phone)
 req testuser "$A" GET "/api/customers/$S2CONT" -
-req testuser "$A" PUT "/api/customers/$S2CONT" '{"displayName":"QA335 Hugo Contacto","notes":null,"phones":[{"number":"+56983359901","region":"CL","primary":true}]}' -H "If-Match: $(etag)"
+req testuser "$A" PUT "/api/customers/$S2CONT" "$(jq -nc --arg p "$NEWP" '{displayName:"QA335 Hugo Contacto",notes:null,phones:[{number:$p,region:"CL",primary:true}]}')" -H "If-Match: $(etag)"
 P=$CODE; send testuser "$M_S2CONT"; CODES="$CODES $(code)"; refused CONTACT_NOT_OWNED "$M_S2CONT" "$S0" "recipient number replaced after approval (update http=$P, send http=$CODE)"
 # Follow-up made ineligible after approval: w1-ineligible335.sh (snooze route and a future explicit date). The recorded
 # run first tried it here with PUT follow-up-policy, which has no snooze field: its explicitNextDate:null made the

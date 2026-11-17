@@ -12,7 +12,9 @@ S0=$(stub_sends); T0=$(attempts_all)
 send testuser "$M_S1"; refused OUTBOUND_DISABLED_GLOBALLY "$M_S1" "$S0" "OWNER send, global OFF (http=$CODE)"
 send testoperator "$M_S1"; refused OUTBOUND_DISABLED_GLOBALLY "$M_S1" "$S0" "OPERATOR send, global OFF (http=$CODE)"
 K=$(uuidgen); send testuser "$M_S1" "$K"; send testuser "$M_S1" "$K"
-refused OUTBOUND_DISABLED_GLOBALLY "$M_S1" "$S0" "same Idempotency-Key repeated, global OFF (http=$CODE): no record kept for a refusal"
+refused OUTBOUND_DISABLED_GLOBALLY "$M_S1" "$S0" "same Idempotency-Key repeated, global OFF (http=$CODE)"
+IR=$(psqlq "select count(*) from dokene.outbound_message_idempotency_keys where idempotency_key='$K'")
+rec $C "no idempotency record is kept for a refused send" "$([ "$IR" = 0 ] && echo PASS || echo FAIL)" "idem_rows=$IR"
 for _ in 1 2 3; do send testuser "$M_S5KEY"; done
 refused OUTBOUND_DISABLED_GLOBALLY "$M_S5KEY" "$S0" "three rapid sends of another APPROVED message (http=$CODE)"
 rec $C "global OFF totals: no new attempt rows anywhere, no provider request" "$([ "$(attempts_all)" = "$T0" ] && [ "$(stub_sends)" = "$S0" ] && echo PASS || echo FAIL)" "attempts_total=$(attempts_all) (before $T0) stub_sends=$(stub_sends) (before $S0)"

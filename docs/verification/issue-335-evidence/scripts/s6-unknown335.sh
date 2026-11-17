@@ -19,7 +19,7 @@ rec $C "T12 resolution by OPERATOR (no INTEGRATION_MANAGE) refused 403" "$([ "$C
 req testuser "$A" POST "/api/messages/$M/resolutions" '{"outcome":"SENT"}' -H "If-Match: $V" -H "Idempotency-Key: $(uuidgen)"
 rec $C "T12 resolution to SENT is not in the contract: 400 INVALID_INPUT" "$([ "$CODE" = 400 ] && echo PASS || echo FAIL)" "http=$CODE code=$(code)"
 req testuser "$A" POST "/api/messages/$M/resolutions" '{"outcome":"FAILED","note":"QA335 checked the stub: no accepted id"}' -H "If-Match: $V" -H "Idempotency-Key: $(uuidgen)"
-rec $C "T12 resolution by OWNER: FAILED, outcomeUnknown cleared, no provider request" "$([ "$CODE" = 201 ] || [ "$CODE" = 200 ]; [ "$(jb .status)" = FAILED ] && [ "$(stub_sends)" = "$S0" ] && echo PASS || echo FAIL)" "http=$CODE status=$(jb .status) unknown=$(jb .outcomeUnknown) failure=$(jb .failureCategory) stub_delta=$(( $(stub_sends) - S0 )) events=$(events "$M")"
+rec $C "T12 resolution by OWNER: FAILED, outcomeUnknown cleared, no provider request" "$({ [ "$CODE" = 201 ] || [ "$CODE" = 200 ]; } && [ "$(jb .status)" = FAILED ] && [ "$(stub_sends)" = "$S0" ] && echo PASS || echo FAIL)" "http=$CODE status=$(jb .status) unknown=$(jb .outcomeUnknown) failure=$(jb .failureCategory) stub_delta=$(( $(stub_sends) - S0 )) events=$(events "$M")"
 send testuser "$M"
 rec $C "send on the resolved FAILED message refused INVALID_TRANSITION (no blind resend)" "$([ "$(code)" = INVALID_TRANSITION ] && [ "$(stub_sends)" = "$S0" ] && echo PASS || echo FAIL)" "http=$CODE code=$(code)"
 qa_finish

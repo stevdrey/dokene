@@ -102,6 +102,12 @@ below; none covers them.
    separators (fixed in the script). The verdicts rest on the attempt and stub counts. Those `curl` calls ran through
    the protected curl wrapper (loaded by the shared #333 helpers), so no session value reached a command line. The
    script now also loads the wrapper itself, as the evidence-script rule in `scripts/tests/bff-login-test.sh` requires.
+   After code review the scripts were hardened again, without changing the recorded lines:
+   - fixture numbers come from the database, so reruns on the same stack never reuse a number;
+   - the mapping-disabled and unproven-integration checks require their exact codes;
+   - the T12 check asserts the HTTP status;
+   - the repeated-key check asserts that no idempotency record is kept for a refusal;
+   - the W2 crash restart holds the window lock.
 5. Every backend restart ends BFF sessions; the browser re-entered through the surviving Keycloak SSO session.
 6. Cleanup (`final335.sh`): every still-open suite message was cancelled, the 21 `QA335` customers were archived,
    and the stub was reset to `accept`. `GENERAL_FOLLOW_UP` had already been restored to `qa333_general_follow_up` by

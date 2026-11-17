@@ -28,12 +28,17 @@ attempts_all() { psqlq 'select count(*) from dokene.outbound_send_attempts'; }
 events() { req testuser "$A" GET "/api/messages/$1/events" -; jb '[.events[].type]|join(",")'; }
 mstate() { req testuser "$A" GET "/api/messages/$1" -; jb '"\(.status)/unknown=\(.outcomeUnknown)/attempts=\(.attempts|length)"'; }
 
+# next_phone: the next CL test-range number +5698335NNNN not yet held by any customer in the database, so reruns on
+# the same stack (fresh OUTD or not) never reuse a number.
+next_phone() {
+  printf '+5698335%04d' "$(psqlq "select coalesce(max(substr(normalized_phone,9)::int),0)+1 from dokene.customer_phone_contacts where normalized_phone ~ '^\\+5698335[0-9]{4}$'")"
+}
+
 # mkcust <var> <name>: disposable tenant A customer: CL test-range phone, WhatsApp consent GRANTED, purchase 40 days
 # ago, due today. Sets <var> (customer id) and <var>_C (contact id) and records both in $OUTD/ids.
 mkcust() {
-  local v=$1 name=$2 n phone cid pid tz
-  n=$(( $(grep -c '_C=' "$OUTD/ids" 2>/dev/null || echo 0) + 1 ))
-  phone=$(printf '+5698335%04d' "$(( n + ${QA335_PHONE_BASE:-0} ))")
+  local v=$1 name=$2 phone cid pid tz
+  phone=$(next_phone)
   req testuser "$A" POST /api/customers "$(jq -cn --arg n "$name" --arg p "$phone" '{displayName:$n,phones:[{number:$p,region:"CL",primary:true}]}')"
   [ "$CODE" = 201 ] || { echo "create $name: http=$CODE $(code)" >&2; return 1; }
   cid=$(jb .id); pid=$(jb '.phones[0].id')
@@ -79,13 +84,12 @@ send() {
 # refused <expected-code> <message> <stub-before> <label> [case]: record a send refusal check: the expected HTTP 409/403
 # code, no attempt row for the message, no new stub send, message still APPROVED.
 refused() {
-  local want=$1 m=$2 s0=$3 label=$4 c=${5:-$C} got st a s
-  got=$(code); st=$(jb .status); a=$(attempts "$m"); s=$(stub_sends)
+  local want=$1 m=$2 s0=$3 label=$4 c=${5:-$C} got a s
+  got=$(code); a=$(attempts "$m"); s=$(stub_sends)
   req testuser "$A" GET "/api/messages/$m" -
   rec "$c" "$label: refused $want, 0 attempts, 0 provider requests, still APPROVED" \
     "$([ "$got" = "$want" ] && [ "$a" = 0 ] && [ "$s" = "$s0" ] && [ "$(jb .status)" = APPROVED ] && echo PASS || echo FAIL)" \
     "code=$got attempts=$a stub_delta=$((s - s0)) status=$(jb .status) msg=${m:0:8}"
-  : "$st"
 }
 
 # assert_baseline_policy: the backend runs with the default send policy (no W2 overrides in its environment).
