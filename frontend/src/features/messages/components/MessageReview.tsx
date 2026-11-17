@@ -33,7 +33,7 @@ export interface MessageReviewProps {
 
 type Current =
   | { kind: 'fromProps' }
-  | { kind: 'review'; messageId: string; customerDisplayName?: string; initial?: VersionedMessage }
+  | { kind: 'review'; messageId: string; customerDisplayName?: string; initial?: VersionedMessage; takeFocus?: boolean }
   | { kind: 'correction'; input: ComposeInput };
 
 function propKey(tenantId: string, mode: MessageReviewMode): string {
@@ -69,7 +69,8 @@ function MessageReviewSwitch({
 
   const handleSubmitted = useCallback(
     (read: VersionedMessage, customerDisplayName: string) => {
-      setCurrent({ kind: 'review', messageId: read.detail.messageId, customerDisplayName, initial: read });
+      // The compose that held focus is gone; the new review's heading takes it, so the keyboard place survives (#415).
+      setCurrent({ kind: 'review', messageId: read.detail.messageId, customerDisplayName, initial: read, takeFocus: true });
       announce(submittedSentence(read.detail.status));
       onSubmitted?.(read.detail.messageId);
     },
@@ -107,13 +108,14 @@ function MessageReviewSwitch({
     />
   );
 
-  const reviewView = (messageId: string, customerDisplayName?: string, initial?: VersionedMessage) => (
+  const reviewView = (messageId: string, customerDisplayName?: string, initial?: VersionedMessage, takeFocus = false) => (
     <MessageDetail
       key={`${tenantId}|review|${messageId}`}
       messageId={messageId}
       role={role}
       customerDisplayName={customerDisplayName || undefined}
       initial={initial}
+      takeFocus={takeFocus}
       announce={announce}
       onCorrect={(cancelled) => handleCorrect(cancelled, customerDisplayName)}
       onChanged={onMessageChanged}
@@ -125,7 +127,7 @@ function MessageReviewSwitch({
   if (current.kind === 'correction') {
     view = composeView(current.input, true);
   } else if (current.kind === 'review') {
-    view = reviewView(current.messageId, current.customerDisplayName, current.initial);
+    view = reviewView(current.messageId, current.customerDisplayName, current.initial, current.takeFocus);
   } else if (mode.kind === 'compose') {
     view = composeView(mode, false);
   } else {

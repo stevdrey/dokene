@@ -955,7 +955,6 @@ export const FollowUpWorkbench: React.FC<FollowUpWorkbenchProps> = ({ onNavigate
                   backgroundColor: 'var(--color-surface)',
                   color: 'var(--color-text-main)',
                   fontSize: 'var(--font-size-secondary)',
-                  outline: 'none',
                   fontFamily: 'inherit'
                 }}
               />

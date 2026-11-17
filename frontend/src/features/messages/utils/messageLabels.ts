@@ -95,7 +95,8 @@ const ERROR_CODE_SENTENCES = {
   FOLLOW_UP_INELIGIBLE: 'El cliente no está elegible para seguimiento ahora.',
   CONTACT_FREQUENCY_EXCEEDED: 'Ya se contactó a este cliente recientemente.',
   TEMPLATE_NOT_MAPPED: 'No hay una plantilla configurada para este tipo de mensaje.',
-  BODY_REJECTED: 'El texto del mensaje no pasó la validación.',
+  BODY_REJECTED:
+    'El texto del mensaje no pasó la validación. Escríbelo en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, y solo con datos de este cliente.',
   SEND_ATTEMPTS_EXHAUSTED: 'Se agotaron los intentos de envío.',
   CONTACT_NOT_OWNED: 'El teléfono ya no pertenece a este cliente.',
   MESSAGE_ALREADY_OPEN: 'Ya hay un mensaje abierto para este cliente.',
@@ -149,6 +150,8 @@ export const COPY = {
   composeFixedTemplate:
     'Esta plantilla tiene un texto fijo y solo envía ese texto (con los datos del cliente): el mensaje debe coincidir exactamente con él.',
   templateHeading: 'Lo que recibirá el cliente',
+  bodyFormat:
+    'WhatsApp no admite saltos de línea, tabulaciones ni más de cuatro espacios seguidos en este mensaje. Escríbelo en una sola línea.',
   correctionContactRemoved:
     'El teléfono ya no pertenece a este cliente. Redacta un mensaje nuevo con el número correcto.'
 } as const;

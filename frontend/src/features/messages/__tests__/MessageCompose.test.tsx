@@ -205,6 +205,20 @@ describe('compose mode', () => {
     expect(submitButton()).toBeDisabled();
   });
 
+  it('warns about line breaks, tabs and five spaces before submit and keeps submit disabled (#417)', () => {
+    renderCompose();
+    for (const text of ['Hola\nAna', 'Hola\tAna', 'Hola     Ana', 'Hola\u2028Ana']) {
+      type(text);
+      expect(textarea()).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText(/WhatsApp no admite saltos de línea/)).toBeInTheDocument();
+      expect(submitButton()).toBeDisabled();
+    }
+    // Accents, emoji with a zero-width joiner, typographic quotes and four spaces are sendable.
+    type('Hola Ñandú 👩‍💻 “Café”    listo');
+    expect(screen.queryByText(/WhatsApp no admite saltos de línea/)).toBeNull();
+    expect(submitButton()).toBeEnabled();
+  });
+
   it('is read only for a viewer', () => {
     renderCompose(composeMode(), 'VIEWER');
     expect(screen.queryByRole('button', { name: 'Enviar a aprobación' })).toBeNull();
@@ -248,6 +262,8 @@ describe('compose mode', () => {
     expect(screen.getByText('Pendiente de aprobación')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
     expect(onSubmitted).toHaveBeenCalledWith(pendingApproval.messageId);
+    // The compose that held focus is gone; the review heading takes it (#415).
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
     expect(server.count(detailPath(pendingApproval.messageId))).toBe(0);
     await waitFor(() => expect(server.count(eventsPath(pendingApproval.messageId))).toBe(1));
   });
@@ -285,7 +301,7 @@ describe('compose mode', () => {
       ['CUSTOMER_ARCHIVED', 'El cliente está archivado.'],
       ['FOLLOW_UP_INELIGIBLE', 'El cliente no está elegible para seguimiento ahora.'],
       ['TEMPLATE_NOT_MAPPED', 'No hay una plantilla configurada para este tipo de mensaje.'],
-      ['BODY_REJECTED', 'El texto del mensaje no pasó la validación.'],
+      ['BODY_REJECTED', 'El texto del mensaje no pasó la validación. Escríbelo en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, y solo con datos de este cliente.'],
       ['IDEMPOTENCY_KEY_REUSED', 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.'],
       ['INVALID_INPUT', 'Revisa los datos e intenta de nuevo.'],
       ['LOCALE_NOT_ACCEPTED', 'Este idioma no está habilitado para enviar mensajes en este despliegue.'],

@@ -34,6 +34,8 @@ interface MessageDetailProps {
   role: string | null;
   customerDisplayName?: string;
   initial?: VersionedMessage;
+  /** Focus the heading once the message is shown (the control that opened it was removed). */
+  takeFocus?: boolean;
   announce: (text: string) => void;
   onCorrect: (cancelled: MessageResponse) => void;
   /** A read replaced the shown message with another version (see `useMessageDetail`'s `onChanged`). */
@@ -138,6 +140,7 @@ export function MessageDetail({
   role,
   customerDisplayName,
   initial,
+  takeFocus = false,
   announce,
   onCorrect,
   onChanged,
@@ -155,6 +158,13 @@ export function MessageDetail({
   const actions = useReviewActions({ messageId, detail, canAct: canActOnMessages(role), announce, onCorrect });
   useReportBusy(actions.group?.step.kind === 'submitting' || actions.unsureIntent !== null, onBusyChange);
   const { state } = detail;
+  const loaded = state.kind !== 'loading' && state.kind !== 'error' && state.kind !== 'sessionEnded' && state.kind !== 'notFound';
+  const focusTaken = useRef(false);
+  useEffect(() => {
+    if (!takeFocus || !loaded || focusTaken.current) return;
+    focusTaken.current = true;
+    headingRef.current?.focus();
+  }, [takeFocus, loaded]);
 
   if (state.kind === 'sessionEnded' || state.kind === 'notFound') {
     return (

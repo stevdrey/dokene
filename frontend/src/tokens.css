@@ -122,6 +122,28 @@ button, a.nav-link, select, input[type="button"], input[type="submit"], .interac
   border: 0;
 }
 
+/* Skip link: hidden until focused, then the first visible control (WCAG 2.4.1). */
+.skip-link {
+  position: absolute;
+  left: var(--space-8);
+  top: -100px;
+  z-index: 1000;
+  padding: var(--space-8) var(--space-16);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: var(--space-8);
+}
+
+/* The main region is a programmatic focus target only; it needs no ring for pointer users. */
+#contenido-principal:focus:not(:focus-visible) {
+  outline: none;
+}
+
 /* Inter (Self-hosted, variable) */
 @font-face {
   font-family: 'Inter';

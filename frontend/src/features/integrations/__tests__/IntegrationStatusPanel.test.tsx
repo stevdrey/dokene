@@ -579,7 +579,7 @@ describe('IntegrationStatusPanel', () => {
     it.each([
       [
         'PROVIDER_UNAVAILABLE',
-        'El proveedor no está disponible en este momento. Intenta más tarde.'
+        'No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.'
       ],
       [
         'INVALID_INPUT',

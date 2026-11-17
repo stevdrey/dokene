@@ -59,7 +59,7 @@ describe('writeFailure', () => {
     ],
     ['RATE_LIMITED', 'save', 'Demasiadas solicitudes. Espera un momento antes de reintentar.'],
     ['RATE_LIMITED', 'verify', 'Demasiadas solicitudes. Espera un momento antes de reintentar.'],
-    ['PROVIDER_UNAVAILABLE', 'verify', 'El proveedor no está disponible en este momento. Intenta más tarde.']
+    ['PROVIDER_UNAVAILABLE', 'verify', 'No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.']
   ] as const)('maps %s on %s', (code, operation, message) => {
     expect(writeFailure(problem(code), operation)).toEqual({ kind: 'message', message });
   });

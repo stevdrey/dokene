@@ -66,6 +66,16 @@ describe('AppShell', () => {
     expect(screen.getByText('Administrador(a)')).toBeInTheDocument();
   });
 
+  it('offers a skip link as the first focusable control, pointing at the focusable main region (#415)', () => {
+    const { container } = render(<AppShell />);
+    const first = container.querySelector('a[href], button, input, select, textarea');
+    expect(first).toHaveTextContent('Saltar al contenido');
+    expect(first).toHaveAttribute('href', '#contenido-principal');
+    const main = screen.getByRole('main');
+    expect(main).toHaveAttribute('id', 'contenido-principal');
+    expect(main).toHaveAttribute('tabindex', '-1');
+  });
+
   it('switches tabs when clicking navigation buttons', () => {
     render(<AppShell />);
 

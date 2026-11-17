@@ -43,6 +43,10 @@ export const AppShell: React.FC<AppShellProps> = ({
 
   return (
     <div className="dokene-app-layout">
+      {/* First tab stop: skips the sidebar and header (WCAG 2.4.1, #415). */}
+      <a className="skip-link" href="#contenido-principal">
+        Saltar al contenido
+      </a>
 
       {/* DESKTOP SIDEBAR */}
       <aside className="desktop-sidebar" aria-label="Barra lateral de navegación">
@@ -292,7 +296,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       </header>
 
       {/* MAIN CONTENT AREA */}
-      <main className="desktop-main">
+      <main id="contenido-principal" tabIndex={-1} className="desktop-main">
         {logoutError && (
           <div
             role="alert"
