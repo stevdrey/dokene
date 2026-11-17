@@ -91,20 +91,27 @@ below; none covers them.
    - window open, mapping setup and cleanup check their HTTP codes and exit nonzero on failure;
    - cleanup cancels only this suite's messages and keeps the customer's current phones;
    - `window-close334.sh` fails closed:
-     - closes are serialized with a lock;
+     - opens and closes share one lock: `window-open334.sh` holds it from the precondition until the window is
+       verified open, refuses to open while a token exists (active window or unverified close), creates the token
+       and watchdog before switching global ON, and releases the lock before any failure close;
      - it restarts with the global switch OFF first, then switches tenant A OFF;
      - it clears the window token and stops the watchdog only after both are verified OFF;
      - after two failed attempts it stops the backend and keeps the window state and watchdog armed, so a later close
        retries.
 
-     `window-close-test334.sh` checks this offline against a fake stack:
+     `window-close-test334.sh` checks this offline against a fake stack (26 checks):
      - normal close;
      - injected restart failure;
      - global stuck ON;
      - concurrent manual and watchdog close;
-     - watchdog no-op.
+     - watchdog no-op;
+     - open-vs-close race;
+     - open while a window is active;
+     - lock released after an open;
+     - injected failure while opening.
 
-     A variant that disarms before verifying fails it.
+     It also asserts that the global switch is never ON without a token and a live watchdog. Negative controls fail it:
+     disarming before verifying, an unlocked open, and an open that keeps the lock into its failure close.
 5. Customer state was changed through the API only to set up cases (template mapping, due dates, a rename). Cleanup
    (`cleanup334.sh`) cancelled every open message and restored the customer's name, due date and the second customer's
    state. Final counts: 15 `CANCELLED` (10 from #333), 1 `REJECTED`, 1 `SENT`; 1 send attempt; tenant A outbound off.

@@ -8,14 +8,15 @@ trap '' INT TERM HUP
 HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 . "$HERE/qa334.sh"
 L=${1:-manual}
-# One close at a time: a manual close and the watchdog never restart the backend concurrently.
+# One open or close at a time (window-open334.sh takes the same lock): no two of them ever restart the backend
+# concurrently.
 exec 9>"$OUTD/window.lock"; flock 9
 # Nothing to do when the window was already closed and verified (the token is cleared only after verification).
 if [ "$L" = watchdog ] && [ ! -f "$OUTD/window.open" ]; then echo "window already closed" >&2; exit 0; fi
 
 # close_once: restart with the global switch OFF first (sessions end), then tenant A OFF, then verify both.
 close_once() {
-  QA333_OUTBOUND=false setsid --wait bash "$STACK333" restart >&2 || return 1
+  QA333_OUTBOUND=false setsid --wait bash "$STACK333" restart >&2 9>&- || return 1
   assert_safe_stack false || return 1
   qa_login testuser || return 1
   integ; req testuser "$A" PUT /api/integrations/whatsapp/outbound '{"enabled":false}' -H "If-Match: $(etag)"
