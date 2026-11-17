@@ -72,7 +72,9 @@ try {
   await page.waitForTimeout(3000);
   const outcome = `${(await page.getByRole('status').allInnerTexts()).join(' | ')} ${(await page.getByRole('alert').allInnerTexts()).join(' | ')}`.replace(/\s+/g, ' ');
   const submitted = /Mensaje enviado a aprobación/.test(outcome);
-  check('submitting the multiline body gives a clear outcome (submitted, or a readable refusal)', submitted || /(Revisa|no pasó la validación|no se pudo)/i.test(outcome), outcome.trim().slice(0, 220));
+  // A sendable single-line body must reach approval; only the multiline negative case may end in a readable refusal.
+  if (MULTI) check('submitting the multiline body gives a clear outcome (submitted, or a readable refusal)', submitted || /(Revisa|no pasó la validación|no se pudo)/i.test(outcome), outcome.trim().slice(0, 220));
+  else check('the single-line body with accents, emoji and HTML-like text is submitted to approval', submitted, outcome.trim().slice(0, 220));
   if (MULTI && !submitted) check('the refusal of a multiline body tells the operator what to change (line breaks)', /(salto|línea|tabul|espacios)/i.test(outcome), outcome.trim().slice(0, 160));
   if (submitted) {
     const review = (await page.locator('section.message-review').first().innerText()).replace(/\r/g, '');

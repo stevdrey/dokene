@@ -7,6 +7,8 @@ import { launch, login, save, shot, APP } from './pw338.mjs';
 
 const BROWSER = process.argv[2] ?? 'chromium';
 const S = process.argv[3] ?? '';
+// Fixture id suffix (fixtures338-ux07.sh IDSUF); a named variant without IDK keeps the original 'F' suffix.
+const K = process.env.IDK ?? (S ? 'F' : '');
 const HERE = new URL('.', import.meta.url).pathname;
 const sh = (...a) => execFileSync('bash', [`${HERE}${a[0]}`, ...a.slice(1)], { encoding: 'utf8' }).trim();
 const ids = Object.fromEntries(sh('db338.sh', 'ids').split('\n').filter(Boolean).map(l => l.split('=')));
@@ -71,7 +73,7 @@ try {
   await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3 }).click();
   await delay(4500);
   const t3 = await body(page);
-  const w1 = db(ids[`W1M${S ? 'F' : ''}`]);
+  const w1 = db(ids[`W1M${K}`]);
   check('navigating away during an approval: the other customer shows no foreign confirmation; the approval landed once', (await detailHeading()) === 'Detalle de QA338 Vista Pendiente' && !/Mensaje aprobado/.test(t3) && /approvals=1\//.test(w1), `${await detailHeading()}; db ${w1}`);
   await page.getByRole('heading', { name: `QA338 Vuelo Uno${S}`, level: 3 }).click();
   await delay(2000);
@@ -89,7 +91,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await delay(4500);
   const t4 = await body(page);
-  const w2 = db(ids[`W3M${process.env.IDK ?? (S ? 'F' : '')}`]);
+  const w2 = db(ids[`W3M${K}`]);
   check('viewport change during an approval: one approval, and the narrow layout shows the result', /approvals=1\//.test(w2) && /(Mensaje aprobado|Aprobado)/.test(t4), `db ${w2}; result shown=${/Mensaje aprobado/.test(t4)}`);
   await shot(page, `ux07-${BROWSER}-viewport-inflight.png`);
   await page.unroute('**/approvals');

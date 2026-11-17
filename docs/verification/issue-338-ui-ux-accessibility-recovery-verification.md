@@ -139,12 +139,14 @@ tenant B on its own reference, stub send count still 29.
 From the #333 stack (see its report), with the global switch off, `OUTD=~/qa338/out`, and the passwords supplied
 through the environment (`QA_PW`, `QA_PW_OP` from `scripts/lib/test-passwords.sh`):
 
-1. `OUTD=~/qa338/out fixtures337.sh` (users), then `fixtures338.sh` and `fixtures338-ux05.sh` (optionally a second set
-   with `SUF=" FF" IDSUF=F`).
+1. `OUTD=~/qa338/out fixtures337.sh` (users), then `fixtures338.sh`, `fixtures338-ux05.sh` and `fixtures338-ux07.sh`
+   (optionally a second set per browser with `SUF=" FF" IDSUF=F`; UX-07 then runs as
+   `IDK=F node ux07-338.mjs firefox " FF"`). In the recorded run the UX-07 fixtures were created by hand with the same
+   helpers; `fixtures338-ux07.sh` was added afterwards so the case can be reproduced.
 2. `node ux01-338.mjs chromium|firefox`, `node ux03-338.mjs <browser> <customer>`, `node ux03b-338.mjs`,
    `node ux05-338.mjs <browser>` (`SKIP_FETCH=1` for Firefox), `node ux05b-338.mjs <browser>`,
    `node ux06-338.mjs <browser> <customer>` (`BODY_MODE=single` for the single-line variant),
-   `node ux07-338.mjs <browser> [suffix]`.
+   `node ux07-338.mjs <browser> [suffix]` (fresh UX-07 fixtures per run: each run approves its messages).
 3. With the user's approval only: `fixtures338-w1.sh`, open the window (`window-open334.sh W1` with `OUTD`,
    `RESULTS`, `STACK333=…/stack335.sh`), `node ux04-338.mjs send`, `w1-338.sh sends`, `w1-338.sh callbacks`,
    `node ux04-338.mjs copy <browser>` (after `due_today` on the sent customers), `w1-338.sh reconcile`,
