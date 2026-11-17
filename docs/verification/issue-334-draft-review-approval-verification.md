@@ -81,7 +81,15 @@ below; none covers them.
 4. Harness corrections, not product results: a first FLOW-04 run read the ETag in a subshell and sent an empty
    `If-Match` (400 `INVALID_INPUT`), and a FLOW-07 run failed on the `testadmin` login. Those lines were removed and the
    checks rerun (`flow04-transitions334.sh`, the OWNER variant of `flow07-roles334.sh`); the committed scripts are the
-   corrected ones.
+   corrected ones. After code review on #409 the scripts were hardened again, without changing the recorded lines (the
+   verdicts above come from the run before this hardening):
+   - checks require exact codes (send on a terminal message: 409 `INVALID_TRANSITION` or `OUTBOUND_DISABLED_GLOBALLY`;
+     VIEWER AI draft: 403);
+   - the FLOW-04 scripts assert the stub stack with the global switch off;
+   - the body check compares with a snapshot taken at submit;
+   - the window watchdog is tokenised and stopped on close;
+   - window open, mapping setup and cleanup check their HTTP codes and exit nonzero on failure;
+   - cleanup cancels only this suite's messages and keeps the customer's current phones.
 5. Customer state was changed through the API only to set up cases (template mapping, due dates, a rename). Cleanup
    (`cleanup334.sh`) cancelled every open message and restored the customer's name, due date and the second customer's
    state. Final counts: 15 `CANCELLED` (10 from #333), 1 `REJECTED`, 1 `SENT`; 1 send attempt; tenant A outbound off.
@@ -89,7 +97,8 @@ below; none covers them.
 ## Reproducing
 
 From the #333 stack (see its report), with real OpenAI enabled only if authorised: run `map-repeat334.sh`, then the
-browser steps for FLOW-01 to FLOW-03, `flow04-probes334.sh` and `flow04-transitions334.sh` after the FLOW-04 browser
+browser steps for FLOW-01 to FLOW-03 (right after the FLOW-02 submit, source `qa334.sh` and run `snap_body "$M1" M1`),
+`flow04-probes334.sh` and `flow04-transitions334.sh` after the FLOW-04 browser
 steps, the two-tab browser steps for FLOW-05, `window-open334.sh W1 rotate` → browser steps (FLOW-05 invalidation,
 FLOW-07 OPERATOR) → `window-close334.sh W1` (only with the loopback stub, which both scripts assert),
 `flow07-roles334.sh`, the VIEWER and FLOW-06 browser steps, and `cleanup334.sh`. The scripts are in

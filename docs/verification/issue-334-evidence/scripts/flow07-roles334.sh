@@ -22,7 +22,7 @@ req testviewer "$A" POST /api/messages/$M6/approvals '{"decision":"REJECT"}' -H 
 req testviewer "$A" POST /api/messages/$M6/cancellations '{}' -H "If-Match: $V" -H "Idempotency-Key: $(uuidgen)"; rec $C "VIEWER cancel -> 403" $([ "$CODE" = 403 ] && echo PASS || echo FAIL) "http=$CODE code=$(code)"
 req testviewer "$A" POST /api/messages/$M6/sends - -H "If-Match: $V" -H "Idempotency-Key: $(uuidgen)"; rec $C "VIEWER send -> 403" $([ "$CODE" = 403 ] && echo PASS || echo FAIL) "http=$CODE code=$(code)"
 req testviewer "$A" POST /api/customers/$CUST/messages "$(jq -nc --arg c "$CONTACT" '{contactId:$c,action:"REPEAT_PURCHASE_FOLLOW_UP",templateIntent:"REPEAT_PURCHASE",body:"x",locale:"es-419",origin:"MANUAL"}')" -H "If-Match: $POL" -H "Idempotency-Key: $(uuidgen)"; rec $C "VIEWER submit -> 403" $([ "$CODE" = 403 ] && echo PASS || echo FAIL) "http=$CODE code=$(code)"
-req testviewer "$A" POST /api/customers/$CUST/follow-up-draft '{}'; rec $C "VIEWER AI draft request -> refused" $([ "${CODE:0:1}" = 4 ] && echo PASS || echo FAIL) "http=$CODE code=$(code)"
+req testviewer "$A" POST /api/customers/$CUST/follow-up-draft '{}'; rec $C "VIEWER AI draft request -> 403" $([ "$CODE" = 403 ] && case "$(code)" in ""|FORBIDDEN) true;; *) false;; esac && echo PASS || echo FAIL) "http=$CODE code=$(code)"
 req testviewer "$A" GET /api/messaging/locales -; rec $C "VIEWER compose locales (MESSAGE_DRAFT) -> 403" $([ "$CODE" = 403 ] && echo PASS || echo FAIL) "http=$CODE"
 req testuser "$A" GET /api/messages/$M6 -
 rec $C "after VIEWER attempts M6 unchanged (PENDING_APPROVAL, same ETag)" $([ "$(printf '%s' "$BODY" | jq -r .status)" = PENDING_APPROVAL ] && [ "$(etag)" = "$V" ] && echo PASS || echo FAIL) "etag=$(etag)"

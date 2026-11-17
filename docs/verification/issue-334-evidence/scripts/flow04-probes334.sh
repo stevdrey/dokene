@@ -4,12 +4,15 @@
 # shellcheck disable=SC2046  # $(... echo PASS || echo FAIL) always yields one word
 set -uo pipefail
 . "$(dirname "${BASH_SOURCE[0]}")/qa334.sh"; [ -f "$OUTD/ids" ] && . "$OUTD/ids"
+assert_safe_stack false || exit 2
 C=FLOW-04
 qa_login testuser
 st() { req testuser "$A" GET /api/messages/$1 -; printf '%s' "$BODY" | jq -r .status; }
 body() { req testuser "$A" GET /api/messages/$1 -; printf '%s' "$BODY" | jq -r .body; }
 req testuser "$A" GET /api/messages/$M1 -; B1=$(printf '%s' "$BODY" | jq -r .body); S1=$(printf '%s' "$BODY" | jq -r .status); V1=$(etag)
-rec $C "M1 (approved, then Corregir) is CANCELLED and its stored body is the original reviewed text" $([ "$S1" = CANCELLED ] && [ "${B1%Saludos del equipo QA334.}" != "$B1" ] && echo PASS || echo FAIL) "status=$S1 bodyEndsWithOriginal=$([ "${B1%Saludos del equipo QA334.}" != "$B1" ] && echo yes)"
+# $OUTD/M1.body is the body snapshot taken right after the FLOW-02 submit (snap_body "$M1" M1).
+SNAP=missing; [ -f "$OUTD/M1.body" ] && { [ "$B1" = "$(cat "$OUTD/M1.body")" ] && SNAP=equal || SNAP=different; }
+rec $C "M1 (approved, then Corregir) is CANCELLED and its stored body equals the body submitted for review" $([ "$S1" = CANCELLED ] && [ "$SNAP" = equal ] && echo PASS || echo FAIL) "status=$S1 snapshot=$SNAP"
 for m in PUT PATCH; do
   req testuser "$A" $m /api/messages/$M1 '{"body":"QA334 tampered"}' -H "If-Match: $V1"
   rec $C "$m /api/messages/{id} (edit stored content) is not a route" $(case $CODE in 404|405) echo PASS;; *) echo FAIL;; esac) "http=$CODE code=$(printf '%s' "$BODY" | jq -r '.code? // empty' 2>/dev/null)"

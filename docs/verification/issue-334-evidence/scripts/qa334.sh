@@ -14,4 +14,6 @@ RESULTS=${RESULTS:-$OUTD/results.tsv}
 STUB_LOG=$QA_HOME/stub/requests.log
 stub_sends() { [ -f "$STUB_LOG" ] || { echo "stub log missing" >&2; return 1; }; grep -c "POST .*/messages" "$STUB_LOG" || true; }
 integ() { req testuser "$A" GET /api/integrations/whatsapp -; }
+# snap_body <message-id> <name>: keep the submitted body (synthetic text) to compare later for equality.
+snap_body() { req testuser "$A" GET "/api/messages/$1" -; (umask 077; printf '%s' "$BODY" | jq -r .body > "$OUTD/$2.body"); }
 tenant_state() { integ; printf '%s' "$BODY" | jq -r '"\(.enabled)/\(.webhookVerified)/\(.outboundEnabled)"'; }
