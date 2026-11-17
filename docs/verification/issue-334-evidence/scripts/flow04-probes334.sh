@@ -25,3 +25,4 @@ req testuser "$A" POST /api/messages/$M3/cancellations '{"note":"QA334 probe"}' 
 rec $C "pending probe message cancelled via cancellations" $([ "$(printf '%s' "$BODY" | jq -r .status)" = CANCELLED ] && echo PASS || echo FAIL) "http=$CODE msg=${M3:0:8}"
 for m in $M1 $M2 $M3; do req testuser "$A" GET /api/messages/$m/events -; echo "  ${m:0:8} $(printf '%s' "$BODY" | jq -c '[.events[].type]')"; done
 rec $C "no provider side effect: no send attempt rows, no stub send" $([ "$(psqlq 'select count(*) from dokene.outbound_send_attempts')" = 0 ] && [ "$(stub_sends)" = 0 ] && echo PASS || echo FAIL) "attempts=$(psqlq 'select count(*) from dokene.outbound_send_attempts') stub=$(stub_sends)"
+qa_finish

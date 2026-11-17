@@ -20,3 +20,4 @@ rec $C "approve a REJECTED message refused" $([ "$CODE" = 409 ] && echo PASS || 
 cur "$M2"; req testuser "$A" POST /api/messages/$M2/sends - -H "If-Match: $V" -H "Idempotency-Key: $(uuidgen)"
 rec $C "send a REJECTED message refused" $([ "${CODE:0:1}" = 4 ] && echo PASS || echo FAIL) "http=$CODE code=$(code)"
 rec $C "no provider side effect after the transition probes" $([ "$(psqlq 'select count(*) from dokene.outbound_send_attempts')" = 0 ] && [ "$(stub_sends)" = 0 ] && echo PASS || echo FAIL) "attempts=$(psqlq 'select count(*) from dokene.outbound_send_attempts') stub=$(stub_sends)"
+qa_finish

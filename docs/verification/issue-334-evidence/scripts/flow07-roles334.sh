@@ -27,3 +27,4 @@ req testviewer "$A" GET /api/messaging/locales -; rec $C "VIEWER compose locales
 req testuser "$A" GET /api/messages/$M6 -
 rec $C "after VIEWER attempts M6 unchanged (PENDING_APPROVAL, same ETag)" $([ "$(printf '%s' "$BODY" | jq -r .status)" = PENDING_APPROVAL ] && [ "$(etag)" = "$V" ] && echo PASS || echo FAIL) "etag=$(etag)"
 rec $C "audit records no VIEWER message command" $([ "$(psqlq "select count(*) from dokene.audit_events where target_id='$M6' and event_type like 'MESSAGE_%' and event_type<>'MESSAGE_SUBMITTED'")" = 0 ] && echo PASS || echo FAIL) "-"
+qa_finish
