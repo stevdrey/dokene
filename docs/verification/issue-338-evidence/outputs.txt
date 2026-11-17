@@ -1,0 +1,312 @@
+# Suite #338 recorded run (sanitized). Browser lines come from Playwright-driven Chromium and Firefox on the real
+# local stack; API lines from the bash helpers through the BFF; DB values from read-only SQL.
+
+== Bash recorder (results.tsv: case, check, verdict, time, note)
+SETUP	roles in tenant A: OWNER testuser, ADMIN testadmin, OPERATOR testoperator, VIEWER testviewer; testnone no membership	PASS	2026-11-17T17:47:25Z	tenant=88429dc5
+SETUP	tenant B: testuser ADMIN, testoperator2 OPERATOR	PASS	2026-11-17T17:47:25Z	tenant=952b9b18
+SETUP	QA338 fixtures: 7 customers due today with WhatsApp consent; VP pending, VA approved	PASS	2026-11-17T17:47:54Z	VP=7a4f615e VA=3eb20276
+SETUP	UX-05 fixtures: seven pending messages (R1M R2M R3M E5M G1M H1M L1M)	PASS	2026-11-17T18:11:10Z	R1M=4419eb9b R2M=1550fef0 R3M=a083dd72 E5M=8535e9cb G1M=3dc65813 H1M=d0f6cf86 L1M=97c9c9b6
+SETUP	UX-05 fixtures FF: seven pending messages	PASS	2026-11-17T18:15:03Z	suffix=F
+SETUP	W1 fixtures: seven approved messages (SA SD SR SF SU SI SX)	PASS	2026-11-17T18:26:33Z	stub sends=22
+WINDOW	[W1] tenant A outbound ON	PASS	2026-11-17T18:27:45Z	http=200
+WINDOW	[W1] OPEN: Graph base URL loopback stub, global ON, tenant A enabled/proven/outbound=true/true/true	PASS	2026-11-17T18:27:45Z	stub sends=22
+UX-04	W1 send SDM (stub accept) -> SENT	PASS	2026-11-17T18:27:57Z	http=201 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5 stub=+1
+UX-04	W1 send SRM (stub accept) -> SENT	PASS	2026-11-17T18:27:57Z	http=201 row=SENT/unknown=false/delivered=false/read=false/failure=-/v=5 stub=+1
+UX-04	W1 send SFM (stub error401canary) -> FAILED	PASS	2026-11-17T18:27:58Z	http=201 row=FAILED/unknown=false/delivered=false/read=false/failure=AUTHENTICATION/v=5 stub=+1
+UX-04	W1 send SUM (stub paused) -> SENDING	PASS	2026-11-17T18:27:58Z	http=201 row=SENDING/unknown=true/delivered=false/read=false/failure=-/v=5 stub=+1
+UX-05	UX-05 resend of the uncertain message is refused, no provider request	PASS	2026-11-17T18:27:58Z	http=409 code=INVALID_TRANSITION attempts=1
+UX-04	W1 callback SDM delivered	PASS	2026-11-17T18:27:59Z	http=200 row=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6
+UX-04	W1 callback SRM delivered read	PASS	2026-11-17T18:27:59Z	http=200 row=READ/unknown=false/delivered=true/read=true/failure=-/v=7
+UX-04	W1 states: SD delivered, SR read	PASS	2026-11-17T18:28:01Z	SD=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6 SR=READ/unknown=false/delivered=true/read=true/failure=-/v=7
+UX-04	W1 callback SUM delivered	PASS	2026-11-17T18:32:53Z	http=200 row=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6
+UX-04	cleanup: the uncertain message reconciled by a delivered callback (no resend)	PASS	2026-11-17T18:32:55Z	row=DELIVERED/unknown=false/delivered=true/read=false/failure=-/v=6
+WINDOW	[W1] CLOSED: global off, tenant A enabled/proven/outbound=true/true/false (verified after restart)	PASS	2026-11-17T18:33:08Z	stub sends=29
+END	global switch off (backend env), tenant A enabled/proven/outbound off, tenant B restored to its own number and reference	PASS	2026-11-17T18:34:34Z	A=true/true/false B=true/true/false/qa333-token-b/100000000000002
+END	provider sends only inside W1: seven, one per W1 message	PASS	2026-11-17T18:34:34Z	stub_sends=29 start=22
+CLEANUP	cancel the suite's open messages	PASS	2026-11-17T18:34:38Z	cancelled=32 failed=0
+CLEANUP	archive the QA338 customers	PASS	2026-11-17T18:34:43Z	archived=47 failed=0
+CLEANUP	final counts	NOTE	2026-11-17T18:34:44Z	messages=CANCELLED:104,DELIVERED:4,FAILED:6,READ:3,REJECTED:1,SENT:16 attempts=29 stub_sends=29
+
+== UX-01/UX-02 viewport sweep [chromium 156.0.8078.4] (zoom400 rows from the rerun after the reach-probe fix)
+1440x900           queue                  pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=-
+1440x900           review-pending         pageOverflowX=False overflow=0 clipped=0 controls=31 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=33 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           review-approved        pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=32 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+1440x900           history                pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+1440x900           integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+1024x768           queue                  pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=-
+1024x768           review-pending         pageOverflowX=False overflow=0 clipped=0 controls=31 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=33 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           review-approved        pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=32 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+1024x768           history                pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+1024x768           integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+768x1024           queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+768x1024           review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+768x1024           history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+768x1024           integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+390x844            queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+390x844            review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=-
+390x844            approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=-
+390x844            review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=-
+390x844            send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=-
+390x844            history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=-
+390x844            integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+390x844            integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+320x568            queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+320x568            review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+320x568            integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+zoom200-1440x900   queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+zoom200-1440x900   review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+zoom200-1440x900   integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+zoom400-1280x1024  queue                  pageOverflowX=False overflow=0 clipped=0 controls=18 unreachable=0 missingActions=0 brokenWords=-
+zoom400-1280x1024  review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+zoom400-1280x1024  integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+
+== UX-01/UX-02 viewport sweep [firefox 160.0] (zoom400 rows from the rerun after the reach-probe fix)
+1440x900           queue                  pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=-
+1440x900           review-pending         pageOverflowX=False overflow=0 clipped=0 controls=31 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=33 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           review-approved        pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=32 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+1440x900           history                pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1440x900           integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+1440x900           integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+1024x768           queue                  pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=-
+1024x768           review-pending         pageOverflowX=False overflow=0 clipped=0 controls=31 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=33 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           review-approved        pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=32 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+1024x768           history                pageOverflowX=False overflow=0 clipped=0 controls=30 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+1024x768           integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+1024x768           integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+768x1024           queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+768x1024           review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+768x1024           history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+768x1024           integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+768x1024           integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+390x844            queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+390x844            review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=-
+390x844            approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=-
+390x844            review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=-
+390x844            send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=-
+390x844            history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=-
+390x844            integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+390x844            integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+320x568            queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+320x568            review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+320x568            integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+320x568            integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+zoom200-1440x900   queue                  pageOverflowX=False overflow=0 clipped=0 controls=16 unreachable=0 missingActions=0 brokenWords=-
+zoom200-1440x900   review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Actualizar in "Actualizar"
+zoom200-1440x900   integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+zoom200-1440x900   integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+zoom400-1280x1024  queue                  pageOverflowX=False overflow=0 clipped=0 controls=18 unreachable=0 missingActions=0 brokenWords=-
+zoom400-1280x1024  review-pending         pageOverflowX=False overflow=0 clipped=0 controls=21 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  approve-confirm        pageOverflowX=False overflow=0 clipped=0 controls=23 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  review-approved        pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  send-refused-error     pageOverflowX=False overflow=0 clipped=0 controls=22 unreachable=0 missingActions=0 errorInside=True brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  history                pageOverflowX=False overflow=0 clipped=0 controls=20 unreachable=0 missingActions=0 brokenWords=Posponer in "schedule Posponer"; Descartar in "close Descartar"
+zoom400-1280x1024  integration-templates  pageOverflowX=False overflow=0 clipped=0 controls=7 unreachable=0 missingActions=0 brokenWords=-
+zoom400-1280x1024  integration-edit       pageOverflowX=False overflow=0 clipped=0 controls=12 unreachable=0 missingActions=0 brokenWords=-
+
+== UX-03 keyboard-only workflow [ux03-chromium.json] chromium 156.0.8078.4
+PASS  [UX-03] sign-in completed with the keyboard only (Keycloak focus started on username)
+PASS  [UX-03] first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue) (Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 12 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Conflicto Paralelo check_circle verified Contacto autorizado (Wh > QA338 Vista Aprobada verified )
+FAIL  [UX-03] a skip link to the main content is offered (first stop: Seleccionar espacio de trabajo)
+FAIL  [UX-03] every recorded stop paints a focus indicator (Buscar por nombre o teléfono...)
+FAIL  [UX-03] the search box shows a visible focus state (focused: border rgb(189, 201, 198), shadow none, outline none; unfocused: border rgb(189, 201, 198), shadow none, outline none; images identical)
+PASS  [UX-03] focus is kept (not lost to body) after the recommendation loads (Recomendación de la IA)
+PASS  [UX-03] focus moves to the review form after "Revisar y enviar" (Revisar y enviar)
+PASS  [UX-03] submit confirmation takes focus (Confirmar envío a aprobación in Confirmar envío a aprobación)
+PASS  [UX-03] Escape closes the submit confirmation and focus returns to "Enviar a aprobación" (Enviar a aprobación)
+PASS  [UX-03] the submit result is in a live region (status/alert) ()
+FAIL  [UX-03] after submitting, focus is not lost to the page body (focus on (body))
+PASS  [UX-03] after submitting, the review of the new message is shown ()
+PASS  [UX-03] approval confirmation takes focus (Confirmar aprobación in Confirmar aprobación)
+PASS  [UX-03] Escape closes the approval confirmation and focus returns to "Aprobar" (Aprobar)
+PASS  [UX-03] approved by keyboard; result announced; focus kept (focus on QA338 Teclado Cinco)
+PASS  [UX-03] send confirmation takes focus (Confirmar envío in Confirmar envío)
+PASS  [UX-03] a refused send is announced as an alert while focus stays on the confirm button (Confirmar envío)
+PASS  [UX-03] Escape closes the refused send group and focus returns to "Enviar" (Enviar)
+PASS  [UX-03] the snooze dialog takes focus (Cerrar modal)
+PASS  [UX-03] Tab and Shift+Tab stay inside the dialog ()
+PASS  [UX-03] Escape closes the dialog and focus returns to "Posponer" (schedule Posponer)
+PASS  [UX-03] the workspace selector opens from the keyboard (focus on Seleccionar espacio de trabajo)
+PASS  [UX-03] Escape closes the workspace selector and focus returns to it (Seleccionar espacio de trabajo)
+== UX-03 keyboard-only workflow [ux03-firefox.json] firefox 160.0
+PASS  [UX-03] sign-in completed with the keyboard only (Keycloak focus started on username)
+PASS  [UX-03] first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue) (Seleccionar espacio de trabajo > assignment_turned_in Seguimientos > group Clientes > settings Configuración > logout Cerrar sesión > Pendientes 13 > Vencidos 0 > Buscar por nombre o teléfono... > QA338 Conflicto Paralelo check_circle verified Contacto autorizado (Wh > QA338 Vista Aprobada verified )
+FAIL  [UX-03] a skip link to the main content is offered (first stop: Seleccionar espacio de trabajo)
+FAIL  [UX-03] every recorded stop paints a focus indicator (Buscar por nombre o teléfono...)
+FAIL  [UX-03] the search box shows a visible focus state (focused: border rgb(189, 201, 198), shadow none, outline none; unfocused: border rgb(189, 201, 198), shadow none, outline none; images identical)
+PASS  [UX-03] focus is kept (not lost to body) after the recommendation loads (Recomendación de la IA)
+PASS  [UX-03] focus moves to the review form after "Revisar y enviar" (Revisar y enviar)
+PASS  [UX-03] submit confirmation takes focus (Confirmar envío a aprobación in Confirmar envío a aprobación)
+PASS  [UX-03] Escape closes the submit confirmation and focus returns to "Enviar a aprobación" (Enviar a aprobación)
+PASS  [UX-03] the submit result is in a live region (status/alert) ()
+FAIL  [UX-03] after submitting, focus is not lost to the page body (focus on (body))
+PASS  [UX-03] after submitting, the review of the new message is shown ()
+PASS  [UX-03] approval confirmation takes focus (Confirmar aprobación in Confirmar aprobación)
+PASS  [UX-03] Escape closes the approval confirmation and focus returns to "Aprobar" (Aprobar)
+PASS  [UX-03] approved by keyboard; result announced; focus kept (focus on QA338 Teclado Seis)
+PASS  [UX-03] send confirmation takes focus (Confirmar envío in Confirmar envío)
+PASS  [UX-03] a refused send is announced as an alert while focus stays on the confirm button (Confirmar envío)
+PASS  [UX-03] Escape closes the refused send group and focus returns to "Enviar" (Enviar)
+PASS  [UX-03] the snooze dialog takes focus (Cerrar modal)
+PASS  [UX-03] Tab and Shift+Tab stay inside the dialog ()
+PASS  [UX-03] Escape closes the dialog and focus returns to "Posponer" (schedule Posponer)
+PASS  [UX-03] the workspace selector opens from the keyboard (focus on Seleccionar espacio de trabajo)
+PASS  [UX-03] Escape closes the workspace selector and focus returns to it (Seleccionar espacio de trabajo)
+== UX-03 supporting audit (Chromium accessibility attributes, contrast, target size; NOT a screen-reader session)
+review-pending   lang=es controls=70 unnamed=0 small<24px=0 textNodes=374 lowContrast=0 alerts=0 live=3 headings=1333333333333333333333333333333333333333333333332332332333
+approve-confirm  lang=es controls=72 unnamed=0 small<24px=0 textNodes=378 lowContrast=0 alerts=0 live=3 headings=1333333333333333333333333333333333333333333333332332332333
+send-refused     lang=es controls=71 unnamed=0 small<24px=0 textNodes=382 lowContrast=0 alerts=1 live=3 headings=1333333333333333333333333333333333333333333333332332332333
+history-failed   lang=es controls=66 unnamed=0 small<24px=0 textNodes=393 lowContrast=0 alerts=0 live=3 headings=13333333333333333333333333333333333333333333333323323332333
+integration      lang=es controls=5 unnamed=0 small<24px=0 textNodes=20 lowContrast=0 alerts=0 live=1 headings=23
+== W1 browser sends [ux04-send-chromium.json] chromium 156.0.8078.4
+HARNESS-ERROR [UX-04 accepted] a send the provider accepted reports "Envío procesado" with the current status; it never says delivered (; badge/status text: Enviado Teléfono +56983380041 Acción Seguimient; db SENT/v5/approvals=1/attempts=1/stub=23; stub +1)
+PASS  [UX-05 interrupted send] the provider was called once and the browser lost the answer: the UI claims neither success nor failure (db SENT/v5/approvals=1/attempts=1/stub=24; stub +1; ui "La acción pudo haberse completado.")
+PASS  [UX-05 interrupted send] recovery never makes a second provider request: same Idempotency-Key on any retry, one attempt, the real status shown, no Enviar offered (retry shown=false; requests=1; db SENT/v5/approvals=1/attempts=1/stub=24; stub +1; ui "La acción pudo haberse completado.")
+PASS  [UX-05 double send] repeated activation during a slow send: one request, one attempt, one provider call (requests=1; db SENT/v5/approvals=1/attempts=1/stub=25; stub +1)
+== UX-04 status copy [ux04-copy-chromium.json] chromium 156.0.8078.4
+PASS  [UX-04] submitted: history and review copy are distinct and truthful (history "Aún no enviado Seguimiento por recompra · Manual · 17 nov 2026, 11:47 a. m. Pendiente de aprobación Actualizar Aún no enviado Pendiente de aprobación "; review status "Pendiente de aprobación"; result ""; notices ""; Enviar offered=false)
+PASS  [UX-04] approved: history and review copy are distinct and truthful (history "Aún no enviado Seguimiento por recompra · Manual · 17 nov 2026, 11:47 a. m. Aprobado, sin enviar Actualizar Aún no enviado Aprobado, sin enviar Teléfo"; review status "Aprobado"; result ""; notices ""; Enviar offered=true)
+PASS  [UX-04] provider accepted: history and review copy are distinct and truthful (history "Aceptado por el proveedor Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. Aún sin confirmación de entrega Actualizar Aceptado por el prov"; review status "Enviado"; result "Intento 1 · Aceptado"; notices ""; Enviar offered=false)
+PASS  [UX-04] delivered: history and review copy are distinct and truthful (history "Entregado Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. Entregado al teléfono del cliente Actualizar Entregado Entregado al teléfono de"; review status "Entregado"; result "Intento 1 · Aceptado"; notices ""; Enviar offered=false)
+PASS  [UX-04] read: history and review copy are distinct and truthful (history "Leído Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. El cliente abrió el mensaje Actualizar Leído El cliente abrió el mensaje Teléfono •"; review status "Leído"; result "Intento 1 · Aceptado"; notices ""; Enviar offered=false)
+PASS  [UX-04] failed: history and review copy are distinct and truthful (history "Fallido Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. No se entregó al cliente. Actualizar Fallido No se entregó al cliente. Error de a"; review status "Fallido"; result "Intento 1 · Falló definitivamente"; notices ""; Enviar offered=false)
+PASS  [UX-04] uncertain: history and review copy are distinct and truthful (history "Resultado sin confirmar Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. El proveedor no confirmó el envío. No lo reenvíes; actualiza o pi"; review status "Enviando"; result "Intento 1 · Resultado desconocido"; notices "El proveedor no confirmó el envío."; Enviar offered=false)
+== UX-04 status copy [ux04-copy-firefox.json] firefox 160.0
+PASS  [UX-04] submitted: history and review copy are distinct and truthful (history "Aún no enviado Seguimiento por recompra · Manual · 17 nov 2026, 11:47 a. m. Pendiente de aprobación Actualizar Aún no enviado Pendiente de aprobación "; review status "Pendiente de aprobación"; result ""; notices ""; Enviar offered=false)
+PASS  [UX-04] approved: history and review copy are distinct and truthful (history "Aún no enviado Seguimiento por recompra · Manual · 17 nov 2026, 11:47 a. m. Aprobado, sin enviar Actualizar Aún no enviado Aprobado, sin enviar Teléfo"; review status "Aprobado"; result ""; notices ""; Enviar offered=true)
+PASS  [UX-04] provider accepted: history and review copy are distinct and truthful (history "Aceptado por el proveedor Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. Aún sin confirmación de entrega Actualizar Aceptado por el prov"; review status "Enviado"; result "Intento 1 · Aceptado"; notices ""; Enviar offered=false)
+PASS  [UX-04] delivered: history and review copy are distinct and truthful (history "Entregado Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. Entregado al teléfono del cliente Actualizar Entregado Entregado al teléfono de"; review status "Entregado"; result "Intento 1 · Aceptado"; notices ""; Enviar offered=false)
+PASS  [UX-04] read: history and review copy are distinct and truthful (history "Leído Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. El cliente abrió el mensaje Actualizar Leído El cliente abrió el mensaje Teléfono •"; review status "Leído"; result "Intento 1 · Aceptado"; notices ""; Enviar offered=false)
+PASS  [UX-04] failed: history and review copy are distinct and truthful (history "Fallido Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. No se entregó al cliente. Actualizar Fallido No se entregó al cliente. Error de a"; review status "Fallido"; result "Intento 1 · Falló definitivamente"; notices ""; Enviar offered=false)
+PASS  [UX-04] uncertain: history and review copy are distinct and truthful (history "Resultado sin confirmar Seguimiento por recompra · Manual · 17 nov 2026, 12:26 p. m. El proveedor no confirmó el envío. No lo reenvíes; actualiza o pi"; review status "Enviando"; result "Intento 1 · Resultado desconocido"; notices "El proveedor no confirmó el envío."; Enviar offered=false)
+== UX-05 Chromium lines recorded on the console of the first two runs (latency and 403; superseded runs otherwise)
+PASS  [UX-05 latency] a slow message read shows the "Cargando mensaje…" loader (aria-busy region)  (1 busy region(s))
+PASS  [UX-05 latency] while the approval is in flight the confirm button is aria-disabled and repeated activation sends no second request  (label "Cargando...", aria-disabled=true, requests=1, db PENDING_APPROVAL/v1/approvals=0 -> APPROVED/v2/approvals=1)
+PASS  [UX-05 403] a revoked OPERATOR gets "No tienes permiso para esta acción." and the message is unchanged  (revoke 204; db unchanged PENDING_APPROVAL/v1/approvals=0)
+PASS  [UX-05 403] cleanup: membership reactivated and accepted  (reactivate 200, accept 200)
+== UX-05 recovery [ux05-chromium-run3.json] chromium 156.0.8078.4
+PASS  [UX-05 interrupted approval] the server committed but the browser lost the response: the UI says it could not confirm (no success, no failure claim) and re-reads the server state (or offers Reintentar) (db APPROVED/v2/approvals=1/attempts=0/stub=22; alert "La acción pudo haberse completado. Revisa el estado actual.")
+PASS  [UX-05 interrupted approval] recovery leaves exactly one approval; any retry reuses the same Idempotency-Key; the review shows the real status and offers Enviar, not Aprobar (retry shown=false; requests=1; db APPROVED/v2/approvals=1/attempts=0/stub=22; ui " La acción pudo haberse completado. Revisa el estado actual.")
+PASS  [UX-05 offline] offline: the UI reports it could not confirm; the server is untouched (still pending) (db PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22; alert "No se pudo confirmar la acción.")
+PASS  [UX-05 offline] back online, Reintentar approves exactly once (db APPROVED/v2/approvals=1/attempts=0/stub=22; ui "Mensaje aprobado. Aún no se ha enviado.")
+PASS  [UX-05 500] an uncoded 500 after commit is treated as uncertain (no success, no "failed" claim) (db APPROVED/v2/approvals=1/attempts=0/stub=22; alert "La acción pudo haberse completado. Revisa el estado actual.")
+PASS  [UX-05 500] the recovery after the 500 reconciles to the stored result without a second approval (db APPROVED/v2/approvals=1/attempts=0/stub=22; ui " La acción pudo haberse completado. Revisa el estado actual.")
+PASS  [UX-05 409] a parallel approval makes the stale approve refuse (409) with "Este mensaje cambió" guidance; one approval only (approve 201 APPROVED; db APPROVED/v2/approvals=1/attempts=0/stub=22; ui "Este mensaje cambió: ahora está Aprobado. | ")
+PASS  [UX-05 429] the recommendation limiter answers 429 and the assistant explains the wait (no generic failure) (recommendation codes: 429; ui "auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo ")
+PASS  [UX-05 429 send (injected)] a send 429 shows "Se alcanzó el límite de envíos. Espera N s." and locks the confirm button; nothing reached the server (ui "Para QA338 Vista Aprobada · •••• 0003 Se enviará exactamente el texto mostrado arriba. Se alcanzó el límite de envíos. Espera 29 s. Confirmar envío Cerrar"; db APPROVED/v2/approvals=1/attempts=0/stub=22 -> APPROVED/v2/approvals=1/attempts=0/stub=22)
+PASS  [UX-05 401] after logout in another tab, approving reports the ended session and the message is unchanged (db PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22 -> PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22; ui "warning Tu sesión ya no está activa. Por favor inicia sesión nuevamente. | spa Dokene Gestión de relaciones y seguimiento a clientes para pequeños negocios. warning Tu sesión ya no está a)
+== UX-05 recovery (route.fetch cases skipped: BiDi) [ux05-firefoxF.json] firefox 160.0
+PASS  [UX-05 offline] offline: the UI reports it could not confirm; the server is untouched (still pending) (db PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22; alert "No se pudo confirmar la acción.")
+PASS  [UX-05 offline] back online, Reintentar approves exactly once (db APPROVED/v2/approvals=1/attempts=0/stub=22; ui "Mensaje aprobado. Aún no se ha enviado.")
+PASS  [UX-05 409] a parallel approval makes the stale approve refuse (409) with "Este mensaje cambió" guidance; one approval only (approve 201 APPROVED; db APPROVED/v2/approvals=1/attempts=0/stub=22; ui "Este mensaje cambió: ahora está Aprobado. | ")
+PASS  [UX-05 429] the recommendation limiter answers 429 and the assistant explains the wait (no generic failure) (recommendation codes: 429; ui "auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya. Hay demasiadas solicitudes al asistente IA. Espera un momento e inténtalo ")
+PASS  [UX-05 429 send (injected)] a send 429 shows "Se alcanzó el límite de envíos. Espera N s." and locks the confirm button; nothing reached the server (ui "Para QA338 Vista Aprobada · •••• 0003 Se enviará exactamente el texto mostrado arriba. Se alcanzó el límite de envíos. Espera 29 s. Confirmar envío Cerrar"; db APPROVED/v2/approvals=1/attempts=0/stub=22 -> APPROVED/v2/approvals=1/attempts=0/stub=22)
+PASS  [UX-05 401] after logout in another tab, approving reports the ended session and the message is unchanged (db PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22 -> PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22; ui "warning Tu sesión ya no está activa. Por favor inicia sesión nuevamente. | spa Dokene Gestión de relaciones y seguimiento a clientes para pequeños negocios. warning Tu sesión ya no está a)
+PASS  [UX-05 403] a revoked OPERATOR gets "No tienes permiso para esta acción." and the message is unchanged (revoke 204; db PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22 -> PENDING_APPROVAL/v1/approvals=0/attempts=0/stub=22; ui "No tienes permiso para esta acción.")
+PASS  [UX-05 403] cleanup: membership reactivated and accepted (reactivate 200, accept 200)
+== UX-05 invalid credentials [ux05b-chromium.json] chromium 156.0.8078.4
+PASS  [UX-05 credentials] tenant B integration opened (ADMIN); original reference read from the panel (reference qa333-token-b)
+PASS  [UX-05 credentials] unresolvable reference: refused, no provider request (ui "El proveedor no está disponible en este momento. Intenta más tarde.")
+FAIL  [UX-05 credentials] unresolvable reference: the copy points at the credential reference, not at a provider outage (ui "El proveedor no está disponible en este momento. Intenta más tarde.")
+PASS  [UX-05 credentials] number not owned by the credential: refused with the "No se pudo comprobar la propiedad…" guidance (ui "No se pudo comprobar la propiedad del número con la referencia configurada. Revisa que la integración esté habilitada y que los identificadores sean correctos.", provider requests 1)
+PASS  [UX-05 credentials] restored: ownership proven again, the panel shows "Propiedad comprobada" (ui "Propiedad del número comprobada.")
+== UX-05 invalid credentials [ux05b-firefox.json] firefox 160.0
+PASS  [UX-05 credentials] tenant B integration opened (ADMIN); original reference read from the panel (reference qa333-token-b)
+PASS  [UX-05 credentials] unresolvable reference: refused, no provider request (ui "El proveedor no está disponible en este momento. Intenta más tarde.")
+FAIL  [UX-05 credentials] unresolvable reference: the copy points at the credential reference, not at a provider outage (ui "El proveedor no está disponible en este momento. Intenta más tarde.")
+PASS  [UX-05 credentials] number not owned by the credential: refused with the "No se pudo comprobar la propiedad…" guidance (ui "No se pudo comprobar la propiedad del número con la referencia configurada. Revisa que la integración esté habilitada y que los identificadores sean correctos.", provider requests 1)
+PASS  [UX-05 credentials] restored: ownership proven again, the panel shows "Propiedad comprobada" (ui "Propiedad del número comprobada.")
+== UX-06 text fidelity, multiline body [ux06-chromium-multiline.json] chromium 156.0.8078.4
+PASS  [UX-06] the customer name renders as literal text (accents, emoji, <b>, quotes) (QA338 Multilínea Chromium ✨)
+PASS  [UX-06] the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup ("Hola QA338 Multilínea Chromium ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar nuevam")
+PASS  [UX-06] the edited body is held exactly (code points, newlines) (720 code points, 4 lines)
+PASS  [UX-06] the length counter counts code points (emoji count as their code points, max 1000) (720 / 1000)
+PASS  [UX-06] "Copiar borrador" puts exactly the shown text on the clipboard (identical)
+PASS  [UX-06] the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed) ("QA338 Multilínea Chromium ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0031\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (Latino")
+FAIL  [UX-06] before submitting, the compose warns that line breaks cannot be sent (no warning in the compose)
+PASS  [UX-06] submitting the multiline body gives a clear outcome (submitted, or a readable refusal) (Borrador copiado | | El texto del mensaje no pasó la validación.)
+FAIL  [UX-06] the refusal of a multiline body tells the operator what to change (line breaks) (Borrador copiado | | El texto del mensaje no pasó la validación.)
+PASS  [UX-06] no markup from customer or body text was executed or inserted anywhere ({"flag":null,"b":0,"img":0,"script":0})
+PASS  [UX-06] long text at 390 px: no page overflow, nothing clipped (scrollWidth 390/390; )
+PASS  [UX-06] long text at 320 px: no page overflow, nothing clipped (scrollWidth 320/320; )
+== UX-06 text fidelity, multiline body [ux06-firefox-multiline.json] firefox 160.0
+PASS  [UX-06] the customer name renders as literal text (accents, emoji, <b>, quotes) (QA338 Multilínea Firefox ✨)
+PASS  [UX-06] the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup ("Hola QA338 Multilínea Firefox ✨, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar nuevame")
+PASS  [UX-06] the edited body is held exactly (code points, newlines) (720 code points, 4 lines)
+PASS  [UX-06] the length counter counts code points (emoji count as their code points, max 1000) (720 / 1000)
+PASS  [UX-06] the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed) ("QA338 Multilínea Firefox ✨\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0032\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nTexto final del ")
+FAIL  [UX-06] before submitting, the compose warns that line breaks cannot be sent (no warning in the compose)
+PASS  [UX-06] submitting the multiline body gives a clear outcome (submitted, or a readable refusal) (Borrador listo para revisar | | El texto del mensaje no pasó la validación.)
+FAIL  [UX-06] the refusal of a multiline body tells the operator what to change (line breaks) (Borrador listo para revisar | | El texto del mensaje no pasó la validación.)
+PASS  [UX-06] no markup from customer or body text was executed or inserted anywhere ({"flag":null,"b":0,"img":0,"script":0})
+PASS  [UX-06] long text at 390 px: no page overflow, nothing clipped (scrollWidth 378/378; )
+PASS  [UX-06] long text at 320 px: no page overflow, nothing clipped (scrollWidth 308/308; )
+== UX-06 text fidelity, single-line body [ux06-chromium-single.json] chromium 156.0.8078.4
+PASS  [UX-06] the customer name renders as literal text (accents, emoji, <b>, quotes) (QA338 Ñandú Única Dos 🎉 <i>x</i>)
+PASS  [UX-06] the AI draft keeps the name verbatim in an editable text box, nothing rendered as markup ("Hola QA338 Ñandú Única Dos 🎉 <i>x</i>, te saludamos de QA Café Norte. Esperamos que hayas disfrutado tu compra de Compra sintetica QA338. ¿Te gustaría ordenar ")
+PASS  [UX-06] the edited body is held exactly (code points, newlines) (720 code points, 1 lines)
+PASS  [UX-06] the length counter counts code points (emoji count as their code points, max 1000) (720 / 1000)
+PASS  [UX-06] "Copiar borrador" puts exactly the shown text on the clipboard (identical)
+PASS  [UX-06] the compose preview shows the body as text with its lines (HTML-like content literal, no markup executed) ("QA338 Ñandú Única Dos 🎉 <i>x</i>\n\nTexto final antes de la aprobación\n\nBorrador\nTeléfono\n•••• 0030\nAcción\nSeguimiento por recompra\nPlantilla\nRecompra\nOrigen\nBorrador de IA\nIdioma del mensaje\nEspañol (")
+PASS  [UX-06] submitting the multiline body gives a clear outcome (submitted, or a readable refusal) (Borrador copiado | Mensaje enviado a aprobación. Aún no se ha enviado al cliente. |)
+PASS  [UX-06] the review renders the stored body with the same lines, accents and emoji (28 lines rendered)
+PASS  [UX-06] no markup from customer or body text was executed or inserted anywhere ({"flag":null,"b":0,"img":0,"script":0})
+PASS  [UX-06] long text at 390 px: no page overflow, nothing clipped (scrollWidth 390/390; )
+PASS  [UX-06] long text at 320 px: no page overflow, nothing clipped (scrollWidth 320/320; )
+== UX-07 stale responses [ux07-chromium.json] chromium 156.0.8078.4
+PASS  [UX-07] customer switch: the late history of the first customer never replaces the second customer's view (Detalle de QA338 Vista Aprobada; VA shown=true, VP shown=false)
+PASS  [UX-07] tenant switch: no tenant A customer, message or name appears in tenant B after the late response (A names in page: none)
+PASS  [UX-07] navigating away during an approval: the other customer shows no foreign confirmation; the approval landed once (Detalle de QA338 Vista Pendiente; db APPROVED/v2/approvals=1/attempts=0/stub=22)
+PASS  [UX-07] returning to the first customer shows the real status (Aprobado, sin enviar) (Aún no enviado Seguimiento por recompra · Manual · 17 nov 2026, 12:22 p)
+PASS  [UX-07] viewport change during an approval: one approval, and the narrow layout shows the result (db APPROVED/v2/approvals=1/attempts=0/stub=22; result shown=true)
+PASS  [UX-07] back/forward: Back leaves the app (no in-app history); Forward returns to a consistent app (queue, no stale data) (before http://localhost:5173/; back http://localhost:5173/?… ("spa Dokene store QA Café Norte unfold_more RELACIONES assign"); forward http://localhost:5173/)
+PASS  [UX-07] logout with an unsaved edited draft: the outcome is explicit (warning or a clear signed-out page) (no warning; signed-out page shown)
+PASS  [UX-07] after relogin the edited draft is either restored or clearly gone (the assistant starts over, no half state) (edit lost; assistant shows "auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitu")
+NOTE  [UX-07] draft edit kept across logout/relogin (informational) (kept=false; edited length 173)
+== UX-07 stale responses [ux07-firefox.json] firefox 160.0
+PASS  [UX-07] customer switch: the late history of the first customer never replaces the second customer's view (Detalle de QA338 Vista Aprobada; VA shown=true, VP shown=false)
+PASS  [UX-07] tenant switch: no tenant A customer, message or name appears in tenant B after the late response (A names in page: none)
+PASS  [UX-07] viewport change during an approval: one approval, and the narrow layout shows the result (db APPROVED/v2/approvals=1/attempts=0/stub=22; result shown=true)
+PASS  [UX-07] logout with an unsaved edited draft: the outcome is explicit (warning or a clear signed-out page) (no warning; signed-out page shown)
+PASS  [UX-07] after relogin the edited draft is either restored or clearly gone (the assistant starts over, no half state) (edit lost; assistant shows "auto_awesome Asistente IA Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitu")
+NOTE  [UX-07] draft edit kept across logout/relogin (informational) (kept=false; edited length 177)
+PASS  [UX-07] back/forward: Back leaves the app (no in-app history); Forward returns to a consistent app (queue, no stale data) (before http://localhost:5173/; back http://localhost:5173/?… ("spa Dokene store QA Café Norte unfold_more RELACIONES assign"); forward http://localhost:5173/?error=login_failed)
