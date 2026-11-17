@@ -18,7 +18,10 @@ rec SEC-05 "Network: draft and message JSON carry the canary as an escaped JSON 
 rec SEC-05 "Browser: workspace switched to QA Café Sur shows no tenant A name, canary, customer or message id" PASS "manual browser observation"
 rec SEC-05 "canary message stored verbatim as text (AI_DRAFT origin, pending approval)" "$( { psqlq "select body from dokene.outbound_messages where id='$XM'" | grep -qF 'QA337-XSS <img src=x onerror=' && [ "$(psqlq "select origin||'/'||status from dokene.outbound_messages where id='$XM'")" = AI_DRAFT/PENDING_APPROVAL ]; } && echo PASS || echo FAIL)" "msg=${XM:0:8}"
 L=$(docker compose -f "$WT/compose.yaml" logs --no-color --since 3h backend frontend oidc-bridge 2>&1)
-hits=0; for p in QA337-XSS onerror 'QA337 Canario' 'QA337 nota' QA333-CANARY 56983360018 JSESSIONID= X-CSRF; do hits=$((hits + $(printf '%s\n' "$L" | grep -cF -- "$p"))); done
+# The canary customer's own number, read from its contact (with and without the leading +).
+XP=$(psqlq "select normalized_phone from dokene.customer_phone_contacts where id='$XA_C'")
+[ -n "$XP" ] || { echo "no phone for the canary contact" >&2; exit 1; }
+hits=0; for p in QA337-XSS onerror 'QA337 Canario' 'QA337 nota' QA333-CANARY "$XP" "${XP#+}" JSESSIONID= X-CSRF; do hits=$((hits + $(printf '%s\n' "$L" | grep -cF -- "$p"))); done
 rec SEC-05 "container logs (backend, frontend, oidc-bridge; last 3 h) hold no canary, name, note, phone, secret canary, session or CSRF value" "$( { [ $hits = 0 ]; } && echo PASS || echo FAIL)" "lines=$(printf '%s\n' "$L" | wc -l) hits=$hits"
 rec SEC-05 "audit rows hold no canary text (AI detail and denial reasons are closed codes)" "$( { [ "$(psqlq "select count(*) from dokene.audit_events where coalesce(ai_detail,'')||coalesce(denial_reason,'') ~* 'QA337|onerror|<'")" = 0 ]; } && echo PASS || echo FAIL)" "-"
 setid XM "$XM"
