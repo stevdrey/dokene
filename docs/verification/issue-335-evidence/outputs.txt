@@ -1,0 +1,144 @@
+# Suite #335 recorded run (sanitized). Columns: case, check, result, UTC time, note.
+# HARNESS-ERROR lines are harness mistakes, not product results; each names the line that supersedes it.
+# Evidence kinds: lines starting 'browser' are person-driven UI observations; the rest are authenticated API/DB/stub checks.
+SETUP	refresh REPEAT_PURCHASE approval evidence against the stub	PASS	2026-11-17T03:18:32Z	http=200 status=APPROVED sendable=true
+SETUP	refresh GENERAL_FOLLOW_UP approval evidence against the stub	PASS	2026-11-17T03:18:32Z	http=200 status=APPROVED sendable=true
+SETUP	customer QA335 Sofia Interruptor + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:34Z	msg=7f61c801 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Raul Consentimiento + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:35Z	msg=5a8ce044 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Marta NoContactar + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:36Z	msg=f1da3dc0 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Ines Archivada + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:37Z	msg=0f5572a7 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Hugo Contacto + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:38Z	msg=39a95335 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Lidia Pospuesta + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:39Z	msg=98e3905c status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Omar Rol + message (testoperator, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:40Z	msg=429dde57 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Pia Integracion + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:41Z	msg=5b9e025d status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Tomas Prueba + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:42Z	msg=22fca5ec status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Vera MapeoOff + message (testuser, approve, GENERAL)	PASS	2026-11-17T03:18:44Z	msg=a50dff99 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Wilma MapeoCambio + message (testuser, approve, GENERAL)	PASS	2026-11-17T03:18:45Z	msg=65420316 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Nora Envio + message (testuser, pending, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:45Z	msg=ec7ebe61 status=PENDING_APPROVAL/unknown=false/attempts=0
+SETUP	customer QA335 Ciro DobleClic + message (testuser, pending, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:46Z	msg=57f8502a status=PENDING_APPROVAL/unknown=false/attempts=0
+SETUP	customer QA335 Gala Concurrente + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:47Z	msg=934e771f status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Ivan Clave + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:48Z	msg=e1afc8db status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Kira SinRespuesta + message (testuser, pending, REPEAT_PURCHASE)	PASS	2026-11-17T03:18:49Z	msg=2f43ca5e status=PENDING_APPROVAL/unknown=false/attempts=0
+SETUP	side effects after setup	NOTE	2026-11-17T03:18:50Z	attempts_total=1 stub_sends=1
+SEND-01	baseline: global OFF (backend env), tenant A enabled/proven/outbound	PASS	2026-11-17T03:19:31Z	tenant=true/true/false
+SEND-01	OWNER send, global OFF (http=409): refused OUTBOUND_DISABLED_GLOBALLY, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:19:32Z	code=OUTBOUND_DISABLED_GLOBALLY attempts=0 stub_delta=0 status=APPROVED msg=7f61c801
+SEND-01	OPERATOR send, global OFF (http=409): refused OUTBOUND_DISABLED_GLOBALLY, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:19:32Z	code=OUTBOUND_DISABLED_GLOBALLY attempts=0 stub_delta=0 status=APPROVED msg=7f61c801
+SEND-01	same Idempotency-Key repeated, global OFF (http=409): no record kept for a refusal: refused OUTBOUND_DISABLED_GLOBALLY, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:19:33Z	code=OUTBOUND_DISABLED_GLOBALLY attempts=0 stub_delta=0 status=APPROVED msg=7f61c801
+SEND-01	three rapid sends of another APPROVED message (http=409): refused OUTBOUND_DISABLED_GLOBALLY, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:19:34Z	code=OUTBOUND_DISABLED_GLOBALLY attempts=0 stub_delta=0 status=APPROVED msg=e1afc8db
+SEND-01	global OFF totals: no new attempt rows anywhere, no provider request	PASS	2026-11-17T03:19:34Z	attempts_total=1 (before 1) stub_sends=1 (before 1)
+SEND-01	refusal body carries only the error contract (no message, customer or provider data)	NOTE	2026-11-17T03:19:34Z	http=409 body={"code":"OUTBOUND_DISABLED_GLOBALLY","keys":["code","status","title","type"]}
+SEND-01	browser OWNER: Abrir en revisión -> Enviar -> Confirmar envío on APPROVED M_S1, global OFF: alert 'Los envíos están desactivados en la plataforma.', message stays Aprobado	PASS	2026-11-17T03:22:10Z	browser; attempts=0 stub_sends_total=1 state=APPROVED/unknown=false/attempts=0
+WINDOW	[W1] tenant A outbound ON	PASS	2026-11-17T03:24:00Z	http=200
+WINDOW	[W1] OPEN: Graph base URL loopback stub, global ON, tenant A enabled/proven/outbound=true/true/true	PASS	2026-11-17T03:24:00Z	stub sends=1
+SEND-01	W1: tenant A outbound OFF while global ON (isolated stub stack)	PASS	2026-11-17T03:24:01Z	http=200 tenant=true/true/false
+SEND-01	global ON, tenant OFF, OWNER send (http=409): refused OUTBOUND_DISABLED_FOR_TENANT, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:01Z	code=OUTBOUND_DISABLED_FOR_TENANT attempts=0 stub_delta=0 status=APPROVED msg=7f61c801
+SEND-01	tenant A outbound back ON for the rest of W1	PASS	2026-11-17T03:24:02Z	http=200 tenant=true/true/true
+SEND-02	consent REVOKED after approval (policy http=200, send http=409): refused NO_CONTACT_CONSENT, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:02Z	code=NO_CONTACT_CONSENT attempts=0 stub_delta=0 status=APPROVED msg=5a8ce044
+SEND-02	do-not-contact set after approval (policy http=200, send http=409): refused DO_NOT_CONTACT, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:02Z	code=DO_NOT_CONTACT attempts=0 stub_delta=0 status=APPROVED msg=f1da3dc0
+SEND-02	customer archived after approval (archive http=204, send http=409): refused CUSTOMER_ARCHIVED, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:03Z	code=CUSTOMER_ARCHIVED attempts=0 stub_delta=0 status=APPROVED msg=0f5572a7
+SEND-02	recipient number replaced after approval (update http=200, send http=409): refused CONTACT_NOT_OWNED, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:03Z	code=CONTACT_NOT_OWNED attempts=0 stub_delta=0 status=APPROVED msg=39a95335
+SEND-02	follow-up snoozed 7 days after approval (policy http=200, send http=201): refused FOLLOW_UP_INELIGIBLE, 0 attempts, 0 provider requests, still APPROVED	HARNESS-ERROR	2026-11-17T03:24:04Z	code= attempts=1 stub_delta=1 status=SENT msg=98e3905c || SUPERSEDED: wrong route: PUT follow-up-policy has no snooze field and explicitNextDate:null made the customer due; rerun in w1-ineligible335.sh
+SEND-02	five changes give five distinct refusal codes	HARNESS-ERROR	2026-11-17T03:24:04Z	codes=NO_CONTACT_CONSENT,DO_NOT_CONTACT,CUSTOMER_ARCHIVED,CONTACT_NOT_OWNED || SUPERSEDED: consequence of the line above; rerun recorded below
+SEND-02	tenant A message id sent or read from tenant B: 404 NOT_FOUND, no tenant A data	PASS	2026-11-17T03:24:04Z	send http=404 body={"code":"NOT_FOUND","keys":["code","status","title","type"]} get http=404
+SEND-02	refusal bodies carry only the error contract	NOTE	2026-11-17T03:24:04Z	{"code":"DO_NOT_CONTACT","keys":["code","status","title","type"]}
+SEND-02	SEND-02 totals	HARNESS-ERROR	2026-11-17T03:24:04Z	stub_delta=1 || SUPERSEDED: the one stub send is the legitimate send to the then-due customer (line above)
+SEND-03	operator (who approved M_S3ROLE) demoted to VIEWER after approval	PASS	2026-11-17T03:24:04Z	http=204
+SEND-03	demoted member's send refused: 403, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:05Z	http=403 code=FORBIDDEN attempts=0 stub_delta=0
+SEND-03	operator role restored	PASS	2026-11-17T03:24:05Z	http=204
+SEND-03	control: same message, role restored -> authority re-read at dispatch, one send to the stub	PASS	2026-11-17T03:24:05Z	http=201 status=SENT attempts=1 stub_delta=1
+SEND-02	follow-up snoozed 7 days after approval via the snooze route (snooze http=200 snoozedUntil=2026-11-24 eligibility=NOT_YET_DUE, send http=409): refused FOLLOW_UP_INELIGIBLE, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:40Z	code=FOLLOW_UP_INELIGIBLE attempts=0 stub_delta=0 status=APPROVED msg=6d76cfe9
+SEND-02	next follow-up date moved 7 days out after approval (policy http=200 eligibility=NOT_YET_DUE, send http=409): refused FOLLOW_UP_INELIGIBLE, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:24:41Z	code=FOLLOW_UP_INELIGIBLE attempts=0 stub_delta=0 status=APPROVED msg=af63c781
+SEND-02	five post-approval changes give five distinct refusal codes (with the corrected ineligibility check)	PASS	2026-11-17T03:24:48Z	codes=NO_CONTACT_CONSENT,DO_NOT_CONTACT,CUSTOMER_ARCHIVED,CONTACT_NOT_OWNED,FOLLOW_UP_INELIGIBLE
+SEND-04	browser OWNER: Aprobar -> Confirmar aprobación ('Mensaje aprobado. Aún no se ha enviado.'), then Enviar -> Confirmar envío -> 'Envío procesado. Estado actual: Enviado.'; history 'Aceptado por el proveedor / Aún sin confirmación de entrega'	PASS	2026-11-17T03:26:18Z	browser; before: state=APPROVED/unknown=false/attempts=0 attempts=0 stub=3
+SEND-04	provider acceptance recorded separately from delivery: SENT, providerMessageId set, deliveredAt and readAt null, attempt 1 ACCEPTED	PASS	2026-11-17T03:26:19Z	status=SENT delivered=null attempts=ACCEPTED
+SEND-04	exactly one logical attempt and one provider request; the stub body parameter equals the approved body	PASS	2026-11-17T03:26:19Z	attempts=1 stub_sends 3 -> 4
+SEND-04	append-only event trail	PASS	2026-11-17T03:26:19Z	events=SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SENT; runtime DB role on outbound_message_events: INSERT only (no UPDATE/DELETE/TRUNCATE); audit_events has immutable/no-truncate triggers; audit=n/a
+SEND-05	browser OWNER double click: on Enviar opens one confirmation (0 requests); on Confirmar envío (stub delay 1.5 s) the browser issued 1 POST /sends, 'Envío procesado. Estado actual: Enviado.', Intento 1 · Aceptado	PASS	2026-11-17T03:27:06Z	browser; fetch counter posts=1; attempts=1 stub_sends 4 -> 5; events=SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SENT
+SEND-05	first send with key K: 201 SENT, 1 attempt, 1 provider request	PASS	2026-11-17T03:27:07Z	http=201 status=SENT attempts=1 stub_delta=1
+SEND-05	same key, same If-Match replayed: 200, same provider id, no new attempt or provider request	PASS	2026-11-17T03:27:08Z	http=200 status=SENT attempts=1 stub_delta=1
+SEND-05	same key with an altered request (current If-Match) rejected IDEMPOTENCY_KEY_REUSED	PASS	2026-11-17T03:27:08Z	http=409 code=IDEMPOTENCY_KEY_REUSED
+SEND-05	same key on another APPROVED message rejected IDEMPOTENCY_KEY_REUSED, that message untouched	PASS	2026-11-17T03:27:09Z	http=409 code=IDEMPOTENCY_KEY_REUSED attempts=0 state=APPROVED/unknown=false/attempts=0
+SEND-05	send with a body payload rejected 400 INVALID_INPUT before anything happens	PASS	2026-11-17T03:27:09Z	http=400 code=INVALID_INPUT
+SEND-05	new key on the already SENT message refused INVALID_TRANSITION, no provider request	PASS	2026-11-17T03:27:09Z	http=409 code=INVALID_TRANSITION
+SEND-05	8 concurrent sends, distinct keys, same version: exactly one 201, one attempt, one provider request	PASS	2026-11-17T03:27:11Z	http=1x409201409409409409409409 refusals=7xSTALE_VERSION status=SENT/unknown=false/attempts=1 stub_delta=1
+SEND-05	8 concurrent sends sharing one key: one 201, the rest replays or refusals, one attempt, one provider request	PASS	2026-11-17T03:27:15Z	http=1x200200200200200200200201 refusals= status=SENT/unknown=false/attempts=1 stub_delta=1
+SEND-05	append-only trail e1afc8db	NOTE	2026-11-17T03:27:15Z	SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SENT
+SEND-05	append-only trail 934e771f	NOTE	2026-11-17T03:27:15Z	SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SENT
+SEND-05	append-only trail 900edc9c	NOTE	2026-11-17T03:27:15Z	SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SENT
+SEND-06	stub hang past the 10 s dispatch deadline: SENDING, outcomeUnknown=true, attempt OUTCOME_UNKNOWN, no provider id	PASS	2026-11-17T03:28:35Z	status=SENDING unknown=true attempts=OUTCOME_UNKNOWN pid=null events=SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SEND_OUTCOME_UNKNOWN
+SEND-06	resend with a new key refused while the outcome is unknown: no attempt, no provider request	PASS	2026-11-17T03:28:35Z	http=409 code=INVALID_TRANSITION attempts=1 stub_delta=0
+SEND-06	T12 resolution by OPERATOR (no INTEGRATION_MANAGE) refused 403	PASS	2026-11-17T03:28:36Z	http=403 code=FORBIDDEN
+SEND-06	T12 resolution to SENT is not in the contract: 400 INVALID_INPUT	PASS	2026-11-17T03:28:36Z	http=400 code=INVALID_INPUT
+SEND-06	T12 resolution by OWNER: FAILED, outcomeUnknown cleared, no provider request	PASS	2026-11-17T03:28:36Z	http=201 status=FAILED unknown=false failure=UNKNOWN stub_delta=0 events=SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SEND_OUTCOME_UNKNOWN,SEND_FAILED
+SEND-06	send on the resolved FAILED message refused INVALID_TRANSITION (no blind resend)	PASS	2026-11-17T03:28:36Z	http=409 code=INVALID_TRANSITION
+SEND-06	browser OWNER, stub send=hang: Confirmar envío shows 'Cargando...' with Enviar disabled; after the 10 s deadline 'Envío procesado. Estado actual: Enviando.', panel 'El proveedor no confirmó el envío. Un administrador debe resolverlo.', 'Intento 1 · Resultado desconocido', history 'Resultado sin confirmar … No lo reenvíes; actualiza o pide a un administrador que lo resuelva.'; only Actualizar offered (no Enviar, no resolve control); Actualizar re-reads without a POST /sends	PASS	2026-11-17T03:28:42Z	browser; fetch counter: 1 POST /sends for this message
+SEND-03	GENERAL_FOLLOW_UP mapping disabled after approval (put=200 refresh=200 sendable=false): send refused, 0 attempts, 0 provider sends	PASS	2026-11-17T03:28:44Z	http=409 code=TEMPLATE_NOT_MAPPED state=APPROVED/unknown=false/attempts=0
+SEND-03	mapping re-enabled unchanged	NOTE	2026-11-17T03:28:44Z	put=200 refresh=200 sendable=true
+SEND-03	mapping changed to another template after approval (put=200 refresh=200 sendable=true; http=409): refused APPROVAL_INVALIDATED, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:28:45Z	code=APPROVAL_INVALIDATED attempts=0 stub_delta=0 status=APPROVED msg=65420316
+SEND-03	mapping restored to qa333_general_follow_up	NOTE	2026-11-17T03:28:45Z	put=200 refresh=200 sendable=true
+SEND-03	integration disabled after approval (put http=200, send http=409): refused INTEGRATION_DISABLED, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:28:46Z	code=INTEGRATION_DISABLED attempts=0 stub_delta=0 status=APPROVED msg=5b9e025d
+SEND-03	integration re-enabled	NOTE	2026-11-17T03:28:46Z	http=200 enabled/proven/outbound=true/false/true
+SEND-03	re-proved and tenant switch on after re-enable	NOTE	2026-11-17T03:28:47Z	state=true/true/true
+SEND-03	credential rotated	NOTE	2026-11-17T03:28:47Z	http=200 enabled/proven/outbound=true/false/true
+SEND-03	send while the rotated integration is unproven: refused, 0 attempts, 0 provider sends	PASS	2026-11-17T03:28:47Z	http=409 code=INTEGRATION_DISABLED state=APPROVED/unknown=false/attempts=0
+SEND-03	ownership re-proven against the stub	NOTE	2026-11-17T03:28:48Z	http=200 enabled/proven/outbound=true/true/true
+SEND-03	re-proven integration, approval bound to the old sender revision (http=409): refused APPROVAL_INVALIDATED, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:28:48Z	code=APPROVAL_INVALIDATED attempts=0 stub_delta=0 status=APPROVED msg=22fca5ec
+SEND-03	integration message after rotation (http=409): refused APPROVAL_INVALIDATED, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:28:49Z	code=APPROVAL_INVALIDATED attempts=0 stub_delta=0 status=APPROVED msg=5b9e025d
+WINDOW	[W1] CLOSED: global off, tenant A enabled/proven/outbound=true/true/false (verified after restart)	PASS	2026-11-17T03:29:11Z	stub sends=9
+SETUP	refresh REPEAT_PURCHASE approval evidence against the stub	PASS	2026-11-17T03:29:30Z	http=200 status=APPROVED sendable=true
+SETUP	refresh GENERAL_FOLLOW_UP approval evidence against the stub	PASS	2026-11-17T03:29:30Z	http=200 status=APPROVED sendable=true
+SETUP	customer QA335 Leo Caida + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:29:31Z	msg=318e47e2 status=APPROVED/unknown=false/attempts=0
+SETUP	customer QA335 Elsa Intervalo + message (testuser, approve, REPEAT_PURCHASE)	PASS	2026-11-17T03:29:32Z	msg=e43bff01 status=APPROVED/unknown=false/attempts=0
+SETUP	side effects after setup	NOTE	2026-11-17T03:29:33Z	attempts_total=9 stub_sends=9
+WINDOW	[W2] tenant A outbound ON	PASS	2026-11-17T03:30:28Z	http=200
+WINDOW	[W2] OPEN: Graph base URL loopback stub, global ON, tenant A enabled/proven/outbound=true/true/true	PASS	2026-11-17T03:30:28Z	stub sends=9
+WINDOW	[W2] policy overrides in effect	PASS	2026-11-17T03:30:29Z	DOKENE_MESSAGING_MIN_CONTACT_INTERVAL=3m DOKENE_MESSAGING_RECOVERY_CLAIM_TIMEOUT=2m DOKENE_MESSAGING_RECOVERY_INTERVAL=15s 
+SEND-07	first message to Elsa sent (stub accepted)	PASS	2026-11-17T03:30:29Z	http=201 status=SENT sentAt=2026-11-17T03:30:29.299762Z
+SEND-07	after the accepted terminal state a new follow-up can be scheduled, drafted and approved (no permanent block)	PASS	2026-11-17T03:30:29Z	due_today http=200 new=b620dc46 state=APPROVED/unknown=false/attempts=0
+SEND-07	second message inside the 3-minute interval (http=409): refused CONTACT_FREQUENCY_EXCEEDED, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:30:30Z	code=CONTACT_FREQUENCY_EXCEEDED attempts=0 stub_delta=0 status=APPROVED msg=b620dc46
+SEND-06	3 s into the provider call: claim committed (attempt STARTED, message SENDING)	PASS	2026-11-17T03:30:33Z	attempt=STARTED state=SENDING/unknown=false/attempts=1
+SEND-06	backend killed during the call (fault injection)	NOTE	2026-11-17T03:30:33Z	client saw:   at 03:30:33
+SEND-06	after restart: claim kept (attempt STARTED, SENDING), no automatic resend	PASS	2026-11-17T03:30:48Z	attempt=STARTED status=SENDING unknown=false provider_requests_for_call=1
+SEND-06	manual resend while the claim stands refused, no provider request	PASS	2026-11-17T03:30:48Z	http=409 code=INVALID_TRANSITION stub_delta=0
+SEND-07	customer whose last message ended FAILED (T12): new message approved and sent at once (a failure starts no interval)	PASS	2026-11-17T03:30:49Z	http=201 status=SENT
+SEND-06	recovery turned the stale claim into an unknown outcome without calling the provider	HARNESS-ERROR	2026-11-17T03:32:42Z	attempt=OUTCOME_UNKNOWN status=SENDING unknown=true events=SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SEND_OUTCOME_UNKNOWN started=03:30:30 finished=03:32:31 || SUPERSEDED: stale stub baseline taken before the intended S6NEW send; corrected line below
+SEND-06	resend after recovery refused (refresh or T12 only), no provider request	PASS	2026-11-17T03:32:43Z	http=409 code=INVALID_TRANSITION
+SEND-06	T12 resolution (API, OWNER) of the recovered claim: FAILED, no provider request	PASS	2026-11-17T03:32:43Z	http=201 status=FAILED events=SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SEND_OUTCOME_UNKNOWN,SEND_FAILED
+SEND-07	same approved second message after the 3-minute interval: sent (no premature send, no permanent block)	PASS	2026-11-17T03:33:35Z	http=201 status=SENT seconds_after_first=186 events=SUBMITTED,APPROVED,SEND_REQUESTED,SEND_ATTEMPT_STARTED,SENT
+SEND-06	recovery turned the stale claim into an unknown outcome without calling the provider (corrected baseline: the earlier FAIL line compared with a stub count taken before the intended S6NEW send)	PASS	2026-11-17T03:33:51Z	attempt OUTCOME_UNKNOWN started=03:30:30 finished=03:32:31 (claim timeout 2m + 15 s sweep); outcomeUnknown=true; attempts=1; stub log: send requests at 03:30:30 (the hung call), 03:30:49 (S6NEW) and 03:33:34 (S7B) only, none from recovery
+WINDOW	[W2] CLOSED: global off, tenant A enabled/proven/outbound=true/true/false (verified after restart)	PASS	2026-11-17T03:34:31Z	stub sends=13
+SEND-07	end: Graph base URL loopback stub, global switch OFF (backend env), tenant A outbound OFF	PASS	2026-11-17T03:34:32Z	tenant=true/true/false
+SEND-07	end: no send policy override in the backend env, so min-contact-interval is the application default 24h (application.yml) and recovery uses its defaults	PASS	2026-11-17T03:34:32Z	117:    min-contact-interval: ${DOKENE_MESSAGING_MIN_CONTACT_INTERVAL:24h}
+SEND-07	end: APPROVED message refused again with the switches OFF (http=409): refused OUTBOUND_DISABLED_GLOBALLY, 0 attempts, 0 provider requests, still APPROVED	PASS	2026-11-17T03:34:33Z	code=OUTBOUND_DISABLED_GLOBALLY attempts=0 stub_delta=0 status=APPROVED msg=7f61c801
+CLEANUP	cancel open suite message M_S1 7f61c801	PASS	2026-11-17T03:34:33Z	http=201
+CLEANUP	cancel open suite message M_S2ARCH 0f5572a7	PASS	2026-11-17T03:34:33Z	http=201
+CLEANUP	cancel open suite message M_S2CONS 5a8ce044	PASS	2026-11-17T03:34:33Z	http=201
+CLEANUP	cancel open suite message M_S2CONT 39a95335	PASS	2026-11-17T03:34:34Z	http=201
+CLEANUP	cancel open suite message M_S2DNC f1da3dc0	PASS	2026-11-17T03:34:34Z	http=201
+CLEANUP	cancel open suite message M_S2FUT af63c781	PASS	2026-11-17T03:34:34Z	http=201
+CLEANUP	cancel open suite message M_S2SNZ 6d76cfe9	PASS	2026-11-17T03:34:34Z	http=201
+CLEANUP	cancel open suite message M_S3INT 5b9e025d	PASS	2026-11-17T03:34:34Z	http=201
+CLEANUP	cancel open suite message M_S3MAPD a50dff99	PASS	2026-11-17T03:34:35Z	http=201
+CLEANUP	cancel open suite message M_S3MAPM 65420316	PASS	2026-11-17T03:34:35Z	http=201
+CLEANUP	cancel open suite message M_S3PROOF 22fca5ec	PASS	2026-11-17T03:34:35Z	http=201
+CLEANUP	archive disposable customer S1	PASS	2026-11-17T03:34:36Z	http=204
+CLEANUP	archive disposable customer S2CONS	PASS	2026-11-17T03:34:36Z	http=204
+CLEANUP	archive disposable customer S2CONT	PASS	2026-11-17T03:34:37Z	http=204
+CLEANUP	archive disposable customer S2DNC	PASS	2026-11-17T03:34:37Z	http=204
+CLEANUP	archive disposable customer S2FUT	PASS	2026-11-17T03:34:37Z	http=204
+CLEANUP	archive disposable customer S2INEL	PASS	2026-11-17T03:34:37Z	http=204
+CLEANUP	archive disposable customer S2SNZ	PASS	2026-11-17T03:34:37Z	http=204
+CLEANUP	archive disposable customer S3INT	PASS	2026-11-17T03:34:37Z	http=204
+CLEANUP	archive disposable customer S3MAPD	PASS	2026-11-17T03:34:38Z	http=204
+CLEANUP	archive disposable customer S3MAPM	PASS	2026-11-17T03:34:38Z	http=204
+CLEANUP	archive disposable customer S3PROOF	PASS	2026-11-17T03:34:38Z	http=204
+CLEANUP	archive disposable customer S3ROLE	PASS	2026-11-17T03:34:38Z	http=204
+CLEANUP	archive disposable customer S4	PASS	2026-11-17T03:34:38Z	http=204
+CLEANUP	archive disposable customer S5CONC	PASS	2026-11-17T03:34:38Z	http=204
+CLEANUP	archive disposable customer S5DBL	PASS	2026-11-17T03:34:39Z	http=204
+CLEANUP	archive disposable customer S5KEY	PASS	2026-11-17T03:34:39Z	http=204
+CLEANUP	archive disposable customer S5SAME	PASS	2026-11-17T03:34:39Z	http=204
+CLEANUP	archive disposable customer S6CRASH	PASS	2026-11-17T03:34:39Z	http=204
+CLEANUP	archive disposable customer S6HANG	PASS	2026-11-17T03:34:39Z	http=204
+CLEANUP	archive disposable customer S7	PASS	2026-11-17T03:34:39Z	http=204
+CLEANUP	final counts	NOTE	2026-11-17T03:34:40Z	messages=CANCELLED:26,FAILED:2,REJECTED:1,SENT:11 attempts=ACCEPTED:11,OUTCOME_UNKNOWN:2 stub_sends=13 tenantA=true/true/false
