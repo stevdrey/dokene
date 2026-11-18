@@ -3,9 +3,9 @@
 Suite of the Phase 3 manual QA epic [#332](https://github.com/stevdrey/dokene/issues/332). Cases P3-MQA-UX-01 to
 UX-07.
 
-**Verdict after retest: PASS (scoped), with the screen-reader part of UX-03 BLOCKED.** The four defects were fixed in
-[#420](https://github.com/stevdrey/dokene/pull/420) and retested on that fix's own SHA `1ca019a` (see *Retest*): all 7
-cases pass there. That fix is not yet merged, so `main` still shows the original result.
+**Verdict on `main`: PASS (scoped), with the screen-reader part of UX-03 BLOCKED.** The fixes for the four defects
+([#420](https://github.com/stevdrey/dokene/pull/420)) are merged, and the suite was certified on `main` at `91915e2f` in
+Chromium and Firefox: 136 PASS, 0 FAIL (see *Certification on main*). All 7 cases pass.
 
 **Original run: FAIL (scoped)** for candidate `42eec817fe3f305d4245852755e390c9a0693276` (`main`, 2026-11-17), on the local
 stack with the loopback Graph stub. 4 PASS (UX-01, UX-02, UX-04, UX-07), 3 FAIL (UX-03, UX-05, UX-06), and the
@@ -71,6 +71,24 @@ paths; nothing matched.
 | O2 | No in-app browser history; Back and Forward reload or restore the queue | By design of the current shell; consistent state |
 | O3 | Logout discards an edited AI draft without a prompt | Understandable; optional improvement |
 | O4 | Queue cards expose their whole content as the accessible name; Configuración has no `h1`, and the workbench heading order is h1, h3…, h2 (as noted in #122) | Screen-reader verbosity; to confirm in the BLOCKED session |
+
+## Certification on main
+
+[#420](https://github.com/stevdrey/dokene/pull/420) was merged as `91915e2f`, which also carries #413 (bounded denial
+audit rows, migration V40) and #421 (provisioning policy). The stack was rebuilt at `91915e2f` (backend, frontend,
+migration applied, global and tenant outbound off) and every case except UX-04's real sends was rerun with fresh
+fixtures in both browsers: UX-01/UX-02 (112 viewport rows, no overflow, clipping, unreachable control or broken word),
+UX-03 keyboard, UX-05 recovery (Chromium in full; Firefox without the two `route.fetch()` cases) and credentials, UX-06
+multiline and single-line in both browsers, UX-07, and the UX-04 copy checks. Result in
+[`issue-338-evidence/outputs-main.txt`](issue-338-evidence/outputs-main.txt): **136 PASS, 0 FAIL**. No provider send
+(stub count still 29), cleanup archived the 30 certification customers and cancelled 24 messages.
+
+A first attempt the same day failed in setup only: the stack had been left overnight, so every template approval check
+was older than the 24 h `DEFAULT_APPROVAL_MAX_AGE` and no fixture message could be submitted (`TEMPLATE_NOT_MAPPED`),
+and two UX-05/UX-07 customer names matched their Firefox (`FF`) variants. `fixtures338.sh` now re-checks stale
+templates against the stub, and those scripts match names exactly. UX-04's states produced by real sends were not
+repeated on `main` (no new window); the frontend changes since the original run touch only refusal copy, which the
+copy checks cover.
 
 ## Retest on the fix SHA
 

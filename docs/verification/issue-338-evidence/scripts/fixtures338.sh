@@ -5,6 +5,15 @@ set -uo pipefail
 . "$(dirname "$0")/qa338.sh"
 C=SETUP
 for u in testuser testadmin testoperator testviewer; do qa_login "$u" || { echo "login $u failed" >&2; exit 1; }; done
+# A template's approval check is valid for 24 h (DEFAULT_APPROVAL_MAX_AGE); on a stack left overnight every mapped
+# template stops being sendable. Re-check stale ones against the stub (no send), in both tenants.
+for T in "$A" "$B"; do
+  req testuser "$T" GET /api/templates -
+  for it in $(printf '%s' "$BODY" | jq -r '.items[] | select(.mapped and .enabled and (.sendable | not)) | "\(.templateIntent):\(.version)"'); do
+    req testuser "$T" POST "/api/templates/${it%%:*}/approval-refresh" - -H "If-Match: \"${it#*:}\""
+    echo "  template ${it%%:*} approval refresh in ${T:0:8}: $CODE sendable=$(jb .sendable)"
+  done
+done
 mk() { [ -n "${!1:-}" ] || mkcust "$1" "$2" || exit 1; }
 mk K1 "QA338 Teclado Uno"
 mk V1 "QA338 Vista Pendiente"

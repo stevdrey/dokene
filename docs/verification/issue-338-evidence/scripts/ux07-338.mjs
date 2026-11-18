@@ -28,9 +28,9 @@ const detailHeading = async () => (await page.locator('[role=region][aria-label^
 try {
   // a) Customer switch while the first customer's history read is slow.
   await page.route(`**/api/messages?*customerId=${ids.V1}*`, async r => { await delay(3500); await r.continue(); });
-  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3 }).click();
+  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3, exact: true }).click();
   await delay(300);
-  await page.getByRole('heading', { name: 'QA338 Vista Aprobada', level: 3 }).click();
+  await page.getByRole('heading', { name: 'QA338 Vista Aprobada', level: 3, exact: true }).click();
   await delay(4500);
   const row = page.getByRole('button', { name: /^Aún no enviado Seguimiento/ }).first();
   await row.click();
@@ -41,7 +41,7 @@ try {
 
   // b) Tenant switch while a tenant A read is slow.
   await page.route(`**/api/messages?*customerId=${ids.V1}*`, async r => { await delay(3500); await r.continue().catch(() => {}); });
-  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3 }).click();
+  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3, exact: true }).click();
   await delay(300);
   await page.getByRole('button', { name: 'Seleccionar espacio de trabajo' }).first().click();
   await page.getByRole('option', { name: /QA Café Sur/ }).or(page.getByRole('menuitem', { name: /QA Café Sur/ })).or(page.getByRole('button', { name: /QA Café Sur/ })).first().click();
@@ -52,11 +52,11 @@ try {
   await page.unroute(`**/api/messages?*customerId=${ids.V1}*`);
   await page.getByRole('button', { name: 'Seleccionar espacio de trabajo' }).first().click();
   await page.getByRole('option', { name: /QA Café Norte/ }).or(page.getByRole('menuitem', { name: /QA Café Norte/ })).or(page.getByRole('button', { name: /QA Café Norte/ })).first().click();
-  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3 }).waitFor();
+  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3, exact: true }).waitFor();
 
   // c) An approval in flight while the operator opens another customer.
   const openReview = async name => {
-    await page.getByRole('heading', { name, level: 3 }).click();
+    await page.getByRole('heading', { name, level: 3, exact: true }).click();
     const r = page.getByRole('button', { name: /^Aún no enviado Seguimiento/ }).first();
     await r.waitFor(); if ((await r.getAttribute('aria-expanded')) !== 'true') await r.click();
     await page.getByRole('button', { name: 'Abrir en revisión' }).first().click();
@@ -70,12 +70,12 @@ try {
   await page.getByRole('button', { name: 'Aprobar', exact: true }).click();
   await page.getByRole('button', { name: 'Confirmar aprobación' }).click();
   await delay(300);
-  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3 }).click();
+  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3, exact: true }).click();
   await delay(4500);
   const t3 = await body(page);
   const w1 = db(ids[`W1M${K}`]);
   check('navigating away during an approval: the other customer shows no foreign confirmation; the approval landed once', (await detailHeading()) === 'Detalle de QA338 Vista Pendiente' && !/Mensaje aprobado/.test(t3) && /approvals=1\//.test(w1), `${await detailHeading()}; db ${w1}`);
-  await page.getByRole('heading', { name: `QA338 Vuelo Uno${S}`, level: 3 }).click();
+  await page.getByRole('heading', { name: `QA338 Vuelo Uno${S}`, level: 3, exact: true }).click();
   await delay(2000);
   const t3b = await body(page);
   check('returning to the first customer shows the real status (Aprobado, sin enviar)', /Aprobado, sin enviar/.test(t3b), (t3b.match(/Aún no enviado[^.]{0,60}/) ?? [''])[0]);
@@ -98,7 +98,7 @@ try {
   await page.setViewportSize({ width: 1280, height: 900 });
 
   // f) Logout and relogin with an edited AI draft.
-  await page.getByRole('heading', { name: `QA338 Borrador Sesion${S}`, level: 3 }).click();
+  await page.getByRole('heading', { name: `QA338 Borrador Sesion${S}`, level: 3, exact: true }).click();
   await page.getByRole('button', { name: 'Obtener recomendación' }).click();
   await page.getByRole('button', { name: 'Generar borrador' }).click({ timeout: 30000 });
   const area = page.getByRole('region', { name: 'Asistente IA' }).locator('textarea').first();
@@ -116,7 +116,7 @@ try {
   const form = await page.waitForSelector('#username', { timeout: 6000 }).catch(() => null);
   if (form) { await page.fill('#username', 'testuser'); await page.fill('#password', process.env.QA_PW); await page.click('#kc-login'); }
   await page.getByRole('heading', { name: 'Seguimientos', level: 1 }).waitFor({ timeout: 30000 });
-  await page.getByRole('heading', { name: `QA338 Borrador Sesion${S}`, level: 3 }).click();
+  await page.getByRole('heading', { name: `QA338 Borrador Sesion${S}`, level: 3, exact: true }).click();
   await delay(2500);
   const aiText = (await page.getByRole('region', { name: 'Asistente IA' }).innerText()).replace(/\s+/g, ' ');
   const kept = /EDITADO-QA338/.test(aiText) || (await page.getByRole('region', { name: 'Asistente IA' }).locator('textarea').evaluateAll(t => t.some(x => x.value.includes('EDITADO-QA338'))));

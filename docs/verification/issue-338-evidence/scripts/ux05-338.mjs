@@ -22,7 +22,7 @@ const visible = async loc => (await loc.count()) > 0 && (await loc.first().isVis
 async function openReview(page, customer) {
   const back = page.getByRole('button', { name: 'Volver a Seguimientos' });
   if (await visible(back)) await back.click();
-  await page.getByRole('heading', { name: customer, level: 3 }).click();
+  await page.getByRole('heading', { name: customer, level: 3, exact: true }).click();
   const row = page.getByRole('button', { name: /^Aún no enviado Seguimiento/ }).first();
   await row.waitFor({ timeout: 15000 });
   if ((await row.getAttribute('aria-expanded')) !== 'true') await row.click();
@@ -45,7 +45,7 @@ try {
   let C = 'UX-05 latency';
   if (!process.env.SKIP_LAT) {
   await page.route('**/api/messages/*', async r => { if (r.request().method() === 'GET') await new Promise(x => setTimeout(x, 2500)); await r.continue(); });
-  await page.getByRole('heading', { name: LAT_CUSTOMER, level: 3 }).click();
+  await page.getByRole('heading', { name: LAT_CUSTOMER, level: 3, exact: true }).click();
   const row = page.getByRole('button', { name: /^Aún no enviado Seguimiento/ }).first();
   await row.click();
   await page.getByRole('button', { name: 'Abrir en revisión' }).first().click();
@@ -137,7 +137,7 @@ try {
   // --- 429 (real): a burst of recommendation requests by the same person, then one from the browser.
   C = 'UX-05 429';
   const burst = sh('api338.sh', 'recburst', ids.T1, '21');
-  await page.getByRole('heading', { name: /^QA338 Ñandú/, level: 3 }).click();
+  await page.getByRole('heading', { name: /^QA338 Ñandú/, level: 3, exact: true }).click();
   await page.getByRole('button', { name: 'Obtener recomendación' }).click();
   await page.waitForTimeout(2000);
   const rl = (await page.getByRole('region', { name: 'Asistente IA' }).innerText()).replace(/\s+/g, ' ');
