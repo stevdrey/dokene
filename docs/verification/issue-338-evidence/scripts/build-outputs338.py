@@ -81,6 +81,9 @@ checks('ux05b-firefox.json', 'UX-05 invalid credentials')
 checks('ux06-chromium-multiline.json', 'UX-06 text fidelity, multiline body')
 checks('ux06-firefox-multiline.json', 'UX-06 text fidelity, multiline body')
 checks('ux06-chromium-single.json', 'UX-06 text fidelity, single-line body')
+# The recorded run ran the single-line variant in Chromium only; a Firefox run is aggregated whenever it exists.
+if (out / 'ux06-firefox-single.json').exists():
+    checks('ux06-firefox-single.json', 'UX-06 text fidelity, single-line body')
 checks('ux07-chromium.json', 'UX-07 stale responses')
 checks('ux07-firefox.json', 'UX-07 stale responses')
 Path(sys.argv[2]).write_text('\n'.join(lines) + '\n')
