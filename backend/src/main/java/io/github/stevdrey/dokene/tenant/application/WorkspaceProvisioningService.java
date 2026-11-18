@@ -74,7 +74,8 @@ public class WorkspaceProvisioningService {
 
         if (!provisioningAuthorizationPolicy.isAllowed(identityId)) {
             refusalCounter.refused(ProvisioningRefusalCounter.Reason.POLICY);
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+            auditRecorder.authorizationDenied(
+                    TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
             throw new ProvisioningNotPermittedException();
         }
 

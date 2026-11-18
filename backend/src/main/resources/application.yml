@@ -149,6 +149,18 @@ dokene:
     allow-all-identities: ${DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES:false}
     # Lifetime cap of workspaces one identity may provision. Range 1 to 10000, checked at startup in every mode.
     max-workspaces-per-identity: ${DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY:3}
+  audit:
+    # Bound on AUTHORIZATION_DENIED rows (issue 310, ADR 0032). A key is identity, tenant, reason and permission.
+    # Each key writes rows-per-key rows and each identity rows-per-identity rows per window; later denials get the
+    # same refusal but are only counted, and the sweep appends each count as one AUTHORIZATION_DENIALS_SUPPRESSED row.
+    # State is per backend instance. Startup refuses a value outside its range, and nothing turns the bound off.
+    # Override with DOKENE_AUDIT_DENIAL_LIMIT_ROWS_PER_KEY and the matching names of the other four.
+    denial-limit:
+      rows-per-key: 10          # 1 to 10000
+      rows-per-identity: 60     # rows-per-key to 100000
+      window: PT15M             # PT1M to PT24H
+      max-tracked-keys: 50000   # 1000 to 1000000
+      sweep-interval: PT1M      # PT5S to the value of window
   tenant-context:
     signing-key: ${DOKENE_TENANT_CONTEXT_SIGNING_KEY}
     key-id: ${DOKENE_TENANT_CONTEXT_KEY_ID:default}

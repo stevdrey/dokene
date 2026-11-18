@@ -29,7 +29,7 @@ With `enabled=true`, startup requires exactly one of a non-empty allowlist or `a
 
 ### 2. The policy check runs before the transaction
 
-`WorkspaceProvisioningService.provisionWorkspace` is no longer `@Transactional` as a whole. It normalizes its input, runs the policy check with no transaction open (the check reads configuration only), and then runs the rest in one transaction through a `TransactionTemplate`. On a refusal it increments the counter, writes the denial audit row as before (`AUTHORIZATION_DENIED`, `TENANT_READ`, `NO_TENANT_CONTEXT`, no tenant) and throws `ProvisioningNotPermittedException`. No denial audit row is written while a provisioning transaction is held.
+`WorkspaceProvisioningService.provisionWorkspace` is no longer `@Transactional` as a whole. It normalizes its input, runs the policy check with no transaction open (the check reads configuration only), and then runs the rest in one transaction through a `TransactionTemplate`. On a refusal it increments the counter, asks for the denial audit row as before (`AUTHORIZATION_DENIED`, `TENANT_READ`, `NO_TENANT_CONTEXT`, no tenant), charged to the refused identity under the denial budget of [ADR 0032](0032-bounded-authorization-denial-audit.md), so a refusal writes at most one row, and throws `ProvisioningNotPermittedException`. No denial audit row is written while a provisioning transaction is held.
 
 ### 3. The mode is visible to operators
 

@@ -110,7 +110,14 @@ class WorkspaceProvisioningServiceTest {
     private final AuditRecorder auditRecorder = new AuditRecorder() {
         @Override
         public void authorizationDenied(TenantPermission permission, AuditDenialReason reason) {
-            refusalEvents.add(transactionOpen ? "audit in transaction" : "audit");
+            // The shared slot of callers without an identity: a provisioning refusal must never charge it.
+            refusalEvents.add("audit without identity");
+            auditDenials.add(new AuditDenialRecord(permission, reason));
+        }
+
+        @Override
+        public void authorizationDenied(TenantPermission permission, AuditDenialReason reason, IdentityId identityId) {
+            refusalEvents.add(transactionOpen ? "audit in transaction" : "audit " + identityId.value());
             auditDenials.add(new AuditDenialRecord(permission, reason));
         }
 
@@ -265,7 +272,7 @@ class WorkspaceProvisioningServiceTest {
         assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-unauth", "Denied Workspace"))
                 .isInstanceOf(ProvisioningNotPermittedException.class);
 
-        assertThat(refusalEvents).containsExactly("counter policy", "audit");
+        assertThat(refusalEvents).containsExactly("counter policy", "audit " + identity.value());
         assertThat(commits).isZero();
         assertThat(rollbacks).isZero();
     }

@@ -58,6 +58,22 @@ public sealed interface AuditMetadata {
         }
     }
 
+    /**
+     * A count of denials that got no row of their own (spec 0020, ADR 0032). {@code reason} is null only for the
+     * count taken while the tracker was full, which belongs to no key, and then {@code permission} is null too.
+     */
+    record AuthorizationDenialsSuppressed(TenantPermission permission, AuditDenialReason reason, int suppressedCount)
+            implements AuditMetadata {
+        public AuthorizationDenialsSuppressed {
+            if (reason == null && permission != null) {
+                throw new IllegalArgumentException("A count without a reason carries no permission");
+            }
+            if (suppressedCount < 1) {
+                throw new IllegalArgumentException("Suppressed count starts at 1");
+            }
+        }
+    }
+
     record MembershipCreated(TenantRole role) implements AuditMetadata {
         public MembershipCreated {
             Objects.requireNonNull(role, "Role is required");
