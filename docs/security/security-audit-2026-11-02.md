@@ -190,6 +190,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L1. Any authenticated user can grow the global audit table without limit — Confirmed
 
+- **Status:** fixed by [#310](https://github.com/stevdrey/dokene/issues/310); see [ADR 0032](../adr/0032-bounded-authorization-denial-audit.md) and [the verification record](../verification/issue-310-denial-audit-bound-verification.md). The same 1,000 requests now leave 10 `AUTHORIZATION_DENIED` rows and, after the window, one `AUTHORIZATION_DENIALS_SUPPRESSED` row with a count of 990 (V40). The bound is per backend instance and `audit_events` still has no retention.
+
 - **Where:** `TenantContextRequestFilter.java:167` calls `auditRecorder.authorizationDenied(TENANT_READ, NO_TENANT_CONTEXT)` for every missing, malformed or foreign `X-Tenant-Id`. `TenantController.getWorkspace` does the same. These paths have no rate limit, and `audit_events` is never purged.
 - **Evidence:** 1 000 requests from `auditattacker` with `X-Tenant-Id: <tenant B>` added exactly 1 000 rows where `tenant_id IS NULL`.
 - **Impact:** storage growth, and real denials buried in noise.

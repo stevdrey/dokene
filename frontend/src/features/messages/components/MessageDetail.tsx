@@ -34,6 +34,11 @@ interface MessageDetailProps {
   role: string | null;
   customerDisplayName?: string;
   initial?: VersionedMessage;
+  /**
+   * Focus the heading once the message is shown (the control that opened it was removed), then announce this
+   * sentence, so the live region update comes after the focus change and is not flushed by it.
+   */
+  announceOnFocus?: string;
   announce: (text: string) => void;
   onCorrect: (cancelled: MessageResponse) => void;
   /** A read replaced the shown message with another version (see `useMessageDetail`'s `onChanged`). */
@@ -138,6 +143,7 @@ export function MessageDetail({
   role,
   customerDisplayName,
   initial,
+  announceOnFocus,
   announce,
   onCorrect,
   onChanged,
@@ -155,6 +161,14 @@ export function MessageDetail({
   const actions = useReviewActions({ messageId, detail, canAct: canActOnMessages(role), announce, onCorrect });
   useReportBusy(actions.group?.step.kind === 'submitting' || actions.unsureIntent !== null, onBusyChange);
   const { state } = detail;
+  const loaded = state.kind === 'loaded';
+  const focusTaken = useRef(false);
+  useEffect(() => {
+    if (announceOnFocus === undefined || !loaded || focusTaken.current) return;
+    focusTaken.current = true;
+    headingRef.current?.focus();
+    announce(announceOnFocus);
+  }, [announceOnFocus, loaded, announce]);
 
   if (state.kind === 'sessionEnded' || state.kind === 'notFound') {
     return (

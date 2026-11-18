@@ -74,6 +74,9 @@ export const COPY = {
   saveInvalid: 'Revisa los identificadores, el número visible y la referencia.',
   verifyInvalid:
     'No se pudo comprobar la propiedad del número con la referencia configurada. Revisa que la integración esté habilitada y que los identificadores sean correctos.',
-  providerUnavailable: 'El proveedor no está disponible en este momento. Intenta más tarde.',
+  // The server answers the same way for an unresolvable credential reference and a provider outage (ADR 0024: no
+  // oracle), so the sentence names both causes (#418).
+  providerUnavailable:
+    'No se pudo usar la credencial configurada o el proveedor no respondió. Revisa la referencia de credencial y, si es correcta, intenta más tarde.',
   rateLimited: 'Demasiadas solicitudes. Espera un momento antes de reintentar.'
 } as const;

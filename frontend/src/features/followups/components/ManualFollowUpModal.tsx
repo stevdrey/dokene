@@ -75,7 +75,7 @@ export const ManualFollowUpModal: React.FC<ManualFollowUpModalProps> = ({
           <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '18px' }}>
             info
           </span>
-          <span>Dokene no envía mensajes automáticamente ni contacta al cliente de forma directa.</span>
+          <span>Registrar un seguimiento no envía ningún mensaje al cliente.</span>
         </div>
 
         {error && (

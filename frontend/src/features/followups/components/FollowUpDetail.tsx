@@ -622,7 +622,7 @@ export const FollowUpDetail: React.FC<FollowUpDetailProps> = ({
           info
         </span>
         <span>
-          Dokene te ayuda a recordar tus compromisos. Los contactos se realizan manualmente por tu canal habitual.
+          Dokene te ayuda a recordar tus compromisos. Puedes contactar por tu canal habitual o enviar por WhatsApp un mensaje aprobado.
         </span>
       </div>
 

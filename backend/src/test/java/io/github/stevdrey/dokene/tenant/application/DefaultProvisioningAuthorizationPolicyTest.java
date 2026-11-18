@@ -13,7 +13,7 @@ class DefaultProvisioningAuthorizationPolicyTest {
 
     private final IdentityId identity = new IdentityId(UUID.randomUUID());
     private final ApplicationContextRunner contextRunner = new ApplicationContextRunner()
-            .withUserConfiguration(DefaultProvisioningAuthorizationPolicy.class);
+            .withUserConfiguration(ProvisioningConfiguration.class, DefaultProvisioningAuthorizationPolicy.class);
 
     @Test
     void deniesProvisioningByDefault() {
@@ -25,23 +25,29 @@ class DefaultProvisioningAuthorizationPolicyTest {
     }
 
     @Test
-    void allowsProvisioningWhenEnabledAndNoAllowlist() {
-        DefaultProvisioningAuthorizationPolicy policy = new DefaultProvisioningAuthorizationPolicy(true, List.of());
+    void allowsEveryIdentityInOpenMode() {
+        DefaultProvisioningAuthorizationPolicy policy = policy(true, List.of(), true);
 
         assertThat(policy.isAllowed(identity)).isTrue();
+        assertThat(policy.isAllowed(new IdentityId(UUID.randomUUID()))).isTrue();
     }
 
     @Test
     void deniesProvisioningWhenDisabledGlobally() {
-        DefaultProvisioningAuthorizationPolicy policy = new DefaultProvisioningAuthorizationPolicy(false, List.of());
+        assertThat(policy(false, List.of(), false).isAllowed(identity)).isFalse();
+    }
 
-        assertThat(policy.isAllowed(identity)).isFalse();
+    @Test
+    void deniesProvisioningWhenDisabledWhateverTheAllowlistAndTheOpenSettingSay() {
+        assertThat(policy(false, List.of(identity.value().toString()), false).isAllowed(identity)).isFalse();
+        assertThat(policy(false, List.of(), true).isAllowed(identity)).isFalse();
+        assertThat(policy(false, List.of(identity.value().toString()), true).isAllowed(identity)).isFalse();
     }
 
     @Test
     void allowsProvisioningWhenIdentityIsInAllowlist() {
-        DefaultProvisioningAuthorizationPolicy policy = new DefaultProvisioningAuthorizationPolicy(
-                true, List.of(identity.value().toString(), UUID.randomUUID().toString())
+        DefaultProvisioningAuthorizationPolicy policy = policy(
+                true, List.of(identity.value().toString(), UUID.randomUUID().toString()), false
         );
 
         assertThat(policy.isAllowed(identity)).isTrue();
@@ -49,19 +55,25 @@ class DefaultProvisioningAuthorizationPolicyTest {
 
     @Test
     void deniesProvisioningWhenIdentityIsNotInAllowlist() {
-        DefaultProvisioningAuthorizationPolicy policy = new DefaultProvisioningAuthorizationPolicy(
-                true, List.of(UUID.randomUUID().toString())
-        );
+        DefaultProvisioningAuthorizationPolicy policy = policy(true, List.of(UUID.randomUUID().toString()), false);
 
         assertThat(policy.isAllowed(identity)).isFalse();
     }
 
     @Test
     void requiresIdentityId() {
-        DefaultProvisioningAuthorizationPolicy policy = new DefaultProvisioningAuthorizationPolicy(true, List.of());
+        DefaultProvisioningAuthorizationPolicy policy = policy(true, List.of(), true);
 
         assertThatThrownBy(() -> policy.isAllowed(null))
                 .isInstanceOf(NullPointerException.class)
                 .hasMessage("Identity ID is required");
+    }
+
+    private DefaultProvisioningAuthorizationPolicy policy(
+            boolean enabled, List<String> allowedIdentities, boolean allowAllIdentities
+    ) {
+        return new DefaultProvisioningAuthorizationPolicy(
+                new ProvisioningProperties(enabled, allowedIdentities, allowAllIdentities, 3)
+        );
     }
 }

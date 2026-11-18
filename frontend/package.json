@@ -8,7 +8,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "audit": "npm audit --audit-level=high"
+    "audit": "node scripts/audit.mjs"
   },
   "dependencies": {
     "libphonenumber-js": "1.13.16",

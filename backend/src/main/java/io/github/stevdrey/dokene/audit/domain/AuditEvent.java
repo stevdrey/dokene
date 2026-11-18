@@ -36,6 +36,14 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid authorization denial event");
                 }
             }
+            case AUTHORIZATION_DENIALS_SUPPRESSED -> {
+                if (outcome != AuditOutcome.DENIED || target != null
+                        || !(metadata instanceof AuditMetadata.AuthorizationDenialsSuppressed summary)
+                        || ((tenantId != null) != (summary.reason() != null
+                                && summary.reason() != AuditDenialReason.NO_TENANT_CONTEXT))) {
+                    throw new IllegalArgumentException("Invalid authorization denial summary event");
+                }
+            }
             case MEMBERSHIP_ROLE_CHANGED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
                         || target.type() != AuditTarget.Type.MEMBERSHIP

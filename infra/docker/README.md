@@ -311,7 +311,7 @@ For exercising local browser login and multi-tenant RBAC validation against the 
 
 Keycloak imports these passwords from `.env` at every container start, so a password changed in the Keycloak admin console lasts only until Keycloak restarts. Change it in `.env` instead.
 
-To automatically establish the canonical multi-tenant workspace (`QA Café Norte`) and assign memberships across these synthetic identities, run the dev-seed fixture. Note that workspace provisioning is disabled by default in Dokene; make sure your local backend is started with `DOKENE_PROVISIONING_ENABLED=true` (in your `.env` file):
+To automatically establish the canonical multi-tenant workspace (`QA Café Norte`) and assign memberships across these synthetic identities, run the dev-seed fixture. Note that workspace provisioning is disabled by default in Dokene and, once enabled, needs a stated policy. The Compose stack sets the local values itself: `DOKENE_PROVISIONING_ENABLED=true`, `DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=true` (open mode: every signed-in identity may provision) and `DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY=1000`. These are local values only; a real deployment uses `DOKENE_PROVISIONING_ALLOWED_IDENTITIES` (allowlist mode) and the default cap of 3. To try allowlist mode on this stack, set `DOKENE_PROVISIONING_ALLOWED_IDENTITIES` and `DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=false` together in `.env`; with both a list and the open setting the backend refuses to start. A backend run on the host reads `.env`, so make sure it carries the first two values (see the three modes in [`backend/README.md`](../../backend/README.md#workspace-provisioning-and-tenant-selection)):
 
 ```bash
 ./scripts/seed-local-qa.sh

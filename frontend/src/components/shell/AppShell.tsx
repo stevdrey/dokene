@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useSession } from '../../features/auth/SessionContext';
 import { useTenant, formatTenantRole } from '../../features/tenants/TenantContext';
 import { WorkspaceSelector } from './WorkspaceSelector';
@@ -41,8 +41,24 @@ export const AppShell: React.FC<AppShellProps> = ({
   const resolvedChildren = typeof children === 'function' ? children(activeTab) : children;
   const hasRenderableChildren = React.Children.toArray(resolvedChildren).length > 0;
 
+  // main is focusable only while the skip link puts focus there: a permanent tabIndex would make every click on its
+  // text focus the whole region and move the keyboard's starting point.
+  const mainRef = useRef<HTMLElement>(null);
+  const skipToMain = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    const main = mainRef.current;
+    if (!main) return;
+    event.preventDefault();
+    main.setAttribute('tabindex', '-1');
+    main.focus();
+    main.addEventListener('blur', () => main.removeAttribute('tabindex'), { once: true });
+  };
+
   return (
     <div className="dokene-app-layout">
+      {/* First tab stop: skips the sidebar and header (WCAG 2.4.1, #415). */}
+      <a className="skip-link" href="#contenido-principal" onClick={skipToMain}>
+        Saltar al contenido
+      </a>
 
       {/* DESKTOP SIDEBAR */}
       <aside className="desktop-sidebar" aria-label="Barra lateral de navegación">
@@ -292,7 +308,7 @@ export const AppShell: React.FC<AppShellProps> = ({
       </header>
 
       {/* MAIN CONTENT AREA */}
-      <main className="desktop-main">
+      <main id="contenido-principal" ref={mainRef} className="desktop-main">
         {logoutError && (
           <div
             role="alert"

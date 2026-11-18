@@ -330,7 +330,9 @@ describe('AiAssistantPanel', () => {
     for (const label of controls) {
       expect(label).not.toMatch(/enviar|aprobar|programar|publicar|confirmar env/i);
     }
-    expect(screen.getByText(/El envío es manual/)).toBeInTheDocument();
+    // The disclaimer matches the approval-and-send flow: the AI sends nothing on its own (#418).
+    expect(screen.getByText(/La IA no envía nada/)).toBeInTheDocument();
+    expect(screen.queryByText(/El envío es manual/)).toBeNull();
   });
 
   it('hands the edited draft to message review only when the host offers it, without any request', async () => {
