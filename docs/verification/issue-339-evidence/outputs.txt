@@ -1,0 +1,81 @@
+# Issue 339 raw outputs (sanitized: UUIDs and the tunnel host replaced; no phone number, Meta id, provider message id, token or template body)
+# authorization.txt is the time the recipient owner authorized exactly one live send for this run.
+# Candidate c53cea24 (main), 2026-11-18. Times are UTC.
+
+## authorization.txt
+2026-11-18T17:14:27Z
+
+## live-01-local.txt
+{"integration": {"enabled": true, "outboundEnabled": false, "webhookVerified": true, "secretRefSet": true, "senderConfigured": true}}
+{"template": {"mapped": true, "enabled": true, "language": "es", "approvalStatus": "APPROVED", "sendable": false, "approvalCheckedAt": "2026-10-29T06:38:10.786316Z"}}
+{"recipient": {"doNotContact": false, "whatsappConsent": "GRANTED"}}
+{"recipientMessages": {"count": 7, "byStatus": ["DELIVERED", "READ", "SENT"], "lastActivityAt": "2026-10-29T06:41:29.944349Z", "hoursSinceLastActivity": 490.6}}
+
+## close-path-dryrun.txt
+== close-path dry run 2026-11-18T17:18:14Z (no window opened)
+{"tenantOutboundEnabled": false}
+disable rc=0
+backend recreate rc=0
+{"tenantOutboundEnabled": false}
+outbound=false interval=24h
+no state file (no send)
+
+## live-02-graph.txt
+== LIVE-02 2026-11-18T17:55:37Z commit c53cea24, Graph base https://graph.facebook.com/v23.0 (default, no override)
+backend: outbound=false interval=24h
+{"step": "integration", "http": 200, "enabled": true, "webhookVerified": true, "outboundEnabled": false}
+{"step": "ownership-verification (Graph)", "http": 200, "webhookVerified": true, "problem": null}
+{"step": "template approval-refresh (Graph)", "templateIntent": "GENERAL_FOLLOW_UP", "approvalStatus": "APPROVED", "sendable": true, "language": "es", "approvalCheckedAt": "2026-11-18T17:55:39.834009Z", "bodyPresent": true}
+check-exit=0
+
+## inbox-baseline.txt
+inbox baseline before send: rows=8 newest=2026-10-29T06:41:29Z (2026-11-18T17:55:54Z)
+
+## live-339-window.txt
+2026-11-18T17:56:11Z window: outbound=true interval=24h
+{"tenantOutboundEnabled": true}
+{"template": "dokene_integration_test_v1", "status": "SENT", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-11-18T17:56:14.920991Z", "attempts": 1}
+2026-11-18T17:56:14Z send-exit=0
+{"tenantOutboundEnabled": false}
+2026-11-18T17:56:31Z close attempt 1: disable=0 backend=0 healthy=0 tenant={"tenantOutboundEnabled": false} backend_state=outbound=false interval=24h
+2026-11-18T17:56:31Z closed (verified): tenant off, outbound=false interval=24h
+{"status": "SENT", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-11-18T17:56:14.920991Z", "deliveredAt": null, "readAt": null, "attempts": 1, "events": [["SUBMITTED", "PENDING_APPROVAL"], ["APPROVED", "APPROVED"], ["SEND_REQUESTED", "QUEUED"], ["SEND_ATTEMPT_STARTED", "SENDING"], ["SENT", "SENT"]]}
+2026-11-18T17:56:31Z LIVEENDONE
+
+## gateway-access.txt
+2026-11-18T17:54:59+00:00 GET /webhooks/whatsapp 200 789
+2026-11-18T17:56:19+00:00 POST /webhooks/whatsapp 502 1302
+2026-11-18T17:56:19+00:00 POST /webhooks/whatsapp 502 1302
+2026-11-18T17:56:20+00:00 POST /webhooks/whatsapp 502 1305
+2026-11-18T17:56:20+00:00 POST /webhooks/whatsapp 502 1302
+2026-11-18T17:56:21+00:00 POST /webhooks/whatsapp 502 1307
+2026-11-18T17:56:22+00:00 POST /webhooks/whatsapp 502 1302
+2026-11-18T17:56:22+00:00 POST /webhooks/whatsapp 502 1307
+2026-11-18T17:56:23+00:00 POST /webhooks/whatsapp 502 1305
+2026-11-18T17:56:36+00:00 POST /webhooks/whatsapp 200 1302
+2026-11-18T17:56:48+00:00 POST /webhooks/whatsapp 200 1307
+2026-11-18T17:59:03+00:00 POST /webhooks/whatsapp 200 1302
+
+## live-05-inbox.txt
+SENT IGNORED 1 2026-11-18 17:56:17+00 2026-11-18 17:56:36.100646+00 t
+DELIVERED APPLIED 1 2026-11-18 17:56:19+00 2026-11-18 17:56:48.476015+00 t
+READ APPLIED 1 2026-11-18 17:59:01+00 2026-11-18 17:59:03.613602+00 t
+
+## live-05-status.txt
+== LIVE-05 status read 2026-11-18T17:57:05Z
+{"status": "DELIVERED", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-11-18T17:56:14.920991Z", "deliveredAt": "2026-11-18T17:56:19Z", "readAt": null, "attempts": 1, "events": [["SUBMITTED", "PENDING_APPROVAL"], ["APPROVED", "APPROVED"], ["SEND_REQUESTED", "QUEUED"], ["SEND_ATTEMPT_STARTED", "SENDING"], ["SENT", "SENT"], ["DELIVERY_UPDATED", "SENT"], ["DELIVERY_UPDATED", "DELIVERED"]]}
+== LIVE-05 final status 2026-11-18T17:59:27Z
+{"status": "READ", "outcomeUnknown": false, "failureCategory": null, "sentAt": "2026-11-18T17:56:14.920991Z", "deliveredAt": "2026-11-18T17:56:19Z", "readAt": "2026-11-18T17:59:01Z", "attempts": 1, "events": [["SUBMITTED", "PENDING_APPROVAL"], ["APPROVED", "APPROVED"], ["SEND_REQUESTED", "QUEUED"], ["SEND_ATTEMPT_STARTED", "SENDING"], ["SENT", "SENT"], ["DELIVERY_UPDATED", "SENT"], ["DELIVERY_UPDATED", "DELIVERED"], ["DELIVERY_UPDATED", "READ"]]}
+
+## live-05-receipt.txt
+recipient receipt: confirmed by the recipient owner in chat (2026-11-18T17:59:20Z); message opened
+
+## live-06-closure.txt
+== LIVE-06 closure 2026-11-18T17:59:41Z
+{"tenantOutboundEnabled": false}
+backend: outbound=false interval=24h
+inbox rows total 11
+inbox rows since 2026-11-18 3
+messages created since 2026-11-18 1
+tunnel: stopped
+send attempts since 2026-11-18 1
