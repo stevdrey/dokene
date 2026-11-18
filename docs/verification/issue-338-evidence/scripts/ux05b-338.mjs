@@ -30,17 +30,24 @@ async function verify() {
   await page.waitForTimeout(3000);
   return (await page.getByRole('alert').allInnerTexts()).concat(await page.getByRole('status').allInnerTexts()).filter(Boolean).join(' | ').replace(/\s+/g, ' ');
 }
+const BAD_REF = 'qa338-no-existe';
+// Set once the bad reference is saved, cleared once the original is saved again; the finally block restores from it.
+let original = null;
+let dirty = false;
 try {
   await page.getByRole('button', { name: 'Seleccionar espacio de trabajo' }).first().click();
   await page.getByRole('option', { name: /QA Café Sur/ }).or(page.getByRole('menuitem', { name: /QA Café Sur/ })).or(page.getByRole('button', { name: /QA Café Sur/ })).first().click();
   await page.getByRole('heading', { name: 'Seguimientos', level: 1 }).waitFor();
   await page.getByRole('button', { name: 'Configuración', exact: true }).click();
   await region().waitFor();
-  const original = (await region().locator('code').first().innerText()).trim();
+  original = (await region().locator('code').first().innerText()).trim();
+  // A previous run that died mid-case may have left the bad value: fall back to the stack's known tenant B reference.
+  if (original === BAD_REF) original = process.env.B_SECRET_REF ?? 'qa333-token-b';
   check('tenant B integration opened (ADMIN); original reference read from the panel', original.length > 0, `reference ${original}`);
 
   // 1. A reference that resolves to no credential.
-  await edit('qa338-no-existe');
+  await edit(BAD_REF);
+  dirty = true;
   let s0 = stubCount();
   const t1 = await verify();
   check('unresolvable reference: refused, no provider request', t1.length > 0 && !/comprobada/i.test(t1) && stubCount() === s0, `ui "${t1}"`);
@@ -50,6 +57,7 @@ try {
 
   // 2. Restore the reference; the provider says the number is not owned by this credential.
   await edit(original);
+  dirty = false;
   fs.writeFileSync(`${STUBDIR}/phones`, 'notOwned');
   s0 = stubCount();
   const t2 = await verify();
@@ -62,9 +70,23 @@ try {
   check('restored: ownership proven again, the panel shows "Propiedad comprobada"', /Propiedad del número comprobada/.test(t3) || /Propiedad comprobada/.test(panel), `ui "${t3}"`);
   await shot(page, `ux05b-${BROWSER}-restored.png`);
 } catch (e) {
-  fs.writeFileSync(`${STUBDIR}/phones`, 'owned');
   check('script completed', false, String(e).split('\n')[0]);
-  await shot(page, `ux05b-${BROWSER}-ERROR.png`);
+  await shot(page, `ux05b-${BROWSER}-ERROR.png`).catch(() => {});
+} finally {
+  fs.writeFileSync(`${STUBDIR}/phones`, 'owned');
+  // A failure between the two saves must not leave tenant B on the bad reference: save the original and prove again.
+  if (dirty && original) {
+    try {
+      await page.reload();
+      await page.getByRole('button', { name: 'Configuración', exact: true }).click();
+      await region().waitFor();
+      await edit(original);
+      const t = await verify();
+      check('cleanup: tenant B reference restored and proven after a failure', /Propiedad del número comprobada/.test(t) || /Propiedad comprobada/.test(await panelText()), `reference ${original}; ui "${t}"`);
+    } catch (e) {
+      check('cleanup: tenant B reference restored and proven after a failure', false, `restore it by hand to ${original}: ${String(e).split('\n')[0]}`);
+    }
+  }
 }
 save(`ux05b-${BROWSER}.json`, { browser: BROWSER, version: browser.version(), checks });
 await browser.close();
