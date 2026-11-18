@@ -140,6 +140,15 @@ dokene:
       tenant-calls: ${DOKENE_TEMPLATE_REFRESH_TENANT_LIMIT:30}
       actor-calls: ${DOKENE_TEMPLATE_REFRESH_ACTOR_LIMIT:20}
       window: ${DOKENE_TEMPLATE_REFRESH_WINDOW:15m}
+  provisioning:
+    # Workspace self provisioning (ADR 0033). Off by default. When enabled, startup requires one stated policy:
+    # either allowed-identities (comma separated identity UUIDs) or allow-all-identities=true, never both and never
+    # neither. A blank allowlist does not mean everyone.
+    enabled: ${DOKENE_PROVISIONING_ENABLED:false}
+    allowed-identities: ${DOKENE_PROVISIONING_ALLOWED_IDENTITIES:}
+    allow-all-identities: ${DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES:false}
+    # Lifetime cap of workspaces one identity may provision. Range 1 to 10000, checked at startup in every mode.
+    max-workspaces-per-identity: ${DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY:3}
   audit:
     # Bound on AUTHORIZATION_DENIED rows (issue 310, ADR 0032). A key is identity, tenant, reason and permission.
     # Each key writes rows-per-key rows and each identity rows-per-identity rows per window; later denials get the

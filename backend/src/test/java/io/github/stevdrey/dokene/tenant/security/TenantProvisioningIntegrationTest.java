@@ -61,6 +61,7 @@ class TenantProvisioningIntegrationTest {
     static void database(DynamicPropertyRegistry registry) throws SQLException {
         TenantSecurityIntegrationFixture.configure(registry);
         registry.add("dokene.provisioning.enabled", () -> "true");
+        registry.add("dokene.provisioning.allow-all-identities", () -> "true");
     }
 
     @AfterEach

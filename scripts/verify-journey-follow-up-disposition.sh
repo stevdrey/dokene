@@ -377,7 +377,7 @@ TENANT_A="$(jq -r --arg n "$SEED_TENANT_NAME" '[.[] | select(.displayName == $n)
 http POST /api/tenants "$OWNER_JAR" -H "Content-Type: application/json" -H "X-CSRF-TOKEN: $OWNER_CSRF" \
   -H "Idempotency-Key: $ISOLATION_TENANT_KEY" \
   -d "$(jq -cn --arg n "$ISOLATION_TENANT_NAME" --arg k "$ISOLATION_TENANT_KEY" '{displayName: $n, idempotencyKey: $k}')"
-case "$HTTP_STATUS" in 200|201) ;; *) blocked "isolation tenant provisioning returned $(trace); is DOKENE_PROVISIONING_ENABLED=true?" ;; esac
+case "$HTTP_STATUS" in 200|201) ;; *) blocked "isolation tenant provisioning returned $(trace); are DOKENE_PROVISIONING_ENABLED=true and DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=true?" ;; esac
 TENANT_B="$(body .tenantId)"
 is_id "$TENANT_B" || blocked "isolation tenant provisioning returned no tenant id ($(trace))"
 

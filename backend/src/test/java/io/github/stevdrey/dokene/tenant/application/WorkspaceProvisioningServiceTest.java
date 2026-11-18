@@ -31,6 +31,10 @@ import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.TransactionStatus;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 class WorkspaceProvisioningServiceTest {
 
@@ -106,6 +110,14 @@ class WorkspaceProvisioningServiceTest {
     private final AuditRecorder auditRecorder = new AuditRecorder() {
         @Override
         public void authorizationDenied(TenantPermission permission, AuditDenialReason reason) {
+            // The shared slot of callers without an identity: a provisioning refusal must never charge it.
+            refusalEvents.add("audit without identity");
+            auditDenials.add(new AuditDenialRecord(permission, reason));
+        }
+
+        @Override
+        public void authorizationDenied(TenantPermission permission, AuditDenialReason reason, IdentityId identityId) {
+            refusalEvents.add(transactionOpen ? "audit in transaction" : "audit " + identityId.value());
             auditDenials.add(new AuditDenialRecord(permission, reason));
         }
 
@@ -123,7 +135,38 @@ class WorkspaceProvisioningServiceTest {
     };
 
     private boolean provisioningAllowed = true;
-    private final ProvisioningAuthorizationPolicy policy = id -> provisioningAllowed;
+    private boolean transactionOpen;
+    private int commits;
+    private int rollbacks;
+    private final List<String> refusalEvents = new ArrayList<>();
+    private final ProvisioningAuthorizationPolicy policy = id -> {
+        if (transactionOpen) {
+            refusalEvents.add("policy in transaction");
+        }
+        return provisioningAllowed;
+    };
+    private final ProvisioningRefusalCounter refusalCounter = reason ->
+            refusalEvents.add(transactionOpen ? "counter in transaction" : "counter " + reason.tag());
+
+    private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
+        @Override
+        public TransactionStatus getTransaction(TransactionDefinition definition) {
+            transactionOpen = true;
+            return new SimpleTransactionStatus();
+        }
+
+        @Override
+        public void commit(TransactionStatus status) {
+            transactionOpen = false;
+            commits++;
+        }
+
+        @Override
+        public void rollback(TransactionStatus status) {
+            transactionOpen = false;
+            rollbacks++;
+        }
+    };
 
     private WorkspaceProvisioningService service;
 
@@ -136,7 +179,9 @@ class WorkspaceProvisioningServiceTest {
                 policy,
                 tenantContextProvider,
                 auditRecorder,
-                clock
+                clock,
+                transactionManager,
+                refusalCounter
         );
     }
 
@@ -206,6 +251,7 @@ class WorkspaceProvisioningServiceTest {
         provisioningAllowed = false;
 
         assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-unauth", "Denied Workspace"))
+                .isInstanceOf(ProvisioningNotPermittedException.class)
                 .isInstanceOf(TenantAccessDeniedException.class)
                 .hasMessageContaining("Workspace provisioning is not permitted");
 
@@ -216,6 +262,54 @@ class WorkspaceProvisioningServiceTest {
         assertThat(auditDenials).containsExactly(
                 new AuditDenialRecord(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT)
         );
+    }
+
+    /** covers: AC-4, AC-15 (spec 0021) */
+    @Test
+    void refusesByPolicyBeforeAnyTransactionOpensAndCountsBeforeAuditing() {
+        provisioningAllowed = false;
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-unauth", "Denied Workspace"))
+                .isInstanceOf(ProvisioningNotPermittedException.class);
+
+        assertThat(refusalEvents).containsExactly("counter policy", "audit " + identity.value());
+        assertThat(commits).isZero();
+        assertThat(rollbacks).isZero();
+    }
+
+    /** covers: AC-4 (spec 0021) */
+    @Test
+    void validatesInputBeforeThePolicyCheck() {
+        provisioningAllowed = false;
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, " ", "Name"))
+                .isInstanceOf(IllegalArgumentException.class);
+
+        assertThat(refusalEvents).isEmpty();
+        assertThat(auditDenials).isEmpty();
+    }
+
+    /** covers: AC-4, AC-5 (spec 0021) */
+    @Test
+    void provisionsInsideOneCommittedTransactionAfterThePolicyCheck() {
+        ProvisionedWorkspace result = service.provisionWorkspace(identity, "key-tx", "Transactional Workspace");
+
+        assertThat(result.created()).isTrue();
+        assertThat(refusalEvents).isEmpty();
+        assertThat(commits).isEqualTo(1);
+        assertThat(rollbacks).isZero();
+    }
+
+    /** covers: AC-4 (spec 0021) */
+    @Test
+    void rollsBackTheTransactionWhenAReplayedKeyCarriesAnotherName() {
+        service.provisionWorkspace(identity, "key-conflict", "First Name");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-conflict", "Second Name"))
+                .isInstanceOf(IdempotencyConflictException.class);
+
+        assertThat(commits).isEqualTo(1);
+        assertThat(rollbacks).isEqualTo(1);
     }
 
     @Test
@@ -293,7 +387,8 @@ class WorkspaceProvisioningServiceTest {
         };
 
         WorkspaceProvisioningService lockingService = new WorkspaceProvisioningService(
-                tenantRepository, membershipRepository, lockingRepository, policy, tenantContextProvider, auditRecorder, clock
+                tenantRepository, membershipRepository, lockingRepository, policy, tenantContextProvider, auditRecorder, clock,
+                transactionManager, refusalCounter
         );
 
         lockingService.provisionWorkspace(identity, "race-key", "Race Workspace");
