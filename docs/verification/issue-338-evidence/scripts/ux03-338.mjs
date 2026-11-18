@@ -58,7 +58,13 @@ try {
   const start = log.length;
   await tabTo(CUSTOMER_START, { label: 'order' });
   const order = log.slice(start).map(s => s.name);
-  check('first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)', true, order.slice(0, 12).join(' > '));
+  // The visual order, top to bottom: workspace selector, navigation, sign-out, queue filters, search, then the cards.
+  // Names may carry icon ligature text ("logout Cerrar sesión"), so each stop is matched on its end.
+  const EXPECTED = [/^Seleccionar espacio de trabajo$/, /Seguimientos$/, /Clientes$/, /Configuración$/, /Cerrar sesión$/, /^Pendientes \d+$/, /^Vencidos \d+$/, /^Buscar /];
+  let at = -1;
+  const positions = EXPECTED.map(re => { const i = order.findIndex((n, k) => k > at && re.test(n)); if (i >= 0) at = i; return i; });
+  const inOrder = positions.every(i => i >= 0) && CUSTOMER_START(order[order.length - 1]);
+  check('first tab stops follow the visual order (workspace, navigation, sign-out, filters, search, queue)', inOrder, `${order.slice(0, 12).join(' > ')}${inOrder ? '' : `; missing or out of order: ${EXPECTED.filter((_, k) => positions[k] < 0).map(String).join(', ')}`}`);
   const firstStop = order[0];
   check('a skip link to the main content is offered', /saltar|ir al contenido/i.test(firstStop), `first stop: ${firstStop}`);
   check('every recorded stop paints a focus indicator', log.slice(start).every(s => s.visible), log.slice(start).filter(s => !s.visible).map(s => s.name).join(', ') || 'all visible');
