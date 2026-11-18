@@ -173,7 +173,8 @@ is no longer set; a leftover value stops startup with a message that says to rem
   limit, and under `framework` can still forge its own client address and request scheme (never a redirect address or
   HSTS). Keep that port reachable only from the edge and from this host.
 - `DOKENE_BACK_CHANNEL_LOGOUT_URI` defaults to loopback on the backend's listen port. An override must be a fixed
-  absolute URI; a request derived placeholder such as `{basePort}` stops startup.
+  absolute URI; a request derived placeholder such as `{basePort}` stops startup, and so does a loopback override on
+  another port than the backend listens on (`SERVER_PORT`).
 
 **Trusting a tunnel or load balancer.** By default no peer is trusted: the image's
 `/etc/nginx/snippets/trusted-proxies.conf` holds comments only. To trust an outer proxy, find its address first: send

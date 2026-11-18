@@ -98,8 +98,9 @@ logs, or audit events.
     is `<origin>/`. No `Host`, `Forwarded` or `X-Forwarded-*` value changes either, on the edge or on the direct port,
     under `none` or `framework`. The form is `https://<host>[:<port>]`, or `http://` on `localhost`, `127.0.0.1` or
     `[::1]`, with no path, no trailing slash, no user info, lower case, and no default port written out. A host is at
-    most 253 characters, and one whose last label is a number must be a full dotted IPv4 address (`127.1` is refused),
-    because a browser rewrites every other spelling. The value is used exactly as written. One origin per deployment: reaching the same backend by a second address needs that
+    most 253 characters, one whose last label is a number must be a full dotted IPv4 address (`127.1` is refused),
+    and an IPv6 address must be in its RFC 5952 canonical form (`[2001:db8:0:0:0:0:0:1]` and `[::ffff:192.0.2.1]` are
+    refused; write `[2001:db8::1]` and `[::ffff:c000:201]`), because a browser rewrites every other spelling. The value is used exactly as written. One origin per deployment: reaching the same backend by a second address needs that
     address configured instead.
   - *HSTS*: both security filter chains (the BFF chain and the webhook chain) send
     `Strict-Transport-Security: max-age=31536000` on every response when the origin is `https`, and never when it is
@@ -115,14 +116,18 @@ logs, or audit events.
     `spring.security.oauth2.client.registration.dokene.redirect-uri` is set to anything but the origin's own callback;
     when a registration id other than `dokene` exists; when a `ClientRegistrationRepository` bean other than Spring
     Boot's own is defined, or one of the same class that holds a registration other than `dokene`; when `server.servlet.context-path` is set alongside a
-    registration; when `DOKENE_BACK_CHANNEL_LOGOUT_URI` is blank, not an absolute `http(s)` URI with a host, or holds a
-    request derived placeholder (`{baseUrl}`, `{baseScheme}`, `{baseHost}`, `{basePort}`, `{basePath}`); when, with a
-    registration, the replay URI uses port 0 (the default under `server.port=0`) or is not `https` while `server.ssl`
-    is enabled, since the default follows the configured port over plain http and a replay that reaches no listener
-    would leave sessions alive after a provider logout without an error; and when
+    registration; when `DOKENE_BACK_CHANNEL_LOGOUT_URI` is blank, not an absolute `http(s)` URI with a host, or holds
+    any placeholder other than `{registrationId}` (that covers the request derived `{baseUrl}`, `{baseScheme}`,
+    `{baseHost}`, `{basePort}` and `{basePath}` in every spelling Spring expands, such as `{basePort:\d*}`); when, with
+    a registration, the replay URI uses port 0 (the default under `server.port=0`), is not `https` while `server.ssl`
+    is enabled, or names a loopback host (`localhost`, `127.0.0.1`, `[::1]`) on a port other than `server.port` (a
+    port left out counts as 80 or 443), since the default follows the configured port over plain http and a replay
+    that reaches no listener would leave sessions alive after a provider logout without an error; and when
     `server.forward-headers-strategy` is anything but `none` or `framework`. That refuses `native` and also an unset
     or blank strategy, which Spring Boot turns into `native` on a detected cloud platform. Every refusal happens
-    while the context refreshes, before the server accepts a request, and never repeats the refused origin.
+    while the context refreshes, before the server accepts a request, and never repeats the refused origin. The
+    replay URI checks are skipped under a negative `server.port`: that instance has no listener, so it receives and
+    replays nothing, and the default would otherwise read `http://localhost:-1`.
   - *The direct backend port bypasses the edge*: a caller on it skips the edge's header rules and the login start
     limit (spec 0016), and under `framework` can still forge its own client address and request scheme. A deployment
     must not expose the backend port beyond the edge; the local stack binds it to `127.0.0.1`.

@@ -312,6 +312,7 @@ class RedirectOriginStartupTest {
                         "server.ssl.enabled=false")
                 .run(context -> assertThat(context).hasNotFailed());
         withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.ssl.bundle=web",
+                        "server.port=8443",
                         REPLAY + "=https://localhost:8443/logout/connect/back-channel/{registrationId}")
                 .run(context -> assertThat(context).hasNotFailed());
         withoutRegistration.withPropertyValues("server.ssl.bundle=web")
@@ -319,24 +320,80 @@ class RedirectOriginStartupTest {
     }
 
     /** covers: AC-3. An operator override without a request derived placeholder is kept. */
-    @Test
-    void aFixedReplayUriOverrideIsKept() {
-        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN,
-                        "dokene.security.oidc.back-channel-logout-uri="
-                                + "http://localhost:9000/logout/connect/back-channel/{registrationId}")
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "http://backend.internal:9000/logout/connect/back-channel/{registrationId}",
+            "http://localhost:8080/internal/logout/connect/back-channel/dokene",
+            "http://127.0.0.1:8080/logout/connect/back-channel/{registrationId}",
+            "http://[::1]:8080/logout/connect/back-channel/{registrationId}"
+    })
+    void aFixedReplayUriOverrideIsKept(String replayUri) {
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, REPLAY + "=" + replayUri)
                 .run(context -> assertThat(context.getBean(RedirectOriginStartupValidator.class)
                         .backChannelLogoutUri())
-                        .isEqualTo("http://localhost:9000/logout/connect/back-channel/{registrationId}"));
+                        .isEqualTo(replayUri));
     }
 
-    /** covers: AC-3. */
+    /**
+     * covers: AC-3. A loopback replay on another port than the server listens on reaches no listener, like port 0:
+     * a port left out is 80 or 443, and an override can outlive a changed SERVER_PORT.
+     */
     @ParameterizedTest
-    @ValueSource(strings = {"{baseUrl}", "{baseScheme}", "{baseHost}", "{basePort}", "{basePath}"})
-    void aRequestDerivedPlaceholderInTheReplayUriStopsStartup(String placeholder) {
-        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN,
-                        "dokene.security.oidc.back-channel-logout-uri=http://localhost" + placeholder
-                                + "/logout/connect/back-channel/{registrationId}")
-                .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", placeholder));
+    @ValueSource(strings = {
+            "http://localhost/logout/connect/back-channel/{registrationId}",
+            "http://localhost:9000/logout/connect/back-channel/{registrationId}",
+            "http://LOCALHOST:9000/logout/connect/back-channel/{registrationId}",
+            "http://127.0.0.1:9000/logout/connect/back-channel/{registrationId}",
+            "http://[::1]:9000/logout/connect/back-channel/{registrationId}",
+            "https://localhost/logout/connect/back-channel/{registrationId}"
+    })
+    void aLoopbackReplayUriOnAnotherPortThanTheListenerStopsStartupWithARegistrationOnly(String replayUri) {
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, REPLAY + "=" + replayUri)
+                .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", "SERVER_PORT",
+                        "8080"));
+        withoutRegistration.withPropertyValues(REPLAY + "=" + replayUri)
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    /** covers: AC-3. The comparison follows the configured port, also when it is 80 and the URI leaves it out. */
+    @Test
+    void aLoopbackReplayUriOnTheListenPortStartsWhenThePortIsLeftOut() {
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.port=80",
+                        REPLAY + "=http://localhost/logout/connect/back-channel/{registrationId}")
+                .run(context -> assertThat(context).hasNotFailed());
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.port=9000",
+                        REPLAY + "=http://localhost:9000/logout/connect/back-channel/{registrationId}")
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    /**
+     * covers: AC-3. server.port=-1 keeps the web context with no listener, so nothing is received or replayed; the
+     * default then reads http://localhost:-1, which must not stop startup with a message about a setting left alone.
+     */
+    @Test
+    void theReplayUriIsNotCheckedWhenTheServerHasNoListener() {
+        WebApplicationContextRunner noListener = withoutReplayUri
+                .withInitializer(new ConfigDataApplicationContextInitializer())
+                .withPropertyValues("server.port=-1");
+
+        noListener.run(context -> assertThat(context).hasNotFailed());
+        noListener.withPropertyValues(stubClientRegistration())
+                .withPropertyValues("dokene.security.public-origin=" + ORIGIN)
+                .run(context -> assertThat(context).hasNotFailed());
+    }
+
+    /** covers: AC-3. Only {registrationId} is filled without the request, so every other placeholder is refused. */
+    @ParameterizedTest
+    @ValueSource(strings = {"{baseUrl}", "{baseScheme}", "{baseHost}", "{basePort}", "{basePath}", "{basePort:\\d*}",
+            "{other}", "{", "}"})
+    void anyOtherPlaceholderInTheReplayUriStopsStartup(String placeholder) {
+        String replayUri = REPLAY + "=http://localhost" + placeholder + "/logout/connect/back-channel/{registrationId}";
+
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, replayUri)
+                .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", "placeholder",
+                        "{registrationId}"));
+        withoutRegistration.withPropertyValues(replayUri)
+                .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", "placeholder"));
     }
 
     /** covers: AC-7. */

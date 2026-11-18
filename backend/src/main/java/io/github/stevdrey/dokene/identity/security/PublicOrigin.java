@@ -2,6 +2,8 @@
 // ABOUTME: its one accepted form; the login callback and logout return address are built from it alone.
 package io.github.stevdrey.dokene.identity.security;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -9,15 +11,16 @@ import java.util.regex.Pattern;
 /**
  * {@code https://<host>[:<port>]}, or {@code http://} on a loopback host, with nothing else: no path, no trailing
  * slash, no user info, lower case, no default port written out. The value is used exactly as written and never
- * normalized, so it must already be the string the identity provider has registered. A refusal never repeats the
- * value, because a refused value may carry user info.
+ * normalized, so it must already be the string the identity provider has registered. For the same reason a host
+ * must be spelled the way a browser writes it: an IPv4 address in full dotted form, an IPv6 address in its RFC 5952
+ * canonical form. A refusal never repeats the value, because a refused value may carry user info.
  */
 public record PublicOrigin(String value) {
 
     static final String SETTING = "DOKENE_PUBLIC_ORIGIN (dokene.security.public-origin)";
     static final String CALLBACK_PATH = "/login/oauth2/code/";
 
-    private static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "[::1]");
+    static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "[::1]");
     private static final Pattern DNS_HOST =
             Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*");
     private static final Pattern IPV6_GROUP = Pattern.compile("[0-9a-f]{1,4}");
@@ -84,6 +87,12 @@ public record PublicOrigin(String value) {
         if (!DNS_HOST.matcher(host).matches() && !isBracketedIpv6(host)) {
             throw refused("host is not a valid host name or address");
         }
+        // A browser rewrites every other spelling of an IPv6 address ([2001:db8:0:0:0:0:0:1] becomes [2001:db8::1]),
+        // so the value would not be the origin it is sent to.
+        if (host.startsWith("[") && !host.equals(canonicalIpv6(host))) {
+            throw refused("IPv6 address must be in its canonical form: no leading zeros in a group, the longest run "
+                    + "of two or more zero groups written as ::, and no dotted IPv4 tail");
+        }
         if (host.length() > MAX_HOST_LENGTH) {
             throw refused("host must be at most 253 characters");
         }
@@ -144,6 +153,64 @@ public record PublicOrigin(String value) {
             } else {
                 return -1;
             }
+        }
+        return groups;
+    }
+
+    /** The RFC 5952 spelling of an address {@link #isBracketedIpv6} accepted, brackets included. */
+    private static String canonicalIpv6(String host) {
+        String address = host.substring(1, host.length() - 1);
+        int compression = address.indexOf("::");
+        List<Integer> groups = ipv6Groups(compression < 0 ? address : address.substring(0, compression));
+        if (compression >= 0) {
+            List<Integer> tail = ipv6Groups(address.substring(compression + 2));
+            while (groups.size() + tail.size() < 8) {
+                groups.add(0);
+            }
+            groups.addAll(tail);
+        }
+        int runStart = -1;
+        int runLength = 1;
+        for (int start = 0; start < groups.size(); start++) {
+            int end = start;
+            while (end < groups.size() && groups.get(end) == 0) {
+                end++;
+            }
+            if (end - start > runLength) {
+                runStart = start;
+                runLength = end - start;
+            }
+            start = Math.max(start, end - 1);
+        }
+        StringBuilder canonical = new StringBuilder("[");
+        for (int index = 0; index < groups.size(); index++) {
+            if (index == runStart) {
+                canonical.append("::");
+                index += runLength - 1;
+                continue;
+            }
+            if (index > 0 && canonical.charAt(canonical.length() - 1) != ':') {
+                canonical.append(':');
+            }
+            canonical.append(Integer.toHexString(groups.get(index)));
+        }
+        return canonical.append(']').toString();
+    }
+
+    /** The 16 bit groups of a colon separated run; a dotted IPv4 part counts as two. */
+    private static List<Integer> ipv6Groups(String run) {
+        List<Integer> groups = new ArrayList<>();
+        if (run.isEmpty()) {
+            return groups;
+        }
+        for (String part : run.split(":", -1)) {
+            if (part.indexOf('.') < 0) {
+                groups.add(Integer.parseInt(part, 16));
+                continue;
+            }
+            String[] octets = part.split("\\.");
+            groups.add(Integer.parseInt(octets[0]) << 8 | Integer.parseInt(octets[1]));
+            groups.add(Integer.parseInt(octets[2]) << 8 | Integer.parseInt(octets[3]));
         }
         return groups;
     }

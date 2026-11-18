@@ -40,7 +40,8 @@ class RedirectOriginConfiguration {
     ) {
         return new RedirectOriginStartupValidator(settings, clientProperties.getIfAvailable(),
                 serverProperties.getForwardHeadersStrategy(), serverProperties.getServlet().getContextPath(),
-                serverProperties.getSsl() != null && serverProperties.getSsl().isEnabled(), backChannelLogoutUri);
+                serverProperties.getSsl() != null && serverProperties.getSsl().isEnabled(),
+                serverProperties.getPort(), backChannelLogoutUri);
     }
 
     @Bean

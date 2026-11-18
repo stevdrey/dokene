@@ -170,6 +170,7 @@ dokene:
     oidc:
       # Where the back-channel logout handler replays each session's logout: loopback on this instance's listen
       # port. An override must be a fixed URI; a request derived placeholder such as {basePort} stops startup.
+      # So does a loopback override on another port than server.port: no listener would answer the replay.
       back-channel-logout-uri: ${DOKENE_BACK_CHANNEL_LOGOUT_URI:http://localhost:${server.port:8080}/logout/connect/back-channel/{registrationId}}
     cors:
       allowed-origins: ${DOKENE_CORS_ALLOWED_ORIGINS:}

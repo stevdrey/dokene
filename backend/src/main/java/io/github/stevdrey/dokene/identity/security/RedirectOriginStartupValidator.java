@@ -3,21 +3,22 @@
 package io.github.stevdrey.dokene.identity.security;
 
 import java.net.URI;
-import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientProperties;
 import org.springframework.boot.web.server.autoconfigure.ServerProperties.ForwardHeadersStrategy;
 
 /**
- * The strategy and replay URI checks always run. The origin, redirect URI, registration id and context path checks
- * run when a client registration is configured, which is exactly when Boot binds {@link OAuth2ClientProperties}; binding covers
- * every relaxed spelling of a setting, and an unset redirect URI stays null there.
+ * The strategy check always runs, and the replay URI checks run whenever the server has a listener (with
+ * {@code server.port=-1} it has none, so nothing is received or replayed). The origin, redirect URI, registration
+ * id and context path checks run when a client registration is configured, which is exactly when Boot binds
+ * {@link OAuth2ClientProperties}; binding covers every relaxed spelling of a setting, and an unset redirect URI
+ * stays null there.
  */
 public final class RedirectOriginStartupValidator {
 
     static final String REGISTRATION_ID = "dokene";
-    static final List<String> REQUEST_DERIVED_PLACEHOLDERS =
-            List.of("{baseUrl}", "{baseScheme}", "{baseHost}", "{basePort}", "{basePath}");
+    static final int DEFAULT_SERVER_PORT = 8080;
 
     private static final String BACK_CHANNEL_LOGOUT_SETTING =
             "dokene.security.oidc.back-channel-logout-uri (DOKENE_BACK_CHANNEL_LOGOUT_URI)";
@@ -27,13 +28,20 @@ public final class RedirectOriginStartupValidator {
 
     RedirectOriginStartupValidator(PublicOriginSettings settings, OAuth2ClientProperties clientProperties,
             ForwardHeadersStrategy forwardHeadersStrategy, String contextPath, boolean tlsListener,
-            String backChannelLogoutUri) {
+            Integer configuredServerPort, String backChannelLogoutUri) {
+        int serverPort = configuredServerPort == null ? DEFAULT_SERVER_PORT : configuredServerPort;
+        // A negative server.port keeps the web context with no listener; the default would read http://localhost:-1.
+        boolean listens = serverPort >= 0;
         requireSupportedForwardHeadersStrategy(forwardHeadersStrategy);
-        requireFixedBackChannelLogoutUri(backChannelLogoutUri);
+        if (listens) {
+            requireFixedBackChannelLogoutUri(backChannelLogoutUri);
+        }
         if (clientProperties != null) {
             // Present: the settings refuse an unset origin on the same registration signal.
             this.origin = settings.origin().orElseThrow();
-            requireReplayUriReachesTheListener(backChannelLogoutUri, tlsListener);
+            if (listens) {
+                requireReplayUriReachesTheListener(backChannelLogoutUri, tlsListener, serverPort);
+            }
             requireOnlyTheDokeneRegistration(clientProperties.getRegistration());
             requireNoLeftoverRedirectUri(origin,
                     clientProperties.getRegistration().get(REGISTRATION_ID).getRedirectUri());
@@ -71,11 +79,12 @@ public final class RedirectOriginStartupValidator {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must not be blank; unset it to use the "
                     + "loopback default, or write a fixed absolute URI");
         }
-        for (String placeholder : REQUEST_DERIVED_PLACEHOLDERS) {
-            if (uri.contains(placeholder)) {
-                throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must not contain the request derived "
-                        + "placeholder " + placeholder + "; write it as a fixed URI");
-            }
+        // Spring fills {registrationId} without the request; {baseUrl}, {basePort} and the like, in any spelling
+        // such as {basePort:\d*}, read the request, and nothing else has a value at all.
+        String filled = uri.replace("{registrationId}", REGISTRATION_ID);
+        if (filled.indexOf('{') >= 0 || filled.indexOf('}') >= 0) {
+            throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must not contain a placeholder other "
+                    + "than {registrationId}; write it as a fixed URI");
         }
         if (!isAbsoluteHttpUriWithHost(uri)) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must be an absolute http:// or https:// "
@@ -86,9 +95,10 @@ public final class RedirectOriginStartupValidator {
     /**
      * The default follows the configured port and plain http, not the listener actually bound, and a replay that
      * reaches no listener fails without stopping anything: sessions would outlive a provider logout. Checked with a
-     * registration only, because without one nothing is replayed and a test may start on a random port.
+     * registration only, because without one nothing is replayed and a test may start on a random port. A loopback
+     * override must name the configured port for the same reason; another host is the operator's to get right.
      */
-    static void requireReplayUriReachesTheListener(String uri, boolean tlsListener) {
+    static void requireReplayUriReachesTheListener(String uri, boolean tlsListener, int serverPort) {
         URI parsed = parse(uri);
         if (parsed.getPort() == 0) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must not use port 0: with server.port "
@@ -98,6 +108,13 @@ public final class RedirectOriginStartupValidator {
         if (tlsListener && !"https".equals(parsed.getScheme())) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must start with https:// while server.ssl "
                     + "is enabled: the listener does not answer the plain http replay of the default");
+        }
+        int replayPort = parsed.getPort() >= 0 ? parsed.getPort() : "https".equals(parsed.getScheme()) ? 443 : 80;
+        boolean loopback = PublicOrigin.LOOPBACK_HOSTS.contains(parsed.getHost().toLowerCase(Locale.ROOT));
+        if (loopback && replayPort != serverPort) {
+            throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " points at loopback port " + replayPort
+                    + " while server.port (SERVER_PORT) is " + serverPort + ": no listener answers that replay; "
+                    + "write the replay URI with the port the server listens on, or unset it to use the default");
         }
     }
 
