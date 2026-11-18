@@ -23,7 +23,8 @@ const browser = await launch(BROWSER);
 const ctx = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: 'es-CL' });
 const page = await ctx.newPage();
 await login(page, 'testuser', process.env.QA_PW);
-const detailHeading = async () => (await page.locator('[role=region][aria-label^="Detalle de "]').first().getAttribute('aria-label')) ?? '';
+// '' when no customer detail is open (never waits for one).
+const detailHeading = async () => { const d = page.locator('[role=region][aria-label^="Detalle de "]'); return (await d.count()) ? ((await d.first().getAttribute('aria-label')) ?? '') : ''; };
 
 try {
   // a) Customer switch while the first customer's history read is slow.
@@ -110,7 +111,8 @@ try {
   await page.getByRole('button', { name: 'Cerrar sesión' }).first().click();
   await delay(2500);
   const out = await body(page);
-  check('logout with an unsaved edited draft: the outcome is explicit (warning or a clear signed-out page)', leaveWarning !== null || /Iniciar sesión/.test(out), leaveWarning ? `warning "${leaveWarning}"` : 'no warning; signed-out page shown');
+  const signedOut = await visible(page.getByRole('button', { name: /iniciar sesi/i }));
+  check('logout with an unsaved edited draft: the outcome is explicit (warning, or a signed-out page with no customer data left)', leaveWarning !== null || (signedOut && !/QA338|EDITADO-QA338/.test(out)), leaveWarning ? `warning "${leaveWarning}"` : `signed-out page=${signedOut}; customer data left=${/QA338/.test(out)}`);
   await page.getByRole('button', { name: /iniciar sesi/i }).first().click();
   // SSO may still be alive (app logout is local), so the IdP form may be skipped.
   const form = await page.waitForSelector('#username', { timeout: 6000 }).catch(() => null);
@@ -119,11 +121,20 @@ try {
   await page.getByRole('heading', { name: `QA338 Borrador Sesion${S}`, level: 3, exact: true }).click();
   await delay(2500);
   const aiText = (await page.getByRole('region', { name: 'Asistente IA' }).innerText()).replace(/\s+/g, ' ');
-  const kept = /EDITADO-QA338/.test(aiText) || (await page.getByRole('region', { name: 'Asistente IA' }).locator('textarea').evaluateAll(t => t.some(x => x.value.includes('EDITADO-QA338'))));
-  check('after relogin the edited draft is either restored or clearly gone (the assistant starts over, no half state)', kept || /Obtener recomendación/.test(aiText), kept ? 'edit restored' : `edit lost; assistant shows "${aiText.slice(0, 120)}"`);
+  const holdsEdit = () => page.evaluate(() => document.body.innerText.includes('EDITADO-QA338') || [...document.querySelectorAll('textarea')].some(x => x.value.includes('EDITADO-QA338')));
+  const kept = await holdsEdit();
+  const sameCustomer = (await detailHeading()) === `Detalle de QA338 Borrador Sesion${S}`;
+  // Restored only under its own customer, or gone everywhere: an idle assistant and no trace of the edit.
+  const consistent = kept ? sameCustomer : /Obtener recomendación/.test(aiText);
+  await page.getByRole('heading', { name: 'QA338 Vista Pendiente', level: 3, exact: true }).click();
+  await delay(1500);
+  const leaked = await holdsEdit();
+  check('after relogin the edited draft is either restored under its own customer or gone everywhere (no half or misplaced state)', consistent && !leaked, `${kept ? 'edit restored' : `edit lost; assistant shows "${aiText.slice(0, 80)}"`}; same customer=${sameCustomer}; shown under another customer=${leaked}`);
   checks.push({ case: 'UX-07', name: 'draft edit kept across logout/relogin (informational)', result: 'NOTE', note: `kept=${kept}; edited length ${edited.length}` });
   // e) Browser back/forward: the app keeps no history entries of its own.
   const before = page.url();
+  const wsBefore = (await page.getByRole('button', { name: 'Seleccionar espacio de trabajo' }).first().innerText()).replace(/\s+/g, ' ');
+  const detailBefore = await detailHeading();
   await page.goBack({ timeout: 10000 }).catch(() => {});
   await delay(2500);
   const backUrl = page.url();
@@ -132,7 +143,16 @@ try {
   await delay(3000);
   const fwdUrl = page.url();
   const fwdOk = await visible(page.getByRole('heading', { name: 'Seguimientos', level: 1 }));
-  check('back/forward: Back leaves the app (no in-app history); Forward returns to a consistent app (queue, no stale data)', fwdOk, `before ${before}; back ${backUrl.replace(/\?.*/, '?…')} ("${backText.slice(0, 60)}"); forward ${fwdUrl}`);
+  const wsAfter = (await page.getByRole('button', { name: 'Seleccionar espacio de trabajo' }).first().innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const detailAfter = await detailHeading();
+  const mainText = (await page.locator('main').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  const backOnApp = new URL(backUrl).origin === new URL(APP).origin;
+  // Firefox restores the page from its back/forward cache (same customer open); Chromium reloads the app from the
+  // OIDC callback entry, which opens the first queue item. Either way: same workspace, a customer of this workspace's
+  // current queue (or none), and no other tenant's data.
+  const queueNames = (await page.getByRole('heading', { level: 3 }).allInnerTexts()).map(n => `Detalle de ${n.trim()}`);
+  const consistentFwd = fwdOk && backOnApp && wsAfter === wsBefore && (detailAfter === '' || detailAfter === detailBefore || queueNames.includes(detailAfter)) && !/QA Café Sur/.test(mainText);
+  check('back/forward: Back stays on the app origin; Forward returns to the same workspace showing only its own queue customers, no other tenant data', consistentFwd, `before ${before}; back ${backUrl.replace(/\?.*/, '?…')} ("${backText.slice(0, 60)}"); forward ${fwdUrl}; workspace ${wsBefore} -> ${wsAfter}; detail "${detailBefore}" -> "${detailAfter}"`);
 
 } catch (e) {
   check('script completed', false, String(e).split('\n')[0]);

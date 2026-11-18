@@ -68,12 +68,11 @@ checks('ux04-send-chromium.json', 'W1 browser sends')
 checks('ux04-copy-chromium.json', 'UX-04 status copy')
 checks('ux04-copy-firefox.json', 'UX-04 status copy')
 ux05c = first('ux05-chromium-run3.json', 'ux05-chromium.json')
-if ux05c == 'ux05-chromium-run3.json':
-  w('== UX-05 Chromium lines recorded on the console of the first two runs (latency and 403; superseded runs otherwise)')
-  w('PASS  [UX-05 latency] a slow message read shows the "Cargando mensaje…" loader (aria-busy region)  (1 busy region(s))')
-  w('PASS  [UX-05 latency] while the approval is in flight the confirm button is aria-disabled and repeated activation sends no second request  (label "Cargando...", aria-disabled=true, requests=1, db PENDING_APPROVAL/v1/approvals=0 -> APPROVED/v2/approvals=1)')
-  w('PASS  [UX-05 403] a revoked OPERATOR gets "No tienes permiso para esta acción." and the message is unchanged  (revoke 204; db unchanged PENDING_APPROVAL/v1/approvals=0)')
-  w('PASS  [UX-05 403] cleanup: membership reactivated and accepted  (reactivate 200, accept 200)')
+# Console lines of the first two Chromium UX-05 runs (latency, 403), saved verbatim in ux05-chromium-console.txt.
+console = out / 'ux05-chromium-console.txt'
+if console.exists():
+    w('== UX-05 Chromium lines recorded on the console of the first two runs (latency and 403; superseded runs otherwise)')
+    lines.extend(console.read_text().splitlines())
 checks(ux05c, 'UX-05 recovery')
 checks(first('ux05-firefoxF.json', 'ux05-firefox.json'), 'UX-05 recovery (route.fetch cases skipped: BiDi)')
 checks('ux05b-chromium.json', 'UX-05 invalid credentials')

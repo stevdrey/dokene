@@ -50,7 +50,7 @@ try {
   await row.click();
   await page.getByRole('button', { name: 'Abrir en revisión' }).first().click();
   const loader = page.getByText('Cargando mensaje…');
-  check(C, 'a slow message read shows the "Cargando mensaje…" loader (aria-busy region)', await loader.first().isVisible({ timeout: 2000 }).catch(() => false), await page.locator('[aria-busy=true]').count() + ' busy region(s)');
+  check(C, 'a slow message read shows the "Cargando mensaje…" loader (aria-busy region)', await loader.first().waitFor({ state: 'visible', timeout: 2000 }).then(() => true, () => false), await page.locator('[aria-busy=true]').count() + ' busy region(s)');
   await page.getByRole('heading', { name: 'Lo que recibirá el cliente' }).waitFor({ timeout: 15000 });
   await page.unroute('**/api/messages/*');
   await page.route('**/approvals', async r => { await new Promise(x => setTimeout(x, 3000)); await r.continue(); });

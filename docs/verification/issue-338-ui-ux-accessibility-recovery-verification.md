@@ -160,6 +160,10 @@ tenant B on its own reference, stub send count still 29.
 From the #333 stack (see its report), with the global switch off, `OUTD=~/qa338/out`, and the passwords supplied
 through the environment (`QA_PW`, `QA_PW_OP` from `scripts/lib/test-passwords.sh`):
 
+0. Browser driver: in a scratch directory run `npm install playwright-core@1.64.1` and
+   `npx playwright-core install chromium` (Firefox is the system binary, driven over WebDriver BiDi), then export
+   `PW_HOME=<that directory>`. Without `PW_HOME` the scripts resolve `playwright-core` from the working directory.
+
 1. `OUTD=~/qa338/out fixtures337.sh` (users), then `fixtures338.sh`, `fixtures338-ux05.sh` and `fixtures338-ux07.sh`
    (optionally a second set per browser with `SUF=" FF" IDSUF=F`; UX-07 then runs as
    `IDK=F node ux07-338.mjs firefox " FF"`). In the recorded run the UX-07 fixtures were created by hand with the same

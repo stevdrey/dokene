@@ -2,7 +2,9 @@
 // ABOUTME: BiDi, signs in through the real Keycloak form, and offers layout/overflow/reach probes. Never logs secrets.
 import { createRequire } from 'module';
 import fs from 'fs';
-const require = createRequire(process.env.PW_HOME ?? '/home/stevdrey/Projects/Java/faro/apps/web/');
+// PW_HOME: a directory whose node_modules holds playwright-core@1.64.1 (see the report's Reproducing section); without
+// it, playwright-core is resolved from the current working directory.
+const require = createRequire(`${(process.env.PW_HOME ?? process.cwd()).replace(/\/?$/, '/')}`);
 const pw = require('playwright-core');
 export const APP = process.env.APP_URL ?? 'http://localhost:5173';
 export const OUT = process.env.QA338_OUT ?? `${process.env.HOME}/qa338`;

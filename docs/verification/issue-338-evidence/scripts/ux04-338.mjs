@@ -39,6 +39,8 @@ async function openReview(name) {
   await page.getByRole('heading', { name: 'Lo que recibirá el cliente' }).waitFor({ timeout: 15000 });
 }
 const reviewText = async () => norm(await page.locator('section.message-review').filter({ hasText: /Revisión \d+/ }).first().innerText());
+// The send result sentence ("Envío procesado…") is a live region outside the review section: read the whole page for it.
+const pageText = async () => norm(await page.locator('body').innerText());
 
 try {
   if (MODE === 'send') {
@@ -50,7 +52,8 @@ try {
     await page.getByRole('button', { name: 'Confirmar envío' }).click();
     await page.getByText(/Envío procesado/).first().waitFor({ timeout: 20000 });
     const ra = await reviewText();
-    check(C, 'a send the provider accepted reports "Envío procesado" with the current status; it never says delivered', !/Entregado|Leído/.test(ra) && /Envío procesado\. Estado actual/.test(ra), `${(ra.match(/Envío procesado[^.]*\.[^.]*\./) ?? [''])[0]}; badge/status text: ${(ra.match(/(Enviado|Aceptado por el proveedor)[^.]{0,40}/) ?? [''])[0]}; db ${db(ids.SAM)}; stub +${stubSends() - s0}`);
+    const pa = await pageText();
+    check(C, 'a send the provider accepted reports "Envío procesado" with the current status; it never says delivered', !/Entregado|Leído/.test(ra) && /Envío procesado\. Estado actual/.test(pa) && !/Envío procesado\. Estado actual: (Entregado|Leído)/.test(pa), `${(pa.match(/Envío procesado[^.]*\.[^.]*\./) ?? [''])[0]}; badge/status text: ${(ra.match(/(Enviado|Aceptado por el proveedor)[^.]{0,40}/) ?? [''])[0]}; db ${db(ids.SAM)}; stub +${stubSends() - s0}`);
     await shot(page, 'ux04-send-accepted.png');
 
     // Response lost after the provider call (Chromium route.fetch, then a reset connection).
@@ -62,14 +65,14 @@ try {
     const k0 = sendKeys.length;
     await page.getByRole('button', { name: 'Confirmar envío' }).click();
     await page.getByText(/No se pudo confirmar la acción\.|La acción pudo haberse completado/).first().waitFor({ timeout: 20000 });
-    const ri = await reviewText();
+    const ri = await pageText();
     const di = db(ids.SIM);
     check(C, 'the provider was called once and the browser lost the answer: the UI claims neither success nor failure', /attempts=1\//.test(di) && stubSends() - s0 === 1 && !/Envío procesado/.test(ri), `db ${di}; stub +${stubSends() - s0}; ui "${(ri.match(/(No se pudo confirmar la acción\.|La acción pudo haberse completado[^.]*\.)/) ?? [''])[0]}"`);
     await shot(page, 'ux04-send-interrupted.png');
     const retry = page.getByRole('button', { name: 'Reintentar' });
     const retried = await visible(retry);
     if (retried) { await retry.click(); await delay(3000); }
-    const ri2 = await reviewText();
+    const ri2 = await pageText();
     const di2 = db(ids.SIM);
     check(C, 'recovery never makes a second provider request: same Idempotency-Key on any retry, one attempt, the real status shown, no Enviar offered', /attempts=1\//.test(di2) && stubSends() - s0 === 1 && sendKeys.slice(k0).every(k => k === sendKeys[k0]) && !(await visible(page.getByRole('button', { name: 'Enviar', exact: true }))), `retry shown=${retried}; requests=${sendKeys.length - k0}; db ${di2}; stub +${stubSends() - s0}; ui "${(ri2.match(/(Envío procesado[^.]*\.[^.]*\.|Este mensaje[^.]*\.|La acción pudo[^.]*\.)/) ?? [''])[0]}"`);
     await page.unroute('**/sends');
