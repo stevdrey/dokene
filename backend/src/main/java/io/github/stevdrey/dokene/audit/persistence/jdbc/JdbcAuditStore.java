@@ -50,21 +50,27 @@ class JdbcAuditStore {
                 ? value : null;
         AuditMetadata.IntegrationToggle toggle = event.metadata() instanceof AuditMetadata.IntegrationToggle value
                 ? value : null;
+        AuditMetadata.AuthorizationDenialsSuppressed summary =
+                event.metadata() instanceof AuditMetadata.AuthorizationDenialsSuppressed value ? value : null;
+        TenantPermission permission = denial != null ? denial.permission()
+                : summary != null ? summary.permission() : null;
+        AuditDenialReason denialReason = denial != null ? denial.reason()
+                : summary != null ? summary.reason() : null;
         String previousRole = change == null ? null : change.previousRole().name();
         String newRole = change != null ? change.newRole().name()
                 : created != null ? created.role().name()
                 : statusChange != null ? statusChange.role().name() : null;
         jdbc.queryForObject("""
                 SELECT dokene.append_audit_event(
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 UUID.class,
                 event.id(), Timestamp.from(event.timestamp()),
                 event.type().name(),
                 event.target() == null ? null : event.target().type().name(),
                 event.target() == null ? null : event.target().id(), event.outcome().name(), event.correlationId(),
-                denial == null || denial.permission() == null ? null : denial.permission().name(),
-                denial == null ? null : denial.reason().name(),
+                permission == null ? null : permission.name(),
+                denialReason == null ? null : denialReason.name(),
                 previousRole, newRole,
                 capability == null ? null : capability.payload(),
                 capability == null ? null : capability.signature(),
@@ -75,7 +81,8 @@ class JdbcAuditStore {
                 transition == null ? null : transition.to().name(),
                 transition == null || transition.failureCategory() == null ? null : transition.failureCategory().name(),
                 transition == null ? null : transition.attemptNumber(),
-                toggle == null ? null : toggle.enabled());
+                toggle == null ? null : toggle.enabled(),
+                summary == null ? null : summary.suppressedCount());
     }
 
     List<AuditEvent> read(TenantId tenant, AuditCursor before, int limit) {
@@ -98,6 +105,11 @@ class JdbcAuditStore {
             case AUTHORIZATION_DENIED -> new AuditMetadata.AuthorizationDenied(
                     row.getString("permission") == null ? null : TenantPermission.valueOf(row.getString("permission")),
                     AuditDenialReason.valueOf(row.getString("denial_reason")));
+            case AUTHORIZATION_DENIALS_SUPPRESSED -> new AuditMetadata.AuthorizationDenialsSuppressed(
+                    row.getString("permission") == null ? null : TenantPermission.valueOf(row.getString("permission")),
+                    row.getString("denial_reason") == null ? null
+                            : AuditDenialReason.valueOf(row.getString("denial_reason")),
+                    row.getInt("suppressed_count"));
             case MEMBERSHIP_ROLE_CHANGED -> new AuditMetadata.MembershipRoleChanged(
                     TenantRole.valueOf(row.getString("previous_role")), TenantRole.valueOf(row.getString("new_role")));
             case MEMBERSHIP_CREATED -> new AuditMetadata.MembershipCreated(

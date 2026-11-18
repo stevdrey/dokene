@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
+import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
@@ -16,6 +17,15 @@ import java.util.UUID;
 /** Attribution and event IDs/timestamps are always supplied by the server implementation. */
 public interface AuditRecorder {
     void authorizationDenied(TenantPermission permission, AuditDenialReason reason);
+
+    /**
+     * As the two argument form, for a caller that knows who was denied although no tenant context is bound. The
+     * identity only picks whose budget of denial rows is charged (spec 0020); it is never stored on the row. Null
+     * charges the one slot shared by every caller without an identity.
+     */
+    default void authorizationDenied(TenantPermission permission, AuditDenialReason reason, IdentityId identityId) {
+        authorizationDenied(permission, reason);
+    }
 
     /** Requires an existing business transaction; failure must roll back the state transition. */
     void membershipRoleChanged(TenantMembershipId target, TenantRole previousRole, TenantRole newRole);

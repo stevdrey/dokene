@@ -62,7 +62,8 @@ public class WorkspaceProvisioningService {
         String normalizedDisplayName = Tenant.normalizeDisplayName(displayName);
 
         if (!provisioningAuthorizationPolicy.isAllowed(identityId)) {
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+            auditRecorder.authorizationDenied(
+                    TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
             throw new TenantAccessDeniedException("Workspace provisioning is not permitted for this identity");
         }
 

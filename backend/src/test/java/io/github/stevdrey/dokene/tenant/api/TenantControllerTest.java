@@ -192,7 +192,8 @@ class TenantControllerTest {
                 .extracting(ex -> ((ResponseStatusException) ex).getStatusCode())
                 .isEqualTo(HttpStatus.FORBIDDEN);
 
-        verify(auditRecorder).authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+        verify(auditRecorder).authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
     }
 
     @Test

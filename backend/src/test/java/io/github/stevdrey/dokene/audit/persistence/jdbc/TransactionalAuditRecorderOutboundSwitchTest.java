@@ -13,6 +13,8 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
+import io.github.stevdrey.dokene.audit.application.DenialAuditBudget;
+import io.github.stevdrey.dokene.audit.application.DenialAuditTelemetry;
 import io.github.stevdrey.dokene.audit.application.AuditPersistenceException;
 import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
@@ -53,7 +55,8 @@ class TransactionalAuditRecorderOutboundSwitchTest {
     private final PlatformTransactionManager transactions = mock(PlatformTransactionManager.class);
     private final TransactionalAuditRecorder recorder = new TransactionalAuditRecorder(store, contexts,
             mock(ProviderContextProvider.class), signer, execution, Clock.fixed(NOW, ZoneOffset.UTC), transactions,
-            new DatabaseUnavailability(Duration.ofSeconds(5)));
+            new DatabaseUnavailability(Duration.ofSeconds(5)), mock(DenialAuditBudget.class),
+            mock(DenialAuditTelemetry.class));
     private final TenantContext member = new TenantContext(TenantId.random(), new IdentityId(UUID.randomUUID()),
             TenantMembershipId.random(), TenantRole.OWNER);
     private final UUID integrationId = UUID.randomUUID();
