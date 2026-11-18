@@ -255,6 +255,13 @@ services:
       DOKENE_POST_LOGIN_REDIRECT_URL: ${DOKENE_POST_LOGIN_REDIRECT_URL:-http://localhost:5173/}
       DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL: ${DOKENE_POST_LOGIN_FAILURE_REDIRECT_URL:-http://localhost:5173/?error=login_failed}
       DOKENE_PROVISIONING_ENABLED: ${DOKENE_PROVISIONING_ENABLED:-true}
+      # Local values only (ADR 0033): every signed in identity may provision, with a high cap per identity. A real
+      # deployment lists identities in DOKENE_PROVISIONING_ALLOWED_IDENTITIES and keeps the default cap of 3. To try
+      # allowlist mode here, set that list and DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=false together: the backend
+      # refuses to start with both a list and the open setting.
+      DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES: ${DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES:-true}
+      DOKENE_PROVISIONING_ALLOWED_IDENTITIES: ${DOKENE_PROVISIONING_ALLOWED_IDENTITIES:-}
+      DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY: ${DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY:-1000}
       DOKENE_AI_PROVIDER: ${DOKENE_AI_PROVIDER:-}
       DOKENE_AI_OPENAI_API_KEY: ${DOKENE_AI_OPENAI_API_KEY:-}
       DOKENE_AI_OPENAI_MODEL: ${DOKENE_AI_OPENAI_MODEL:-gpt-6-luna}

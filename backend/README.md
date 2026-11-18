@@ -95,9 +95,29 @@ Once authenticated, operators use global endpoints under `/api/tenants` to manag
   When both key fields are supplied, they must match after canonical normalization or the request returns `400 Bad Request`.
 - `GET /api/tenants/{tenantId}` verifies and returns workspace details for an authorized tenant.
 
-Workspace provisioning is disabled by default. Operators must set `DOKENE_PROVISIONING_ENABLED=true` to enable it.
-`DOKENE_PROVISIONING_ALLOWED_IDENTITIES` accepts a comma-separated list of internal identity UUIDs. When provisioning
-is enabled, an empty allowlist permits every authenticated identity; a non-empty allowlist permits only the listed identities.
+Workspace provisioning is disabled by default and runs in one of three modes
+([ADR 0033](../docs/adr/0033-stated-workspace-provisioning-policy.md)). The backend logs the mode once at startup.
+
+| Mode | Settings | Who may provision |
+| :--- | :--- | :--- |
+| `disabled` (default) | `DOKENE_PROVISIONING_ENABLED=false` | Nobody. `POST /api/tenants` answers `403`. |
+| `allowlist` | `DOKENE_PROVISIONING_ENABLED=true` and `DOKENE_PROVISIONING_ALLOWED_IDENTITIES` (comma-separated internal identity UUIDs) | Only the listed identities. |
+| `open` | `DOKENE_PROVISIONING_ENABLED=true` and `DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=true` | Every signed-in identity. Logged at `WARN`. Meant for local development. |
+
+An empty allowlist does not mean everyone. With provisioning enabled, the backend refuses to start unless exactly one
+policy is stated: an allowlist or the open setting, never both and never neither. A malformed allowlist entry stops
+startup in every mode. `DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY` (default `3`, range 1 to 10000) is the
+lifetime cap of workspaces per identity; a value out of range stops startup. The cap is validated and logged now and
+is enforced by the quota work of issue [#312](https://github.com/stevdrey/dokene/issues/312).
+
+A refused request answers `403` with content type `application/problem+json` and the body
+`{"type":"about:blank","title":"Forbidden","status":403,"code":"PROVISIONING_NOT_PERMITTED"}`, and writes one
+`AUTHORIZATION_DENIED` audit row. The counter `dokene.provisioning.refused` (tag `reason`) counts refusals.
+
+Local values: `compose.yaml` runs the stack in open mode with a cap of 1000, and `.env.example` lists the same values.
+Upgrade note: a backend run on the host through `scripts/dev-env.sh` reads `.env` directly, so an older `.env` with
+`DOKENE_PROVISIONING_ENABLED=true` must gain `DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=true` (or an allowlist), or
+that backend stops at startup. The same holds for any deployment that enabled provisioning with an empty allowlist.
 
 Tenant-scoped API operations nominate a workspace using `X-Tenant-Id: <tenant-id>`. Missing, inactive, or unauthorized
 selections fail closed with `403 Forbidden` and record an audit denial.

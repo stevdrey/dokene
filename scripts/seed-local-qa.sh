@@ -139,8 +139,8 @@ PROVISION_HTTP_CODE="$(curl -s -b "$OWNER_COOKIE_JAR" -D "$PROVISION_HEADER_LOG"
 
 if [ "$PROVISION_HTTP_CODE" = "403" ]; then
     echo "FAILED (HTTP 403)"
-    echo "Error: Workspace provisioning is disabled by default in Dokene." >&2
-    echo "Please set DOKENE_PROVISIONING_ENABLED=true (or dokene.provisioning.enabled=true) in your backend environment." >&2
+    echo "Error: Workspace provisioning is not permitted for this user. It is disabled by default in Dokene." >&2
+    echo "Please set DOKENE_PROVISIONING_ENABLED=true and DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=true (or list this user in DOKENE_PROVISIONING_ALLOWED_IDENTITIES) in your backend environment." >&2
     exit 1
 elif [ "$PROVISION_HTTP_CODE" != "200" ] && [ "$PROVISION_HTTP_CODE" != "201" ]; then
     echo "FAILED (HTTP $PROVISION_HTTP_CODE)"

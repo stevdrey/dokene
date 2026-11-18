@@ -5,6 +5,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.tenant.application.IdempotencyConflictException;
 import io.github.stevdrey.dokene.tenant.application.MembershipNotFoundException;
 import io.github.stevdrey.dokene.tenant.application.MembershipInvitationService;
+import io.github.stevdrey.dokene.tenant.application.ProvisioningNotPermittedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -177,6 +179,14 @@ public class TenantController {
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     void handleIllegalArgument() {
+    }
+
+    /** The policy refusal of provisioning (spec 0021): a closed code, sent as problem+json whatever was accepted. */
+    @ExceptionHandler(ProvisioningNotPermittedException.class)
+    ResponseEntity<ProvisioningProblem> handleProvisioningNotPermitted() {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(ProvisioningProblem.forbidden(ProvisioningProblemCode.PROVISIONING_NOT_PERMITTED));
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)

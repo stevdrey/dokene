@@ -19,7 +19,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Narrowly scoped application service for atomic workspace provisioning.
@@ -36,6 +37,8 @@ public class WorkspaceProvisioningService {
     private final TenantContextProvider tenantContextProvider;
     private final AuditRecorder auditRecorder;
     private final Clock clock;
+    private final TransactionTemplate transactionTemplate;
+    private final ProvisioningRefusalCounter refusalCounter;
 
     public WorkspaceProvisioningService(
             TenantRepository tenantRepository,
@@ -44,7 +47,9 @@ public class WorkspaceProvisioningService {
             ProvisioningAuthorizationPolicy provisioningAuthorizationPolicy,
             TenantContextProvider tenantContextProvider,
             AuditRecorder auditRecorder,
-            Clock clock
+            Clock clock,
+            PlatformTransactionManager transactionManager,
+            ProvisioningRefusalCounter refusalCounter
     ) {
         this.tenantRepository = Objects.requireNonNull(tenantRepository, "Tenant repository is required");
         this.tenantMembershipRepository = Objects.requireNonNull(tenantMembershipRepository, "Tenant membership repository is required");
@@ -53,19 +58,33 @@ public class WorkspaceProvisioningService {
         this.tenantContextProvider = Objects.requireNonNull(tenantContextProvider, "Tenant context provider is required");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "Audit recorder is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
+        this.transactionTemplate = new TransactionTemplate(
+                Objects.requireNonNull(transactionManager, "Transaction manager is required"));
+        this.refusalCounter = Objects.requireNonNull(refusalCounter, "Refusal counter is required");
     }
 
-    @Transactional
+    /**
+     * The policy check and its denial audit row run before the transaction opens (spec 0021): the audit recorder
+     * writes on a second pooled connection, so a refusal must never hold a provisioning transaction while it does.
+     */
     public ProvisionedWorkspace provisionWorkspace(IdentityId identityId, String idempotencyKey, String displayName) {
         Objects.requireNonNull(identityId, "Identity ID is required");
         String normalizedKey = WorkspaceProvisioningRecord.normalizeIdempotencyKey(idempotencyKey);
         String normalizedDisplayName = Tenant.normalizeDisplayName(displayName);
 
         if (!provisioningAuthorizationPolicy.isAllowed(identityId)) {
+            refusalCounter.refused(ProvisioningRefusalCounter.Reason.POLICY);
             auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
-            throw new TenantAccessDeniedException("Workspace provisioning is not permitted for this identity");
+            throw new ProvisioningNotPermittedException();
         }
 
+        return transactionTemplate.execute(
+                status -> provisionInTransaction(identityId, normalizedKey, normalizedDisplayName));
+    }
+
+    private ProvisionedWorkspace provisionInTransaction(
+            IdentityId identityId, String normalizedKey, String normalizedDisplayName
+    ) {
         workspaceProvisioningRepository.acquireIdempotencyLock(identityId, normalizedKey);
 
         Optional<WorkspaceProvisioningRecord> existingRecord =
