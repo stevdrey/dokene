@@ -397,7 +397,7 @@ export const AiAssistantPanel: React.FC<AiAssistantPanelProps> = ({
         </h3>
       </div>
       <p style={noteStyle}>
-        Sugerencia generada por IA · Dokene no ha enviado nada. El envío es manual por tu canal habitual y la decisión es tuya.
+        Sugerencia generada por IA · La IA no envía nada. Un mensaje solo se envía después de revisarlo, aprobarlo y enviarlo, y la decisión es tuya.
       </p>
 
       {!canUseAi && <p style={noteStyle}>{FORBIDDEN_MESSAGE}</p>}

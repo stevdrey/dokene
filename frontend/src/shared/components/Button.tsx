@@ -75,6 +75,9 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
           minHeight,
           minWidth,
           fontWeight: 500,
+          // Containers often allow overflow-wrap: anywhere for long data; a label must wrap only between words (#416).
+          overflowWrap: 'normal',
+          wordBreak: 'normal',
           fontSize: size === 'sm' ? 'var(--font-size-meta)' : 'var(--font-size-dense)',
           display: 'inline-flex',
           alignItems: 'center',

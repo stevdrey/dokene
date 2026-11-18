@@ -62,3 +62,11 @@ The UI implements the reconciled semantic token layer specified in Issue #37:
 - Client state transitions are predictable, testable, and resilient to network latency differences.
 - The visual presentation strictly matches approved design assets while maintaining accessibility standards.
 - Build and installation workflows are hardened against common npm supply chain attack vectors.
+
+## Addendum (PR #420): expiring audit exceptions
+
+`npm run audit` runs `frontend/scripts/audit.mjs`, which keeps the `high` threshold and fails on any high or critical
+advisory. The only way past it is an entry in `frontend/audit-allowlist.json` that names one GHSA id, states why it is
+acceptable, and carries an expiry date; an expired or malformed entry fails CI, so every exception is re-assessed. Use
+an exception only when no fixed version exists. The first entry, GHSA-fc5q-39xc-vjpf (picomatch ReDoS, no patched
+release, reached only through vite and vitest at build and test time), expires on 2026-12-18.

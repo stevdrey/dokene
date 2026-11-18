@@ -5,6 +5,7 @@ import { Badge } from '@/shared/components/Badge';
 import { Button } from '@/shared/components/Button';
 import { actionLabel, intentLabel } from '@/features/followups/utils/aiLabels';
 import { countCodePoints } from '@/features/followups/utils/textLength';
+import { hasUnsendableFormat } from '../utils/bodyFormat';
 import { DRAFT_BODY_MAX_CODE_POINTS, type SemanticAction, type SemanticTemplateIntent } from '@/features/followups/types';
 import { integrationApi } from '@/features/integrations/api/integrationApi';
 import type { TemplateListResponse } from '@/features/integrations/types';
@@ -127,6 +128,7 @@ export function MessageCompose({
   const headingId = useId();
   const textId = useId();
   const counterId = useId();
+  const formatId = useId();
   const localeId = useId();
   const [text, setText] = useState(input.initialBody);
   // AI drafts are generated in the default language only (issue 268), so only a manual message may change it.
@@ -207,12 +209,16 @@ export function MessageCompose({
 
   const length = countCodePoints(text);
   const overLimit = length > DRAFT_BODY_MAX_CODE_POINTS;
+  // Line breaks, tabs, hidden characters or a run of five spaces would be refused at submit (#417); say so now. The
+  // rule applies to the body as a template parameter only: a fixed template (no message_body) sends its own text,
+  // which may span lines, and the body must equal it exactly.
+  const badFormat = offer?.fixedTemplate !== true && hasUnsendableFormat(text);
   const busy = phase.kind === 'submitting';
   const canAct = canActOnMessages(role);
   // A role that lost the right to act mid confirmation closes the group; the read only sentence takes its place.
   if (!canAct && phase.kind === 'confirming') setPhase({ kind: 'editing' });
   const canSubmit =
-    canAct && text.trim() !== '' && !overLimit && !stale && !busy && phase.kind !== 'uncertain';
+    canAct && text.trim() !== '' && !overLimit && !badFormat && !stale && !busy && phase.kind !== 'uncertain';
   const recipient = maskPhone(input.recipientPhone);
 
   const edit = (value: string) => {
@@ -304,7 +310,10 @@ export function MessageCompose({
           setPhase({ kind: 'refused', message: rateLimitedSentence(failure.retryAfterSeconds ?? RATE_LIMIT_SECONDS) });
           return;
         case 'refused':
-          setPhase({ kind: 'refused', message: errorCodeSentence(failure.code) });
+          setPhase({
+            kind: 'refused',
+            message: failure.code === 'BODY_REJECTED' ? COPY.composeBodyRejected : errorCodeSentence(failure.code)
+          });
           return;
         default:
           setPhase({ kind: 'refused', message: COPY.actionFailed });
@@ -380,8 +389,8 @@ export function MessageCompose({
           value={text}
           rows={6}
           readOnly={!canAct || busy || phase.kind === 'uncertain'}
-          aria-invalid={overLimit}
-          aria-describedby={counterId}
+          aria-invalid={overLimit || badFormat}
+          aria-describedby={badFormat ? `${counterId} ${formatId}` : counterId}
           onChange={(event) => edit(event.target.value)}
         />
         <span
@@ -390,6 +399,14 @@ export function MessageCompose({
         >
           {length}/{DRAFT_BODY_MAX_CODE_POINTS}
         </span>
+        {/* Always rendered: a live region must exist before its text changes to be announced. */}
+        <p
+          id={formatId}
+          aria-live="polite"
+          className={badFormat ? 'message-review__notice message-review__notice--warning' : undefined}
+        >
+          {badFormat ? COPY.bodyFormat : ''}
+        </p>
       </div>
 
       {stale && (
