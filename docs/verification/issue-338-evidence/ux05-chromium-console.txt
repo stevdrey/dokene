@@ -1,0 +1,4 @@
+PASS  [UX-05 latency] a slow message read shows the "Cargando mensaje…" loader (aria-busy region)  (1 busy region(s))
+PASS  [UX-05 latency] while the approval is in flight the confirm button is aria-disabled and repeated activation sends no second request  (label "Cargando...", aria-disabled=true, requests=1, db PENDING_APPROVAL/v1/approvals=0 -> APPROVED/v2/approvals=1)
+PASS  [UX-05 403] a revoked OPERATOR gets "No tienes permiso para esta acción." and the message is unchanged  (revoke 204; db unchanged PENDING_APPROVAL/v1/approvals=0)
+PASS  [UX-05 403] cleanup: membership reactivated and accepted  (reactivate 200, accept 200)
