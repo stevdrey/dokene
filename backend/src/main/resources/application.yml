@@ -147,7 +147,8 @@ dokene:
     enabled: ${DOKENE_PROVISIONING_ENABLED:false}
     allowed-identities: ${DOKENE_PROVISIONING_ALLOWED_IDENTITIES:}
     allow-all-identities: ${DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES:false}
-    # Lifetime cap of workspaces one identity may provision. Range 1 to 10000, checked at startup in every mode.
+    # Lifetime cap of workspaces one identity may provision (invitations do not count; replays are never capped).
+    # Range 1 to 10000, checked at startup in every mode. Enforced per identity (ADR 0033 section 6).
     max-workspaces-per-identity: ${DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY:3}
   audit:
     # Bound on AUTHORIZATION_DENIED rows (issue 310, ADR 0032). A key is identity, tenant, reason and permission.

@@ -19,6 +19,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JpaWorkspaceProvisioningRepositoryAdapter implements WorkspaceProvisioningRepository {
 
+    private static final String LOCK_NAMESPACE = "workspace-provisioning";
+
     private final EntityManager entityManager;
     private final DatabaseContextSigner databaseContextSigner;
 
@@ -28,16 +30,29 @@ public class JpaWorkspaceProvisioningRepositoryAdapter implements WorkspaceProvi
     }
 
     @Override
-    public void acquireIdempotencyLock(IdentityId identityId, String idempotencyKey) {
+    public void acquireProvisioningLock(IdentityId identityId) {
+        // A hash collision between two identities only serializes them; it never lets either exceed its cap.
         entityManager.createNativeQuery("""
                         SELECT pg_advisory_xact_lock(
-                            hashtext(CAST(:identityId AS text)),
-                            hashtext(CAST(:idempotencyKey AS text))
+                            hashtext(CAST(:namespace AS text)),
+                            hashtext(CAST(:identityId AS text))
                         )
                         """)
+                .setParameter("namespace", LOCK_NAMESPACE)
                 .setParameter("identityId", identityId.value().toString())
-                .setParameter("idempotencyKey", idempotencyKey)
                 .getSingleResult();
+    }
+
+    @Override
+    public long countByIdentityId(IdentityId identityId) {
+        SignedDatabaseContext context = databaseContextSigner.issueIdentityContext(identityId);
+        Object count = entityManager.createNativeQuery("""
+                        SELECT dokene.count_workspace_provisioning_records(:payload, :signature)
+                        """)
+                .setParameter("payload", context.payload())
+                .setParameter("signature", context.signature())
+                .getSingleResult();
+        return ((Number) count).longValue();
     }
 
     @Override

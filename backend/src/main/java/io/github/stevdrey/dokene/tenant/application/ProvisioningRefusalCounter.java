@@ -10,7 +10,10 @@ public interface ProvisioningRefusalCounter {
     void refused(Reason reason);
 
     enum Reason {
-        POLICY;
+        /** The policy refused the identity: provisioning is disabled, or the identity is not listed. */
+        POLICY,
+        /** The identity is allowed but has reached max-workspaces-per-identity. */
+        QUOTA;
 
         public String tag() {
             return name().toLowerCase(Locale.ROOT);

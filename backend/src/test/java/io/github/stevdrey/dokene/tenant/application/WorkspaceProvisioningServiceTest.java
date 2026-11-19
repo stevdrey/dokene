@@ -88,12 +88,20 @@ class WorkspaceProvisioningServiceTest {
 
     private final WorkspaceProvisioningRepository provisioningRepository = new WorkspaceProvisioningRepository() {
         @Override
-        public void acquireIdempotencyLock(IdentityId identityId, String idempotencyKey) {
+        public void acquireProvisioningLock(IdentityId identityId) {
         }
 
         @Override
         public Optional<WorkspaceProvisioningRecord> findByIdentityIdAndIdempotencyKey(IdentityId identityId, String idempotencyKey) {
             return Optional.ofNullable(provisioningRecords.get(identityId.value() + ":" + idempotencyKey));
+        }
+
+        @Override
+        public long countByIdentityId(IdentityId identityId) {
+            if (!transactionOpen) {
+                refusalEvents.add("count outside transaction");
+            }
+            return provisioningRecords.values().stream().filter(r -> r.identityId().equals(identityId)).count();
         }
 
         @Override
@@ -172,7 +180,11 @@ class WorkspaceProvisioningServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new WorkspaceProvisioningService(
+        service = serviceWithCap(3);
+    }
+
+    private WorkspaceProvisioningService serviceWithCap(int cap) {
+        return new WorkspaceProvisioningService(
                 tenantRepository,
                 membershipRepository,
                 provisioningRepository,
@@ -181,8 +193,13 @@ class WorkspaceProvisioningServiceTest {
                 auditRecorder,
                 clock,
                 transactionManager,
-                refusalCounter
+                refusalCounter,
+                properties(cap)
         );
+    }
+
+    private static ProvisioningProperties properties(int cap) {
+        return new ProvisioningProperties(true, List.of(), true, cap);
     }
 
     @Test
@@ -365,12 +382,18 @@ class WorkspaceProvisioningServiceTest {
     }
 
     @Test
-    void acquiresIdempotencyLockBeforeCheckingForAnExistingProvisioning() {
+    void acquiresTheIdentityLockBeforeCheckingForAnExistingProvisioningOrCounting() {
         List<String> calls = new ArrayList<>();
         WorkspaceProvisioningRepository lockingRepository = new WorkspaceProvisioningRepository() {
             @Override
-            public void acquireIdempotencyLock(IdentityId identityId, String idempotencyKey) {
+            public void acquireProvisioningLock(IdentityId identityId) {
                 calls.add("lock");
+            }
+
+            @Override
+            public long countByIdentityId(IdentityId identityId) {
+                calls.add("count");
+                return 0;
             }
 
             @Override
@@ -388,12 +411,86 @@ class WorkspaceProvisioningServiceTest {
 
         WorkspaceProvisioningService lockingService = new WorkspaceProvisioningService(
                 tenantRepository, membershipRepository, lockingRepository, policy, tenantContextProvider, auditRecorder, clock,
-                transactionManager, refusalCounter
+                transactionManager, refusalCounter, properties(3)
         );
 
         lockingService.provisionWorkspace(identity, "race-key", "Race Workspace");
 
-        assertThat(calls).containsExactly("lock", "find", "save");
+        assertThat(calls).containsExactly("lock", "find", "count", "save");
+    }
+
+    /** covers: #312 quota */
+    @Test
+    void createsWorkspacesUpToTheCapAndRefusesTheNextOneWithNothingWritten() {
+        service = serviceWithCap(2);
+        service.provisionWorkspace(identity, "key-1", "First");
+        service.provisionWorkspace(identity, "key-2", "Second");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-3", "Third"))
+                .isInstanceOf(WorkspaceQuotaExceededException.class)
+                .isInstanceOf(TenantAccessDeniedException.class)
+                .isNotInstanceOf(ProvisioningNotPermittedException.class);
+
+        assertThat(tenants).hasSize(2);
+        assertThat(memberships).hasSize(2);
+        assertThat(provisioningRecords).hasSize(2);
+        assertThat(auditDenials).containsExactly(
+                new AuditDenialRecord(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT));
+    }
+
+    /** covers: #312 quota. The cap is checked in the transaction; the refusal is recorded only after it rolled back. */
+    @Test
+    void countsAndAuditsAQuotaRefusalOnlyAfterTheTransactionRolledBack() {
+        service = serviceWithCap(1);
+        service.provisionWorkspace(identity, "key-1", "First");
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-2", "Second"))
+                .isInstanceOf(WorkspaceQuotaExceededException.class);
+
+        assertThat(refusalEvents).containsExactly("counter quota", "audit " + identity.value());
+        assertThat(commits).isEqualTo(1);
+        assertThat(rollbacks).isEqualTo(1);
+    }
+
+    /** covers: #312 quota. A replay is never capped: it creates nothing, so it answers as before at any count. */
+    @Test
+    void replaysAnExistingKeyAtTheCapAndStillReportsANameConflict() {
+        service = serviceWithCap(1);
+        ProvisionedWorkspace first = service.provisionWorkspace(identity, "key-1", "Only");
+
+        ProvisionedWorkspace replay = service.provisionWorkspace(identity, "key-1", "Only");
+        assertThat(replay.created()).isFalse();
+        assertThat(replay.tenantId()).isEqualTo(first.tenantId());
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-1", "Renamed"))
+                .isInstanceOf(IdempotencyConflictException.class);
+        assertThat(refusalEvents).isEmpty();
+        assertThat(auditDenials).isEmpty();
+    }
+
+    /** covers: #312 quota. The cap is per identity. */
+    @Test
+    void anotherIdentityIsNotChargedForTheFirstIdentitysWorkspaces() {
+        service = serviceWithCap(1);
+        service.provisionWorkspace(identity, "key-1", "Mine");
+
+        ProvisionedWorkspace other = service.provisionWorkspace(new IdentityId(UUID.randomUUID()), "key-1", "Theirs");
+
+        assertThat(other.created()).isTrue();
+        assertThat(refusalEvents).isEmpty();
+    }
+
+    /** covers: #312 quota. A refused policy never reaches the count. */
+    @Test
+    void aPolicyRefusalIsCountedAsPolicyAndNeverCountsWorkspaces() {
+        service = serviceWithCap(1);
+        service.provisionWorkspace(identity, "key-1", "First");
+        provisioningAllowed = false;
+
+        assertThatThrownBy(() -> service.provisionWorkspace(identity, "key-2", "Second"))
+                .isInstanceOf(ProvisioningNotPermittedException.class);
+
+        assertThat(refusalEvents).containsExactly("counter policy", "audit " + identity.value());
     }
 
     private record AuditDenialRecord(TenantPermission permission, AuditDenialReason reason) {

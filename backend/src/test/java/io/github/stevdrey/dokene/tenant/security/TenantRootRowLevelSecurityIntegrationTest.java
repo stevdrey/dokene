@@ -133,6 +133,22 @@ class TenantRootRowLevelSecurityIntegrationTest {
         }
     }
 
+    /** covers: #312 quota. The count sees only the verified identity's records and fails closed, never as 0. */
+    @Test
+    void provisioningCountRequiresAnIdentityCapabilityAndCountsOnlyThatIdentity() throws Exception {
+        SignedDatabaseContext identityContextA = signer.issueIdentityContext(identityA);
+
+        try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnectionWithoutContext()) {
+            assertThat(countRecords(connection, identityContextA)).isEqualTo(1);
+            assertThat(countRecords(connection, signer.issueIdentityContext(new IdentityId(UUID.randomUUID()))))
+                    .isZero();
+            assertCapabilityRejected(() -> countRecords(connection, forged(identityContextA)));
+            assertCapabilityRejected(() -> countRecords(connection, signer.issueTenantContext(workspaceA.tenantId())));
+            assertCapabilityRejected(() -> queryInt(connection,
+                    "SELECT dokene.count_workspace_provisioning_records(NULL, NULL)"));
+        }
+    }
+
     @Test
     void provisioningRecordWriteRequiresBothTheIdentityCapabilityAndTheRecordedTenantContext() throws Exception {
         SignedDatabaseContext identityContextA = signer.issueIdentityContext(identityA);
@@ -231,6 +247,11 @@ class TenantRootRowLevelSecurityIntegrationTest {
             throws SQLException {
         return queryUuids(connection, "SELECT tenant_id FROM dokene.find_workspace_provisioning_record(?, ?, ?)",
                 context.payload(), context.signature(), idempotencyKey);
+    }
+
+    private static int countRecords(Connection connection, SignedDatabaseContext context) throws SQLException {
+        return queryInt(connection, "SELECT dokene.count_workspace_provisioning_records(?, ?)",
+                context.payload(), context.signature());
     }
 
     @FunctionalInterface
