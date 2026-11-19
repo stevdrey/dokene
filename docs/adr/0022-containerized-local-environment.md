@@ -57,3 +57,6 @@ produced hard-to-diagnose failures such as `role "dokene_migration" does not exi
   template. Before issue 319 that state lived in the container's writable layer and ended when the container was
   removed. The writable paths and the remaining exceptions are listed in `infra/docker/README.md`.
 - Tests are not run during the image build; CI (`./gradlew test`, `npm test`) remains the verification gate.
+- The frontend image logs no query string (issue 330): its access log records paths only, and it writes no request
+  scoped error line, since nginx would print the raw request line, query string included, in each one. Edge failures
+  are read from the access log status and upstream fields (`infra/docker/README.md`, security invariant 41).

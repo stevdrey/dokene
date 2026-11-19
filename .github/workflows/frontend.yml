@@ -7,6 +7,9 @@ on:
       - 'infra/docker/frontend/**'
       - 'scripts/tests/nginx-headers-smoke.sh'
       - 'scripts/tests/nginx-login-rate-limit-smoke.sh'
+      - 'scripts/tests/nginx-log-redaction-smoke.sh'
+      - 'scripts/lib/curl-protected.sh'
+      - 'scripts/lib/secret-match.sh'
       - 'backend/src/test/resources/contracts/**'
       - '.github/workflows/frontend.yml'
   push:
@@ -16,6 +19,9 @@ on:
       - 'infra/docker/frontend/**'
       - 'scripts/tests/nginx-headers-smoke.sh'
       - 'scripts/tests/nginx-login-rate-limit-smoke.sh'
+      - 'scripts/tests/nginx-log-redaction-smoke.sh'
+      - 'scripts/lib/curl-protected.sh'
+      - 'scripts/lib/secret-match.sh'
       - 'backend/src/test/resources/contracts/**'
       - '.github/workflows/frontend.yml'
 
@@ -46,3 +52,4 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./scripts/tests/nginx-headers-smoke.sh
       - run: ./scripts/tests/nginx-login-rate-limit-smoke.sh
+      - run: ./scripts/tests/nginx-log-redaction-smoke.sh

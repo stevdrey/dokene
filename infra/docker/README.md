@@ -191,6 +191,35 @@ restores, and so escape the login start limit and the webhook connection limits.
 Verify with `./scripts/tests/nginx-headers-smoke.sh` and `./scripts/tests/nginx-login-rate-limit-smoke.sh` (Docker
 only).
 
+### Edge logs
+
+Query strings reaching the edge carry credentials and personal data: the Meta webhook verify token and challenge, the
+OAuth callback code and state, and customer search terms such as a phone number or a name. nginx therefore logs no
+query string anywhere (issue #330, [security invariant 41](../../docs/security/security-invariants.md)):
+
+- The access log (`docker compose logs frontend`, stdout) has one line per request: client address, time, method,
+  path without its query string, status, bytes, request time, `upstream=<address>/<status>` (`-/-` when nginx never
+  reached the backend), upstream response time, the `Referer` without its query string or fragment, the user agent and
+  the `X-Forwarded-For` it received. It never holds the raw request line, cookies, credential headers or a body.
+- No request scoped error line is written. nginx prints the raw request line, query string included, into every
+  error line it logs while serving a request, and that format cannot be changed. Read a failure from the access log
+  instead: `502` with `upstream=-/-` means the name `backend` did not resolve; `502` with `upstream=<address>/502`
+  means the backend refused or dropped the connection; `504` is a backend timeout; `413` a body over the cap; `408` a
+  body that arrived too slowly; `503` the webhook connection limit; `429` the login start limit; `500` an edge failure
+  such as a full `/tmp`. Process level lines (start, reload, an invalid configuration, a worker that dies) still reach
+  stderr. Do not add an `error_log` to a location, even to debug: it brings the request lines, and the secrets in them,
+  back.
+
+**Rotation.** Images built before issue #330 logged the raw request line, query string included, to stdout on every
+request and to stderr on every failed one. If logs of such an image were kept, copied or shipped anywhere, treat them
+as holding secrets: rotate the WhatsApp webhook verify token (in the integration secret source and in the Meta app's
+webhook settings, together), delete or restrict those logs, and treat any customer search terms in them as personal
+data. OAuth callback codes in them are single use and short lived, and need no rotation once the login completed or
+expired. The local stack's own logs live only in Docker's log files for the container and go when it is removed
+(`./scripts/dev-env.sh down`).
+
+Verify with `./scripts/tests/nginx-log-redaction-smoke.sh` (Docker only).
+
 ### Troubleshooting
 
 - `Host port N is already in use`: another process owns the port (for PostgreSQL, often a locally installed
