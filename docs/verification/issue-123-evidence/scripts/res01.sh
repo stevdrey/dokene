@@ -24,4 +24,4 @@ case_run "6 openai with an invalid key (genuine OpenAI 401)" '      DOKENE_AI_PR
       DOKENE_AI_OPENAI_API_KEY: "invalid-key-qa-0000"'
 case_run "7 openai with an unavailable model (genuine OpenAI 404)" '      DOKENE_AI_PROVIDER: "openai"
       DOKENE_AI_OPENAI_MODEL: "gpt-qa-nonexistent-model"'
-rm -f "$OV"; echo "== restore (compose without override)"; docker compose up -d --force-recreate --no-deps backend >/dev/null 2>&1; waitup && echo "  backend healthy with the original .env configuration"
+echo "== restore (compose without override)"; docker compose up -d --force-recreate --no-deps backend >/dev/null 2>&1; waitup && echo "  backend healthy with the original .env configuration"

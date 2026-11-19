@@ -78,6 +78,14 @@ for sig in HUP INT TERM; do
     for _ in $(seq 1 100); do [ -s "$READY" ] && break; sleep 0.05; done
     assert "$sig: the directory exists before the signal" test -d "$(cat "$READY" 2>/dev/null)"
     kill -s "$sig" "$pid"
+    # A bounded wait: a script that ignores the signal fails here instead of hanging the test.
+    for _ in $(seq 1 100); do kill -0 "$pid" 2>/dev/null || break; sleep 0.05; done
+    if kill -0 "$pid" 2>/dev/null; then
+        kill -s KILL "$pid" 2>/dev/null
+        fail "$sig: the script ends within 5 s"
+    else
+        pass "$sig: the script ends within 5 s"
+    fi
     { wait "$pid"; } 2>/dev/null
     got=$?
     assert "$sig: the script still ends by the signal" test "$got" = "$((128 + $(kill -l "$sig")))"
@@ -95,13 +103,41 @@ T="$(child_tmp refuse-name)"
 OUT="$(TMPDIR="$T" bash -c '. "$1"; private_temp_dir "x;y"; echo "status=$?"' _ "$LIB" 2>&1)"
 assert "an invalid variable name is refused" grep -q 'status=2' <<< "$OUT"
 assert "an invalid variable name creates no directory" empty_dir "$T"
+T="$(child_tmp refuse-int)"
+OUT="$(TMPDIR="$T" bash -c '. "$1"; trap "echo own" INT; private_temp_dir D; echo "status=$?"; trap -p INT' _ "$LIB" 2>&1)"
+assert "an existing INT trap is not replaced" grep -q 'refusing to replace an existing INT trap' <<< "$OUT"
+assert "the INT refusal returns status 2 and keeps the trap" test "$(grep -c 'status=2\|echo own' <<< "$OUT")" = 2
+assert "the INT refusal creates no directory" empty_dir "$T"
+for sig in HUP INT; do
+    T="$(child_tmp "ignored-$sig")"
+    # The outer shell ignores the signal, so the script starts with it ignored, as under nohup or as a background job.
+    OUT="$(TMPDIR="$T" bash -c 'trap "" "$2"; bash -c ". \"\$1\"; private_temp_dir D; echo \"status=\$?\"; trap -p \"\$2\"" _ "$1" "$2"' _ "$LIB" "$sig" 2>&1)"
+    assert "a script started with $sig ignored still gets a private directory" grep -q 'status=0' <<< "$OUT"
+    assert "a script started with $sig ignored keeps it ignored" grep -qx "trap -- '' SIG$sig" <<< "$OUT"
+    assert "a script started with $sig ignored removes the directory on exit" empty_dir "$T"
+done
+T="$(child_tmp refuse-own-prefix)"
+OUT="$(TMPDIR="$T" bash -c '. "$1"; private_temp_dir _private_temp_x; echo "status=$?"' _ "$LIB" 2>&1)"
+assert "a name in the helper's own prefix is refused" grep -q 'status=2' <<< "$OUT"
+assert "a refused own-prefix name creates no directory" empty_dir "$T"
+for name in dir var existing new name; do
+    T="$(child_tmp "name-$name")"
+    OUT="$(TMPDIR="$T" bash -c '. "$1"; private_temp_dir "$2" && eval "printf \"%s\n\" \"\$$2\""' _ "$LIB" "$name" 2>&1)"
+    assert "a caller variable named $name receives the private directory" grep -q "^$T/dokene-private\." <<< "$OUT"
+done
+T="$(child_tmp symlink)"
+VICTIM="$WORK/victim"; printf 'untouched\n' > "$VICTIM"
+TMPDIR="$T" bash -c '. "$1"; private_temp_dir D; ln -s "$2" "$D/ov.yaml"; printf "%s\n" "$3" | private_temp_write "$D/ov.yaml"
+    [ -f "$D/ov.yaml" ] && [ ! -L "$D/ov.yaml" ] && echo replaced' _ "$LIB" "$VICTIM" "$SYNTHETIC_KEY" > "$WORK/symlink.out" 2>&1
+assert "a link at the target is replaced by a regular file" grep -q '^replaced$' "$WORK/symlink.out"
+assert "the link's target is not written" test "$(cat "$VICTIM")" = untouched
 T="$(child_tmp twice)"
 OUT="$(TMPDIR="$T" bash -c '. "$1"; private_temp_dir A && private_temp_dir B && echo both' _ "$LIB" 2>&1)"
 assert "a second private directory may be created" grep -q '^both$' <<< "$OUT"
 assert "both private directories are removed" empty_dir "$T"
 
 # --- the RES-01 script as written: its override is private, never holds the key, and is removed afterwards.
-# Its recreate() and every line between case_run() and the final cleanup run with a stub docker, in a folder whose
+# Its recreate() and every line between case_run() and the final restore run with a stub docker, in a folder whose
 # .env holds the synthetic key; probe and waitup are not needed for the override.
 LOADER_LINE="$(grep -n 'scripts/lib/private-temp.sh' "$RES01" | head -1 | cut -d: -f1)"
 FIRST_CD="$(grep -n '^cd ' "$RES01" | head -1 | cut -d: -f1)"
@@ -109,6 +145,12 @@ assert "res01.sh loads the helper before its first cd" test -n "$LOADER_LINE" -a
 assert "res01.sh's loader resolves from its own location" test -f "$(dirname "$RES01")/../../../../scripts/lib/private-temp.sh"
 refute "res01.sh does not read .env" grep -q '\.env' <(grep -v '^#' "$RES01" | sed 's/original \.env configuration//')
 assert "res01.sh keeps its override in the private directory" grep -q 'private_temp_dir QA_PRIVATE || exit 2; OV=\$QA_PRIVATE/ov.yaml' "$RES01"
+RES04B="$(dirname "$RES01")/res04b.sh"
+LOADER_LINE="$(grep -n 'scripts/lib/private-temp.sh' "$RES04B" | head -1 | cut -d: -f1)"
+FIRST_CD="$(grep -n '^cd ' "$RES04B" | head -1 | cut -d: -f1)"
+assert "res04b.sh loads the helper before its first cd" test -n "$LOADER_LINE" -a -n "$FIRST_CD" -a "${LOADER_LINE:-0}" -lt "${FIRST_CD:-0}"
+assert "res04b.sh keeps its override in the private directory" grep -q 'private_temp_dir QA_PRIVATE || exit 2; OV=\$QA_PRIVATE/ov2.yaml' "$RES04B"
+assert "res04b.sh parses" bash -n "$RES04B"
 
 STUB="$WORK/stub"; mkdir -p "$STUB"
 cat > "$STUB/docker" <<'EOF'
@@ -131,7 +173,7 @@ HARNESS="$WORK/res01-harness.sh"
     printf 'private_temp_dir QA_PRIVATE || exit 2; OV=$QA_PRIVATE/ov.yaml; printf "%%s\\n" "$QA_PRIVATE" > %q\n' "$WORK/res01-dir"
     grep '^recreate()' "$RES01"
     printf 'case_run() { recreate "$2"; }\n'
-    awk 'on && /^rm -f /{on=0} on; /^case_run\(\)/{on=1}' "$RES01"
+    awk 'on && /^echo "== restore/{on=0} on; /^case_run\(\)/{on=1}' "$RES01"
 } > "$HARNESS"
 LOG="$WORK/res01.log"; : > "$LOG"
 ( cd "$RUN" && PATH="$STUB:$PATH" RES01_LOG="$LOG" TMPDIR="$(child_tmp res01)" DOKENE_AI_OPENAI_API_KEY="$SYNTHETIC_KEY" bash "$HARNESS" )

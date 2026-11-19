@@ -38,7 +38,7 @@ No other evidence script under `docs/verification/` writes a real key into a fil
 
 | Check | Kind | Outcome |
 | --- | --- | --- |
-| `./scripts/tests/private-temp-test.sh` | automated, offline | all tests passed (42 checks) |
+| `./scripts/tests/private-temp-test.sh` | automated, offline | all tests passed (66 checks after the review round below) |
 | — directory and file modes with `umask 000` | automated, offline | directory 700, written and replaced files 600 |
 | — cleanup on a normal end, `exit 3` and a `set -e` failure | automated, offline | directory removed, exit status kept (0, 3, 1) |
 | — cleanup on HUP, INT and TERM sent to a running script | automated, offline | directory removed, the script ends by the signal (status 129, 130, 143) |
@@ -49,9 +49,35 @@ No other evidence script under `docs/verification/` writes a real key into a fil
 | `shellcheck` on the helper and the test | automated | clean |
 | `bash -n` on `res01.sh` | automated | parses |
 
+## Review round
+
+A high-effort code review of PR #425 raised nine findings; all were applied in a second candidate:
+
+| Finding | Change |
+| --- | --- |
+| A caller variable named like a local of the helper (`dir`, `existing`) stayed empty | the locals use the `_private_temp_` prefix, and a name with that prefix is refused |
+| An existing HUP, INT or TERM trap was replaced silently | refused like an existing EXIT trap (status 2, nothing created); a signal the shell ignores from the start (`nohup`, a background job) is not a trap: it stays ignored and the call succeeds. The independent re-verification found that the first version of this change also refused ignored signals, so `res01.sh` stopped under `nohup`; fixed in the same round |
+| A signal between `mktemp` and the trap setup left the directory | the traps are set first, and one command creates and records the directory |
+| The signal was raised again with `$$` | `$BASHPID`, the process that received it |
+| `private_temp_write` could follow a link planted after its `rm` | the file is created with `noclobber` |
+| A redundant `chmod 700` | removed; `mktemp -d` under umask 077 gives mode 700, which the test checks |
+| `res04b.sh` and `provider_test_override` wrote their override at a fixed path with the default umask | `res04b.sh` uses a private directory; `provider_test_override` writes with mode 600 (synthetic key only) |
+| `res01.sh` removed the override itself as well | the explicit `rm` is gone; the EXIT trap removes the directory |
+| The interrupt test waited without a bound | a script that survives the signal fails after 5 s and is killed |
+
+Checks of this round, offline, with synthetic values only:
+
+| Check | Kind | Outcome |
+| --- | --- | --- |
+| `./scripts/tests/private-temp-test.sh` | automated | all 66 checks pass, including a script started with HUP or INT ignored, which still gets its directory and keeps the signal ignored; caller names `dir`, `var`, `existing`, `new`, `name`; an existing INT trap kept and refused; a planted link replaced and its target untouched; `res04b.sh` loader and private override |
+| `./scripts/tests/provider-test-double-test.sh` | automated | all pass, including the new mode-600 check of the override |
+| `./scripts/tests/bff-login-test.sh` | automated | all pass |
+| Mutations on a scratch copy: INT trap removed / old local names / `rm` and `noclobber` removed together / `res01.sh` from `main` / ignored signals refused again | automated | 3 / 2 / 3 / 8 / 2 failures; the INT mutant fails in about 6 s instead of hanging. Removing `noclobber` alone is not caught: it only matters when a link appears between the `rm` and the create, a race the test does not stage |
+| `shellcheck` on the helper, both tests and `provider-test-double.sh` | automated | clean apart from the SC1091 info note `main` already has |
+
 ## Limitations
 
-- `res01.sh` was not run end to end; the test runs its override writer and case lines as written, not its probes, env files or the stack.
+- `res01.sh` and `res04b.sh` were not run end to end; the test runs its override writer and case lines as written, not its probes, env files or the stack.
 - After an interrupt the override is removed but the backend is not recreated without it: it keeps the case's environment until the operator restores it, as before. That environment never holds a key the stack did not already have.
 - `SIGKILL` and a power loss cannot run any cleanup. The directory is then left behind, still private (mode 700); since the key is no longer written, it holds no credential.
 - The original outputs in `../outputs.txt` were produced before this change and are kept unchanged.
