@@ -1,0 +1,10 @@
+{
+  "description": "High/critical npm advisories accepted temporarily by scripts/audit.mjs. Every entry needs a reason and an expiry date; an expired entry fails CI so the decision is re-assessed. Keep this list empty whenever a fixed version exists.",
+  "advisories": [
+    {
+      "id": "GHSA-fc5q-39xc-vjpf",
+      "reason": "picomatch ReDoS through single-branch repeated extglobs. Every published version (<= 4.0.7) is affected and no patched release exists. picomatch is reached only through build and test tooling (vite, vitest, tinyglobby, fdir, @vitejs/plugin-react); it is not part of the browser bundle, and those tools only match the project's own file globs, not untrusted input. npm audit fix --force would downgrade vitest to 3.x and still ship picomatch. Accepted by the maintainer on 2026-11-18 for PR #420.",
+      "expires": "2026-12-18"
+    }
+  ]
+}

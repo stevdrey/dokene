@@ -214,6 +214,8 @@ Each finding is tagged **Confirmed** (reproduced dynamically), **Static** (code 
 
 #### L3. Workspace self-provisioning is open and unlimited in the shipped Compose configuration — Confirmed
 
+- **Status:** fixed by [#414](https://github.com/stevdrey/dokene/issues/414) (stated policy) and [#312](https://github.com/stevdrey/dokene/issues/312) (per-identity cap); see [ADR 0033](../adr/0033-stated-workspace-provisioning-policy.md) and [the verification record](../verification/issue-312-provisioning-quota-verification.md). Enabled provisioning needs a non-empty allowlist or the explicit open setting, or startup stops. Each identity provisions at most `max-workspaces-per-identity` workspaces (default 3), counted under one lock per identity (V41); the refusal answers `403` with code `WORKSPACE_QUOTA_EXCEEDED`. The local Compose stack still runs in open mode with a cap of 1000, stated as local values. Look-alike workspace names are not addressed by this fix.
+
 - **Where:**
   - `compose.yaml:169` and `.env.example`: `DOKENE_PROVISIONING_ENABLED=true` by default.
   - `tenant/application/DefaultProvisioningAuthorizationPolicy.java:39-40` returns `true` when the allowlist is empty.

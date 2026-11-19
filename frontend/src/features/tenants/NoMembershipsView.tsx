@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { useTenant, normalizeWorkspaceName, countCodePoints, MAX_WORKSPACE_NAME_CODE_POINTS } from './TenantContext';
 import { useSession } from '../auth/SessionContext';
-import { ForbiddenError, ApiError } from '../../api/apiClient';
+import { ForbiddenError, ApiError, isWorkspaceQuotaExceeded } from '../../api/apiClient';
 import { PendingInvitations } from './PendingInvitations';
 
 export const NoMembershipsView: React.FC = () => {
@@ -12,6 +12,7 @@ export const NoMembershipsView: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [logoutError, setLogoutError] = useState<string | null>(null);
   const [isProvisioningForbidden, setIsProvisioningForbidden] = useState(false);
+  const [isLimitReached, setIsLimitReached] = useState(false);
   const [operationKey, setOperationKey] = useState<string>(() => crypto.randomUUID());
   const attemptedKeysRef = useRef<Map<string, string>>(new Map());
 
@@ -59,6 +60,7 @@ export const NoMembershipsView: React.FC = () => {
         (err instanceof Error && err.message.includes('403'))
       ) {
         setIsProvisioningForbidden(true);
+        setIsLimitReached(isWorkspaceQuotaExceeded(err));
         setError(null);
       } else if (err instanceof ApiError) {
         if (err.status === 400) {
@@ -185,7 +187,7 @@ export const NoMembershipsView: React.FC = () => {
               <span className="material-symbols-outlined" aria-hidden="true" style={{ fontSize: '20px' }}>
                 lock
               </span>
-              <span>Creación de espacios restringida</span>
+              <span>{isLimitReached ? 'Límite de espacios alcanzado' : 'Creación de espacios restringida'}</span>
             </div>
             <p
               style={{
@@ -195,7 +197,9 @@ export const NoMembershipsView: React.FC = () => {
                 lineHeight: 'var(--line-height-secondary)',
               }}
             >
-              La creación de nuevos espacios de trabajo no está habilitada para tu cuenta. Si necesitas acceder a un espacio existente para tu negocio, por favor solicita acceso o una invitación a un administrador.
+              {isLimitReached
+                ? 'Ya creaste el máximo de espacios de trabajo permitido para tu cuenta. Si necesitas otro, pide a un administrador que amplíe el límite o que te invite a un espacio existente.'
+                : 'La creación de nuevos espacios de trabajo no está habilitada para tu cuenta. Si necesitas acceder a un espacio existente para tu negocio, por favor solicita acceso o una invitación a un administrador.'}
             </p>
           </div>
         ) : (

@@ -19,7 +19,9 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.TransactionTemplate;
 
 /**
  * Narrowly scoped application service for atomic workspace provisioning.
@@ -36,6 +38,9 @@ public class WorkspaceProvisioningService {
     private final TenantContextProvider tenantContextProvider;
     private final AuditRecorder auditRecorder;
     private final Clock clock;
+    private final TransactionTemplate transactionTemplate;
+    private final ProvisioningRefusalCounter refusalCounter;
+    private final int maxWorkspacesPerIdentity;
 
     public WorkspaceProvisioningService(
             TenantRepository tenantRepository,
@@ -44,7 +49,10 @@ public class WorkspaceProvisioningService {
             ProvisioningAuthorizationPolicy provisioningAuthorizationPolicy,
             TenantContextProvider tenantContextProvider,
             AuditRecorder auditRecorder,
-            Clock clock
+            Clock clock,
+            PlatformTransactionManager transactionManager,
+            ProvisioningRefusalCounter refusalCounter,
+            ProvisioningProperties provisioningProperties
     ) {
         this.tenantRepository = Objects.requireNonNull(tenantRepository, "Tenant repository is required");
         this.tenantMembershipRepository = Objects.requireNonNull(tenantMembershipRepository, "Tenant membership repository is required");
@@ -53,21 +61,53 @@ public class WorkspaceProvisioningService {
         this.tenantContextProvider = Objects.requireNonNull(tenantContextProvider, "Tenant context provider is required");
         this.auditRecorder = Objects.requireNonNull(auditRecorder, "Audit recorder is required");
         this.clock = Objects.requireNonNull(clock, "Clock is required");
+        this.transactionTemplate = new TransactionTemplate(
+                Objects.requireNonNull(transactionManager, "Transaction manager is required"));
+        // The cap count must see the rows the previous lock holder committed; under REPEATABLE READ the snapshot would
+        // be taken at the lock statement, before the wait, and two requests could both read a count below the cap.
+        this.transactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
+        this.refusalCounter = Objects.requireNonNull(refusalCounter, "Refusal counter is required");
+        this.maxWorkspacesPerIdentity = Objects.requireNonNull(provisioningProperties, "Provisioning properties are required")
+                .maxWorkspacesPerIdentity();
     }
 
-    @Transactional
+    /**
+     * The policy check and its denial audit row run before the transaction opens (spec 0021): the audit recorder
+     * writes on a second pooled connection, so a refusal must never hold a provisioning transaction while it does.
+     * The cap needs the database, so it is checked inside the transaction under the per-identity lock; its refusal
+     * is counted and audited only after that transaction has rolled back (ADR 0033 §6).
+     */
     public ProvisionedWorkspace provisionWorkspace(IdentityId identityId, String idempotencyKey, String displayName) {
         Objects.requireNonNull(identityId, "Identity ID is required");
         String normalizedKey = WorkspaceProvisioningRecord.normalizeIdempotencyKey(idempotencyKey);
         String normalizedDisplayName = Tenant.normalizeDisplayName(displayName);
 
         if (!provisioningAuthorizationPolicy.isAllowed(identityId)) {
-            auditRecorder.authorizationDenied(
-                    TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
-            throw new TenantAccessDeniedException("Workspace provisioning is not permitted for this identity");
+            refuse(identityId, ProvisioningRefusalCounter.Reason.POLICY);
+            throw new ProvisioningNotPermittedException();
         }
 
-        workspaceProvisioningRepository.acquireIdempotencyLock(identityId, normalizedKey);
+        try {
+            return transactionTemplate.execute(
+                    status -> provisionInTransaction(identityId, normalizedKey, normalizedDisplayName));
+        } catch (WorkspaceQuotaExceededException refusal) {
+            // The template has rolled the transaction back and returned its connection by now (ADR 0033 §2, §6).
+            refuse(identityId, ProvisioningRefusalCounter.Reason.QUOTA);
+            throw refusal;
+        }
+    }
+
+    /** Counts first, so a refusal whose audit row is suppressed or fails is still counted. */
+    private void refuse(IdentityId identityId, ProvisioningRefusalCounter.Reason reason) {
+        refusalCounter.refused(reason);
+        auditRecorder.authorizationDenied(
+                TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identityId);
+    }
+
+    private ProvisionedWorkspace provisionInTransaction(
+            IdentityId identityId, String normalizedKey, String normalizedDisplayName
+    ) {
+        workspaceProvisioningRepository.acquireProvisioningLock(identityId, normalizedKey);
 
         Optional<WorkspaceProvisioningRecord> existingRecord =
                 workspaceProvisioningRepository.findByIdentityIdAndIdempotencyKey(identityId, normalizedKey);
@@ -87,6 +127,11 @@ public class WorkspaceProvisioningService {
                         record.tenantId(), existingTenant.displayName(), membership.id(), membership.role(), false
                 );
             });
+        }
+
+        // Only a request that would create a workspace is capped: a replay above answers as before, at any count.
+        if (workspaceProvisioningRepository.countByIdentityId(identityId) >= maxWorkspacesPerIdentity) {
+            throw new WorkspaceQuotaExceededException();
         }
 
         TenantId tenantId = TenantId.random();

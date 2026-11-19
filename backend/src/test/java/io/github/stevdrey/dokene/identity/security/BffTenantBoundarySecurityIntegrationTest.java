@@ -75,6 +75,7 @@ class BffTenantBoundarySecurityIntegrationTest {
         TenantSecurityIntegrationFixture.configure(registry);
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "4");
         registry.add("dokene.provisioning.enabled", () -> "true");
+        registry.add("dokene.provisioning.allow-all-identities", () -> "true");
         OIDC.start();
         registry.add("spring.security.oauth2.client.registration.dokene.provider", () -> "dokene");
         registry.add("spring.security.oauth2.client.registration.dokene.client-id", () -> CLIENT_ID);

@@ -127,6 +127,17 @@ describe('compose mode', () => {
       });
     });
 
+    it('accepts a fixed template text that spans lines: the format rule covers parameters only (#417)', async () => {
+      const multiline = 'Hello.\nThanks for your purchase.';
+      const slot = { ...englishSlot, content: { ...englishSlot.content!, bodyText: multiline } };
+      server.on(localesPath, ok(localesFixtures.englishEnabled)).on(templatesPath, templateList(slot));
+      renderCompose(composeMode({ origin: 'MANUAL' }));
+      await waitFor(() => expect(textarea()).toHaveValue(multiline));
+      expect(screen.queryByText(/WhatsApp no admite saltos de línea/)).toBeNull();
+      expect(textarea()).not.toHaveAttribute('aria-invalid', 'true');
+      expect(submitButton()).toBeEnabled();
+    });
+
     it('never offers English while the deployment has not enabled it', async () => {
       server.on(templatesPath, templateList(englishSlot));
       renderCompose(composeMode({ origin: 'MANUAL' }));
@@ -205,6 +216,26 @@ describe('compose mode', () => {
     expect(submitButton()).toBeDisabled();
   });
 
+  it('warns about line breaks, tabs and five spaces before submit and keeps submit disabled (#417)', () => {
+    renderCompose();
+    // The warning is a live region that exists before any bad input, so its text is announced when it appears.
+    const warning = textarea().parentElement!.querySelector('[aria-live="polite"]');
+    expect(warning).toBeInTheDocument();
+    expect(warning).toHaveTextContent('');
+    for (const text of ['Hola\nAna', 'Hola\tAna', 'Hola     Ana', 'Hola\u2028Ana', 'Hola\u200BAna']) {
+      type(text);
+      expect(textarea()).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText(/WhatsApp no admite saltos de línea/)).toBeInTheDocument();
+      // Invisible characters (a pasted zero-width space) are named too (review of #420).
+      expect(warning).toHaveTextContent(/caracteres invisibles/);
+      expect(submitButton()).toBeDisabled();
+    }
+    // Accents, emoji with a zero-width joiner, typographic quotes and four spaces are sendable.
+    type('Hola Ñandú 👩‍💻 “Café”    listo');
+    expect(screen.queryByText(/WhatsApp no admite saltos de línea/)).toBeNull();
+    expect(submitButton()).toBeEnabled();
+  });
+
   it('is read only for a viewer', () => {
     renderCompose(composeMode(), 'VIEWER');
     expect(screen.queryByRole('button', { name: 'Enviar a aprobación' })).toBeNull();
@@ -244,10 +275,14 @@ describe('compose mode', () => {
     expect(call.body).toBe(JSON.stringify(draft));
     expect(call.headers['If-Match']).toBe('"7"');
     expect(call.headers['Idempotency-Key']).toMatch(/^[0-9a-f-]{36}$/);
-    expect(screen.getByRole('status')).toHaveTextContent('Mensaje enviado a aprobación. Aún no se ha enviado al cliente.');
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Mensaje enviado a aprobación. Aún no se ha enviado al cliente.')
+    );
     expect(screen.getByText('Pendiente de aprobación')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Aprobar' })).toBeInTheDocument();
     expect(onSubmitted).toHaveBeenCalledWith(pendingApproval.messageId);
+    // The compose that held focus is gone; the review heading takes it (#415).
+    await waitFor(() => expect(screen.getByRole('heading', { level: 2, name: 'Ana Pérez' })).toHaveFocus());
     expect(server.count(detailPath(pendingApproval.messageId))).toBe(0);
     await waitFor(() => expect(server.count(eventsPath(pendingApproval.messageId))).toBe(1));
   });
@@ -258,8 +293,9 @@ describe('compose mode', () => {
     fireEvent.click(submitButton());
     confirmSubmit();
     expect(await screen.findByText(`Revisión ${details.sent.version}`)).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(
-      'Este mensaje ya se había enviado a aprobación. Estado actual: Enviado.'
+    // The review announces after taking focus, one effect later than the render.
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent('Este mensaje ya se había enviado a aprobación. Estado actual: Enviado.')
     );
   });
 
@@ -285,7 +321,7 @@ describe('compose mode', () => {
       ['CUSTOMER_ARCHIVED', 'El cliente está archivado.'],
       ['FOLLOW_UP_INELIGIBLE', 'El cliente no está elegible para seguimiento ahora.'],
       ['TEMPLATE_NOT_MAPPED', 'No hay una plantilla configurada para este tipo de mensaje.'],
-      ['BODY_REJECTED', 'El texto del mensaje no pasó la validación.'],
+      ['BODY_REJECTED', 'El texto del mensaje no pasó la validación. Revisa que esté en una sola línea, sin tabulaciones ni más de cuatro espacios seguidos, que solo use datos de este cliente y, si la plantilla es de texto fijo, que coincida con ella.'],
       ['IDEMPOTENCY_KEY_REUSED', 'Esta acción ya se registró con otros datos. Actualiza e intenta de nuevo.'],
       ['INVALID_INPUT', 'Revisa los datos e intenta de nuevo.'],
       ['LOCALE_NOT_ACCEPTED', 'Este idioma no está habilitado para enviar mensajes en este despliegue.'],

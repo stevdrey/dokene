@@ -19,6 +19,8 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class JpaWorkspaceProvisioningRepositoryAdapter implements WorkspaceProvisioningRepository {
 
+    private static final String LOCK_NAMESPACE = "workspace-provisioning";
+
     private final EntityManager entityManager;
     private final DatabaseContextSigner databaseContextSigner;
 
@@ -28,7 +30,21 @@ public class JpaWorkspaceProvisioningRepositoryAdapter implements WorkspaceProvi
     }
 
     @Override
-    public void acquireIdempotencyLock(IdentityId identityId, String idempotencyKey) {
+    public void acquireProvisioningLock(IdentityId identityId, String idempotencyKey) {
+        // A hash collision between two identities only serializes them; it never lets either exceed its cap.
+        // The second lock is the previous release's key: it keeps an old backend and a new one from both creating the
+        // same identity and key during a rolling deploy. Always identity first, then key; an old backend takes only
+        // the key, so the order cannot deadlock. It can be dropped once no previous-release backend runs.
+        // Two statements, so the order is guaranteed: two new backends taking them in opposite order could deadlock.
+        entityManager.createNativeQuery("""
+                        SELECT pg_advisory_xact_lock(
+                            hashtext(CAST(:namespace AS text)),
+                            hashtext(CAST(:identityId AS text))
+                        )
+                        """)
+                .setParameter("namespace", LOCK_NAMESPACE)
+                .setParameter("identityId", identityId.value().toString())
+                .getSingleResult();
         entityManager.createNativeQuery("""
                         SELECT pg_advisory_xact_lock(
                             hashtext(CAST(:identityId AS text)),
@@ -38,6 +54,18 @@ public class JpaWorkspaceProvisioningRepositoryAdapter implements WorkspaceProvi
                 .setParameter("identityId", identityId.value().toString())
                 .setParameter("idempotencyKey", idempotencyKey)
                 .getSingleResult();
+    }
+
+    @Override
+    public long countByIdentityId(IdentityId identityId) {
+        SignedDatabaseContext context = databaseContextSigner.issueIdentityContext(identityId);
+        Object count = entityManager.createNativeQuery("""
+                        SELECT dokene.count_workspace_provisioning_records(:payload, :signature)
+                        """)
+                .setParameter("payload", context.payload())
+                .setParameter("signature", context.signature())
+                .getSingleResult();
+        return ((Number) count).longValue();
     }
 
     @Override

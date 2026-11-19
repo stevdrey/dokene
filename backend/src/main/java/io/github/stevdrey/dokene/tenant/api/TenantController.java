@@ -5,6 +5,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditDenialReason;
 import io.github.stevdrey.dokene.tenant.application.IdempotencyConflictException;
 import io.github.stevdrey.dokene.tenant.application.MembershipNotFoundException;
 import io.github.stevdrey.dokene.tenant.application.MembershipInvitationService;
+import io.github.stevdrey.dokene.tenant.application.ProvisioningNotPermittedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextAuthorizationException;
@@ -12,6 +13,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.application.TenantMembershipDiscovery;
 import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService;
 import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService.ProvisionedWorkspace;
+import io.github.stevdrey.dokene.tenant.application.WorkspaceQuotaExceededException;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRecord;
@@ -21,6 +23,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -178,6 +181,24 @@ public class TenantController {
     @ExceptionHandler(IllegalArgumentException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     void handleIllegalArgument() {
+    }
+
+    /** The policy refusal of provisioning (spec 0021): a closed code, sent as problem+json whatever was accepted. */
+    @ExceptionHandler(ProvisioningNotPermittedException.class)
+    ResponseEntity<ProvisioningProblem> handleProvisioningNotPermitted() {
+        return provisioningProblem(ProvisioningProblemCode.PROVISIONING_NOT_PERMITTED);
+    }
+
+    /** The cap refusal of provisioning (ADR 0033 §6): same status, its own code, and no count or cap in the body. */
+    @ExceptionHandler(WorkspaceQuotaExceededException.class)
+    ResponseEntity<ProvisioningProblem> handleWorkspaceQuotaExceeded() {
+        return provisioningProblem(ProvisioningProblemCode.WORKSPACE_QUOTA_EXCEEDED);
+    }
+
+    private static ResponseEntity<ProvisioningProblem> provisioningProblem(ProvisioningProblemCode code) {
+        return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
+                .body(ProvisioningProblem.forbidden(code));
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)

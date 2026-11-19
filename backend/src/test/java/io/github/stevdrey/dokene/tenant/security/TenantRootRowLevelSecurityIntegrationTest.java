@@ -54,6 +54,7 @@ class TenantRootRowLevelSecurityIntegrationTest {
     static void database(DynamicPropertyRegistry registry) throws SQLException {
         TenantSecurityIntegrationFixture.configure(registry);
         registry.add("dokene.provisioning.enabled", () -> "true");
+        registry.add("dokene.provisioning.allow-all-identities", () -> "true");
     }
 
     @BeforeEach
@@ -129,6 +130,22 @@ class TenantRootRowLevelSecurityIntegrationTest {
             assertThat(queryUuids(connection,
                     "SELECT tenant_id FROM dokene.find_workspace_provisioning_record(NULL, NULL, ?)", idempotencyKeyA))
                     .isEmpty();
+        }
+    }
+
+    /** covers: #312 quota. The count sees only the verified identity's records and fails closed, never as 0. */
+    @Test
+    void provisioningCountRequiresAnIdentityCapabilityAndCountsOnlyThatIdentity() throws Exception {
+        SignedDatabaseContext identityContextA = signer.issueIdentityContext(identityA);
+
+        try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnectionWithoutContext()) {
+            assertThat(countRecords(connection, identityContextA)).isEqualTo(1);
+            assertThat(countRecords(connection, signer.issueIdentityContext(new IdentityId(UUID.randomUUID()))))
+                    .isZero();
+            assertCapabilityRejected(() -> countRecords(connection, forged(identityContextA)));
+            assertCapabilityRejected(() -> countRecords(connection, signer.issueTenantContext(workspaceA.tenantId())));
+            assertCapabilityRejected(() -> queryInt(connection,
+                    "SELECT dokene.count_workspace_provisioning_records(NULL, NULL)"));
         }
     }
 
@@ -230,6 +247,11 @@ class TenantRootRowLevelSecurityIntegrationTest {
             throws SQLException {
         return queryUuids(connection, "SELECT tenant_id FROM dokene.find_workspace_provisioning_record(?, ?, ?)",
                 context.payload(), context.signature(), idempotencyKey);
+    }
+
+    private static int countRecords(Connection connection, SignedDatabaseContext context) throws SQLException {
+        return queryInt(connection, "SELECT dokene.count_workspace_provisioning_records(?, ?)",
+                context.payload(), context.signature());
     }
 
     @FunctionalInterface
