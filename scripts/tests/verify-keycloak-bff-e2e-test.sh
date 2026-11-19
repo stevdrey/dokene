@@ -41,6 +41,7 @@ CSRF="$(synthetic csrf)"
 IDENTITY="$(synthetic identity)"
 TOKEN="$(synthetic token)"
 SESSION="$(synthetic session)"
+HOST_TOKEN="$(synthetic hosttoken)$(synthetic more)"  # one 40-character label, the length of a real code or state
 
 write_env() {  # write_env [SPRING_SECRET_LINE]: the synthetic .env of the throwaway tree
   {
@@ -100,7 +101,9 @@ status=200 body="" headers=() new_sid=""
 case "$url" in
   "$KC/realms/dokene/.well-known/openid-configuration") body='{}' ;;
   "$KC/realms/dokene/protocol/openid-connect/token")
-    if [ "${form[client_secret]:-}" = "$STUB_KC_SECRET" ]; then
+    if fault client-not-allowed; then
+      status=400 body='{"error":"unauthorized_client","error_description":"Client not allowed for this grant"}'
+    elif [ "${form[client_secret]:-}" = "$STUB_KC_SECRET" ]; then
       status=400 body='{"error":"invalid_grant","error_description":"Code not valid"}'
     else
       # Keycloak 26.8 answers a wrong client secret this way (checked against the real image for issue 331).
@@ -110,6 +113,7 @@ case "$url" in
     if active; then
       body="{\"authenticated\":true,\"identityId\":\"$STUB_IDENTITY\",\"csrfToken\":\"$STUB_CSRF\"}"
       fault session-invalid && body="{\"authenticated\":false,\"identityId\":\"$STUB_IDENTITY\",\"csrfToken\":\"$STUB_CSRF\"}"
+      fault session-authenticated-string && body="{\"authenticated\":\"true\",\"identityId\":\"$STUB_IDENTITY\",\"csrfToken\":\"$STUB_CSRF\"}"
       fault session-not-json && body="<html>$STUB_CSRF $STUB_IDENTITY</html>"
       fault session-trailing-garbage && body="{\"authenticated\":true,\"identityId\":\"$STUB_IDENTITY\",\"csrfToken\":\"$STUB_CSRF\"}<html>$STUB_CSRF</html>"
       fault session-two-objects && body="{\"authenticated\":true,\"identityId\":\"$STUB_IDENTITY\",\"csrfToken\":\"$STUB_CSRF\"}{}"
@@ -140,6 +144,7 @@ case "$url" in
     esac
     if [ -n "$expected" ] && [ "$pw" = "$expected" ]; then
       status=302 location="$BFF/login/oauth2/code/dokene?state=$STUB_STATE&code=$STUB_CODE"
+      fault callback-host-token && location="http://$STUB_HOST_TOKEN.example.test/cb?code=$STUB_CODE"
       fault login-not-callback && location="$KC/realms/dokene/login-actions/required-action?execution=x&code=$STUB_CODE&state=$STUB_STATE"
       headers+=("Location: $location")
     else
@@ -193,7 +198,7 @@ run_e2e() {
     ${CALLER_ENV[@]+"${CALLER_ENV[@]}"} \
     PATH="$TMP/bin:$PATH" STUB_DIR="$TMP/stub" STUB_FAULT="$1" STUB_KC_SECRET="${2:-$ENV_SECRET}" \
     STUB_LEAK="${3:-$ENV_SECRET}" STUB_STATE="$STATE" STUB_NONCE="$NONCE" STUB_CHALLENGE="$CHALLENGE" \
-    STUB_CODE="$CODE" STUB_CSRF="$CSRF" STUB_IDENTITY="$IDENTITY" STUB_TOKEN="$TOKEN" STUB_SESSION="$SESSION" \
+    STUB_CODE="$CODE" STUB_CSRF="$CSRF" STUB_IDENTITY="$IDENTITY" STUB_TOKEN="$TOKEN" STUB_SESSION="$SESSION" STUB_HOST_TOKEN="$HOST_TOKEN" \
     STUB_PW_OWNER="$OWNER_PW" STUB_PW_OPERATOR="$OPERATOR_PW" STUB_PW_VIEWER="$VIEWER_PW" \
     bash "$REPO/scripts/verify-keycloak-bff-e2e.sh" > "$TMP/out" 2>&1
   RUN_STATUS=$?
@@ -203,7 +208,7 @@ CALLER_ENV=()
 # no_sensitive_output: the output holds none of the synthetic sensitive values (searched literally).
 no_sensitive_output() {
   ! grep -F -f <(printf '%s\n' "$ENV_SECRET" "$CALLER_SECRET" "$OWNER_PW" "$OPERATOR_PW" "$VIEWER_PW" "$STATE" \
-      "$NONCE" "$CHALLENGE" "$CODE" "$CSRF" "$IDENTITY" "$TOKEN" "$SESSION") "$TMP/out" >/dev/null
+      "$NONCE" "$CHALLENGE" "$CODE" "$CSRF" "$IDENTITY" "$TOKEN" "$SESSION" "$HOST_TOKEN") "$TMP/out" >/dev/null
 }
 failed_with() { [ "$RUN_STATUS" -ne 0 ] && grep -qF -- "$1" "$TMP/out"; }
 
@@ -227,15 +232,19 @@ refute "the client secret never reaches a curl command line" grep -qF "$ENV_SECR
 
 # --- failure paths: each prints a fixed label or a URL origin, never the value it found
 expect_failure "wrong client secret" none "Keycloak refused the configured <OIDC client secret>: HTTP 401, error unauthorized_client" "$(synthetic other)"
+expect_failure "client not allowed the grant" client-not-allowed "Keycloak refused the dokene-bff client for the authorization_code grant: HTTP 400, error unauthorized_client; a client configuration problem, not the secret"
+refute "a client configuration problem is not blamed on the secret" grep -qF "refused the configured <OIDC client secret>" "$TMP/out"
 expect_failure "redirect to another host" auth-elsewhere "is not the dokene realm authorization endpoint: http://login.example.test:9443 (path, query and fragment withheld)"
 expect_failure "redirect without PKCE" auth-no-pkce "PKCE RFC 7636 S256 parameters missing from the redirect to http://localhost:8081 (path"
 expect_failure "PKCE not refused" pkce-not-refused "a request with no code_challenge was not refused: HTTP 302, Location http://localhost:8080 (path"
+expect_failure "callback redirect with a token as host" callback-host-token "the redirect to <host withheld: it has a label of 32 or more characters> (path, query and fragment withheld) is not the BFF callback"
 expect_failure "login not redirected to the callback" login-not-callback "the redirect to http://localhost:8081 (path, query and fragment withheld) is not the BFF callback"
 expect_failure "client secret in the post-login redirect query" redirect-secret "Forbidden value '<OIDC client secret>' exposed in post-login redirect URL to http://localhost:8080 (path"
 expect_failure "client secret in the post-login redirect path" redirect-secret-path "Forbidden value '<OIDC client secret>' exposed in post-login redirect URL"
 expect_failure "token in the post-login redirect" redirect-token "Forbidden value 'access_token' exposed in post-login redirect URL"
 expect_failure "client secret in the callback headers" callback-header-secret "Forbidden value '<OIDC client secret>' exposed in callback response headers"
 expect_failure "token in the callback headers" callback-header-token "Forbidden value 'id_token' exposed in callback response headers"
+expect_failure "authenticated as a string" session-authenticated-string "Invalid session contract: authenticated not true, identityId present, csrfToken present; body withheld"
 expect_failure "invalid session contract" session-invalid "Invalid session contract: authenticated not true, identityId present, csrfToken present; body withheld"
 expect_failure "session body that is not JSON" session-not-json "Invalid session contract: response is not a single JSON object; body withheld"
 expect_failure "session object followed by trailing garbage" session-trailing-garbage "Invalid session contract: response is not a single JSON object; body withheld"
@@ -259,6 +268,7 @@ write_env
 CALLER_ENV=("SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET=$CALLER_SECRET")
 run_e2e none "$CALLER_SECRET"
 assert "an exported client secret is the one Keycloak is asked to accept" grep -q "^SUCCESS" "$TMP/out"
+refute "the exported client secret never reaches a curl command line" grep -qF "$CALLER_SECRET" "$TMP/stub/argv"
 expect_failure "a leak of the exported secret is caught" session-body-secret "Forbidden value '<OIDC client secret>' exposed in session response body" "$CALLER_SECRET" "$CALLER_SECRET"
 expect_failure "an exported secret the stack does not use is refused" none "Keycloak refused the configured <OIDC client secret>" "$ENV_SECRET"
 CALLER_ENV=()
@@ -283,11 +293,11 @@ assert "compose gives Keycloak's oidc-bridge the same variable" \
   grep -qE "^ +DOKENE_OIDC_CLIENT_SECRET: \\$\\{$SECRET_VAR:-\\}" "$ROOT_DIR/compose.yaml"
 
 # --- static guard: failure messages print no raw URL, session body or cookie header. A value passed to redact_url or
-# present_or_missing is allowed, since only the URL's origin or the field's state comes out.
+# is allowed, since only the URL's origin comes out.
 SCRIPT="${E2E_SCRIPT_UNDER_TEST:-$ROOT_DIR/scripts/verify-keycloak-bff-e2e.sh}"
 raw_value_in_failure_message() {
-  grep -E 'echo "FAILED' "$SCRIPT" | sed -E 's/\$\((redact_url|present_or_missing) "[^"]*"\)//g' \
-    | grep -E '\$\{?(KEYCLOAK_AUTH_URL|CALLBACK_URL|POST_LOGIN_REDIRECT|NO_PKCE_URL|SESSION_JSON|SET_COOKIE_HEADER|LOGOUT_COOKIE_HEADER|CSRF_TOKEN|IDENTITY_ID|TEST_CLIENT_SECRET|forbidden_val)\b'
+  grep -E 'echo "FAILED' "$SCRIPT" | sed -E 's/\$\(redact_url "[^"]*"\)//g' | grep -oE 'echo "FAILED[^"]*"' \
+    | grep -E '\$\{?(KEYCLOAK_AUTH_URL|CALLBACK_URL|POST_LOGIN_REDIRECT|NO_PKCE_URL|SESSION_JSON|SET_COOKIE_HEADER|LOGOUT_COOKIE_HEADER|CSRF_TOKEN|IDENTITY_ID|TEST_CLIENT_SECRET|forbidden_val|location|FORM_ACTION|PRE_AUTH_SESSION_ID|POST_AUTH_SESSION_ID|LOGIN_URL)\b'
 }
 refute "no failure message prints a raw URL, JSON body or cookie header" raw_value_in_failure_message
 
