@@ -200,7 +200,7 @@ query string anywhere (issue #330, [security invariant 41](../../docs/security/s
 - The access log (`docker compose logs frontend`, stdout) has one line per request: client address, time, method,
   path up to its first `?`, `;` (a path parameter such as `;jsessionid=`), `%3F` or `%3B`, status, bytes, request
   time, `upstream=<address>/<status>` (`-/-` when nginx never reached the backend), upstream response time, and the
-  `Referer` without its userinfo, query string or fragment. It never holds the raw request line, a client supplied
+  `Referer` without its userinfo, cut the same way at its first `?`, `#`, `;`, `%3F`, `%3B` or `%23`. It never holds the raw request line, a client supplied
   header (user agent, `X-Forwarded-For`, cookies, credentials) or a body.
 - No request scoped error line is written, on any route. nginx prints the raw request line, query string included,
   into every error line it logs while serving a request, and that format cannot be changed. Read a failure from the

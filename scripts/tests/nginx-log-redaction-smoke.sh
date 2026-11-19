@@ -4,9 +4,11 @@
 #
 # Sends requests whose query strings and Referer carry synthetic values of the sensitive kinds the edge sees: the Meta
 # webhook verify token and challenge (also after an encoded `?`), an OAuth callback code and state, customer search terms
-# (a phone number and a name), a session id in a `;jsessionid=` path parameter, and userinfo in a Referer. Every value is a fresh random marker made by this run; none is a real credential. The requests go through the
-# edge in four states: no backend at all (the name does not resolve), a backend name with nothing listening (connection
-# refused), a webhook body over the 4 MiB cap (413), and a stub backend that answers 200. After each state the edge's
+# (a phone number and a name), a session id in a `;jsessionid=` path parameter of the request and of its Referer, and
+# userinfo in a Referer. Every value is a fresh random marker made by this run; none is a real credential. The requests
+# go through the edge in four states: no backend at all (the name does not resolve), a backend name with nothing
+# listening (connection refused), a webhook body over the 4 MiB cap (413), and a stub backend that answers 200. After
+# each state the edge's
 # whole output, stdout and stderr, must hold none of the markers, and the access log must still show each request's
 # path, status and upstream status. The stub and the stand-in backend run from the same image, so the script names no
 # image of its own. Needs bash, curl and a running Docker daemon; it never touches the Compose stack.
@@ -56,11 +58,12 @@ AUTH_STATE="$(marker state)"
 PHONE="5068$(od -An -N4 -tu4 /dev/urandom | tr -d ' \n')"
 CUSTOMER_NAME="$(marker name)"
 REFERER_TERM="$(marker ref)"
+REFERER_SID="$(marker rsid)"
 SPA_TERM="$(marker spa)"
 SESSION_ID="$(marker sid)"
 ENCODED_TOKEN="$(marker enc)"
 USERINFO="$(marker ui)"
-MARKERS=("$VERIFY_TOKEN" "$CHALLENGE" "$AUTH_CODE" "$AUTH_STATE" "$PHONE" "$CUSTOMER_NAME" "$REFERER_TERM" "$SPA_TERM"
+MARKERS=("$VERIFY_TOKEN" "$CHALLENGE" "$AUTH_CODE" "$AUTH_STATE" "$PHONE" "$CUSTOMER_NAME" "$REFERER_TERM" "$REFERER_SID" "$SPA_TERM"
   "$SESSION_ID" "$ENCODED_TOKEN" "$USERINFO")
 
 # Static checks, no Docker, over nginx.conf and its snippets. The base image's nginx.conf logs "$request" (the request
@@ -114,9 +117,9 @@ send_sensitive() {
     "$BASE/webhooks/whatsapp?hub.mode=subscribe&hub.verify_token=$VERIFY_TOKEN&hub.challenge=$CHALLENGE"
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' "$BASE/login/oauth2/code/dokene?code=$AUTH_CODE&state=$AUTH_STATE"
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' -H "Accept: application/json" \
-    -H "Referer: http://localhost:5173/customers?phone=$REFERER_TERM#$REFERER_TERM" \
+    -H "Referer: http://localhost:5173/customers;jsessionid=$REFERER_SID?phone=$REFERER_TERM#$REFERER_TERM" \
     "$BASE/api/customers?phone=%2B$PHONE&name=$CUSTOMER_NAME"
-  curl -s -m 20 -o /dev/null -w '%{http_code}\n' -H "Referer: http://qa:$USERINFO@localhost:5173/x?y=1" \
+  curl -s -m 20 -o /dev/null -w '%{http_code}\n' -H "Referer: http://qa:$USERINFO@localhost:5173/x%3Bjsessionid=$REFERER_SID?y=1" \
     "$BASE/api/session;jsessionid=$SESSION_ID"
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' "$BASE/webhooks/whatsapp%3Fhub.verify_token=$ENCODED_TOKEN"
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' "$BASE/customers?search=$SPA_TERM"
@@ -155,10 +158,10 @@ check "no backend: the webhook verification is logged by path with its status" \
   logged "GET /webhooks/whatsapp" 502 "-/-"
 check "no backend: the OAuth callback is logged by path with its status" \
   logged "GET /login/oauth2/code/dokene" 502 "-/-"
-check "no backend: the customer search is logged by path, and its referer without query or fragment" \
+check "no backend: the customer search is logged by path, and its Referer without path parameter, query or fragment" \
   logged_matching "GET /api/customers" 502 '"http://localhost:5173/customers"$'
 check "no backend: a ;jsessionid= path parameter is cut from the logged path" logged "GET /api/session" 502 "-/-"
-check "no backend: a Referer is logged without its userinfo, query or fragment" \
+check "no backend: a Referer is logged without its userinfo, encoded path parameter or query" \
   logged_matching "GET /api/session" 502 '"http://localhost:5173/x"$'
 check "no backend: a request whose path holds an encoded ? is logged up to it" \
   test "$(grep -cF '"GET /webhooks/whatsapp HTTP/1.1" 502 ' "$WORK/out")" -eq 2
