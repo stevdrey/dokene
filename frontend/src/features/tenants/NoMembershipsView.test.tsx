@@ -94,6 +94,21 @@ describe('NoMembershipsView', () => {
     expect(secondKey).toBe(firstKey);
   });
 
+  it('explains the workspace limit when provisioning is refused by the cap (403 WORKSPACE_QUOTA_EXCEEDED)', async () => {
+    const { ForbiddenError } = await import('../../api/apiClient');
+    mockProvisionWorkspace.mockRejectedValueOnce(new ForbiddenError('Forbidden', { code: 'WORKSPACE_QUOTA_EXCEEDED' }));
+    render(<NoMembershipsView />);
+
+    fireEvent.change(screen.getByLabelText(/Nombre del negocio/i), { target: { value: 'Negocio Extra' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: /Crear espacio de trabajo/i }));
+    });
+
+    expect(screen.getByText('Límite de espacios alcanzado')).toBeInTheDocument();
+    expect(screen.getByText(/Ya creaste el máximo de espacios de trabajo permitido/i)).toBeInTheDocument();
+    expect(screen.queryByText(/no está habilitada para tu cuenta/i)).not.toBeInTheDocument();
+  });
+
   it('displays restricted creation guidance and hides the form when provisioning is forbidden (403)', async () => {
     const { ForbiddenError } = await import('../../api/apiClient');
     mockProvisionWorkspace.mockRejectedValueOnce(new ForbiddenError());

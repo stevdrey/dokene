@@ -137,7 +137,12 @@ PROVISION_HTTP_CODE="$(curl -s -b "$OWNER_COOKIE_JAR" -D "$PROVISION_HEADER_LOG"
     -H "Idempotency-Key: $IDEMPOTENCY_KEY" \
     -d "{\"displayName\": \"$WORKSPACE_NAME\", \"idempotencyKey\": \"$IDEMPOTENCY_KEY\"}")"
 
-if [ "$PROVISION_HTTP_CODE" = "403" ]; then
+if [ "$PROVISION_HTTP_CODE" = "403" ] && [ "$(jq -r '.code? // empty' "$PROVISION_BODY_LOG" 2>/dev/null)" = "WORKSPACE_QUOTA_EXCEEDED" ]; then
+    echo "FAILED (HTTP 403)"
+    echo "Error: This user already provisioned as many workspaces as DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY allows." >&2
+    echo "Raise that value in your backend environment (the local default is 1000) or seed with a fresh database." >&2
+    exit 1
+elif [ "$PROVISION_HTTP_CODE" = "403" ]; then
     echo "FAILED (HTTP 403)"
     echo "Error: Workspace provisioning is not permitted for this user. It is disabled by default in Dokene." >&2
     echo "Please set DOKENE_PROVISIONING_ENABLED=true and DOKENE_PROVISIONING_ALLOW_ALL_IDENTITIES=true (or list this user in DOKENE_PROVISIONING_ALLOWED_IDENTITIES) in your backend environment." >&2

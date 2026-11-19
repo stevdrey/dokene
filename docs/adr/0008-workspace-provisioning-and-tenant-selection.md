@@ -56,7 +56,7 @@ Workspace provisioning is guarded by `ProvisioningAuthorizationPolicy`:
 - Operators must explicitly enable provisioning. When enabled, an empty allowlist permits every authenticated identity; a non-empty allowlist permits only the listed identities.
 - Unauthorized requests fail closed with `TenantAccessDeniedException` (HTTP 403) and dispatch a durable denial audit event via `AuditRecorder.authorizationDenied`.
 
-Amended by [ADR 0033](0033-stated-workspace-provisioning-policy.md): an empty allowlist no longer permits every identity. Enabled provisioning requires a stated policy (an allowlist or the explicit open setting), the policy check runs before the provisioning transaction, and the refusal carries a machine readable code.
+Amended by [ADR 0033](0033-stated-workspace-provisioning-policy.md): an empty allowlist no longer permits every identity. Enabled provisioning requires a stated policy (an allowlist or the explicit open setting), the policy check runs before the provisioning transaction, and the refusal carries a machine readable code. ADR 0033 §6 also caps the workspaces each identity may provision and replaces the advisory lock of §1 step 3 with one lock per identity.
 
 ### 4. Tenant Discovery & Selection Endpoints
 

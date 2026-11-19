@@ -107,13 +107,17 @@ Workspace provisioning is disabled by default and runs in one of three modes
 An empty allowlist does not mean everyone. With provisioning enabled, the backend refuses to start unless exactly one
 policy is stated: an allowlist or the open setting, never both and never neither. A malformed allowlist entry stops
 startup in every mode. `DOKENE_PROVISIONING_MAX_WORKSPACES_PER_IDENTITY` (default `3`, range 1 to 10000) is the
-lifetime cap of workspaces per identity; a value out of range stops startup. The cap is validated and logged now and
-is enforced by the quota work of issue [#312](https://github.com/stevdrey/dokene/issues/312).
+lifetime cap of workspaces an identity may provision; a value out of range stops startup. Workspaces joined by
+invitation do not count. A request that would create a workspace beyond the cap is refused; a replay of an existing
+idempotency key is never capped and still answers `200` or `409`
+([ADR 0033 §6](../docs/adr/0033-stated-workspace-provisioning-policy.md#6-the-cap-per-identity-is-enforced)).
 
 A refused request answers `403` with content type `application/problem+json` and the body
-`{"type":"about:blank","title":"Forbidden","status":403,"code":"PROVISIONING_NOT_PERMITTED"}`, and writes at most one
-`AUTHORIZATION_DENIED` audit row, under the identity's denial budget of
-[ADR 0032](../docs/adr/0032-bounded-authorization-denial-audit.md). The counter `dokene.provisioning.refused` (tag `reason`) counts refusals.
+`{"type":"about:blank","title":"Forbidden","status":403,"code":"<code>"}`, where `code` is
+`PROVISIONING_NOT_PERMITTED` (the policy refused the identity) or `WORKSPACE_QUOTA_EXCEEDED` (the identity reached
+the cap). Either refusal writes at most one `AUTHORIZATION_DENIED` audit row, under the identity's denial budget of
+[ADR 0032](../docs/adr/0032-bounded-authorization-denial-audit.md), and only after any provisioning transaction has
+ended. The counter `dokene.provisioning.refused` counts refusals by `reason` (`policy` or `quota`).
 
 Local values: `compose.yaml` runs the stack in open mode with a cap of 1000, and `.env.example` lists the same values.
 Upgrade note: a backend run on the host through `scripts/dev-env.sh` reads `.env` directly, so an older `.env` with

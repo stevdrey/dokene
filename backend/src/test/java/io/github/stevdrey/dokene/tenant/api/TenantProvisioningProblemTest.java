@@ -1,5 +1,5 @@
-// ABOUTME: Tests the refusal answers of POST /api/tenants over MockMvc (spec 0021): the policy refusal carries the
-// ABOUTME: closed problem+json body, and the 400, 409 and bare 403 answers keep their empty bodies.
+// ABOUTME: Tests the refusal answers of POST /api/tenants over MockMvc (spec 0021): the policy and quota refusals carry
+// ABOUTME: the closed problem+json body, and the 400, 409 and bare 403 answers keep their empty bodies.
 package io.github.stevdrey.dokene.tenant.api;
 
 import static org.mockito.ArgumentMatchers.any;
@@ -18,6 +18,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.application.TenantMembershipDiscovery;
 import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService;
+import io.github.stevdrey.dokene.tenant.application.WorkspaceQuotaExceededException;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.security.AuthenticatedTenantIdentity;
 import java.util.UUID;
@@ -68,6 +69,20 @@ class TenantProvisioningProblemTest {
                 .andExpect(header().string("Content-Type", "application/problem+json"))
                 .andExpect(content().json("""
                         {"type":"about:blank","title":"Forbidden","status":403,"code":"PROVISIONING_NOT_PERMITTED"}
+                        """, JsonCompareMode.STRICT));
+    }
+
+    /** covers: #312 quota. Same status, its own code, and neither the count nor the cap in the body. */
+    @Test
+    void theQuotaRefusalAnswersTheClosedProblemBodyWithItsOwnCode() throws Exception {
+        when(provisioningService.provisionWorkspace(any(), any(), any()))
+                .thenThrow(new WorkspaceQuotaExceededException());
+
+        provision()
+                .andExpect(status().isForbidden())
+                .andExpect(header().string("Content-Type", "application/problem+json"))
+                .andExpect(content().json("""
+                        {"type":"about:blank","title":"Forbidden","status":403,"code":"WORKSPACE_QUOTA_EXCEEDED"}
                         """, JsonCompareMode.STRICT));
     }
 

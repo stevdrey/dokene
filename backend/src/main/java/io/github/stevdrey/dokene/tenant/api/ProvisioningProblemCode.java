@@ -3,5 +3,6 @@
 package io.github.stevdrey.dokene.tenant.api;
 
 public enum ProvisioningProblemCode {
-    PROVISIONING_NOT_PERMITTED
+    PROVISIONING_NOT_PERMITTED,
+    WORKSPACE_QUOTA_EXCEEDED
 }

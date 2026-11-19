@@ -13,6 +13,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
 import io.github.stevdrey.dokene.tenant.application.TenantMembershipDiscovery;
 import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService;
 import io.github.stevdrey.dokene.tenant.application.WorkspaceProvisioningService.ProvisionedWorkspace;
+import io.github.stevdrey.dokene.tenant.application.WorkspaceQuotaExceededException;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.WorkspaceProvisioningRecord;
@@ -185,9 +186,19 @@ public class TenantController {
     /** The policy refusal of provisioning (spec 0021): a closed code, sent as problem+json whatever was accepted. */
     @ExceptionHandler(ProvisioningNotPermittedException.class)
     ResponseEntity<ProvisioningProblem> handleProvisioningNotPermitted() {
+        return provisioningProblem(ProvisioningProblemCode.PROVISIONING_NOT_PERMITTED);
+    }
+
+    /** The cap refusal of provisioning (ADR 0033 §6): same status, its own code, and no count or cap in the body. */
+    @ExceptionHandler(WorkspaceQuotaExceededException.class)
+    ResponseEntity<ProvisioningProblem> handleWorkspaceQuotaExceeded() {
+        return provisioningProblem(ProvisioningProblemCode.WORKSPACE_QUOTA_EXCEEDED);
+    }
+
+    private static ResponseEntity<ProvisioningProblem> provisioningProblem(ProvisioningProblemCode code) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(ProvisioningProblem.forbidden(ProvisioningProblemCode.PROVISIONING_NOT_PERMITTED));
+                .body(ProvisioningProblem.forbidden(code));
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)
