@@ -38,3 +38,7 @@
 .pnpm-store/
 compose.override.yaml
 frontend/pnpm-lock.yaml
+
+# Python bytecode
+__pycache__/
+*.py[cod]

@@ -14,3 +14,6 @@ c492962f8a47a4268e6ca1da2c9218eb8dce4a74:scripts/tests/dev-env-smoke.sh:generic-
 80f6072e9cd1eb3a4b79401fb44b6ec6a0af6019:scripts/tests/keycloak-apply-realm-settings-test.sh:generic-api-key:96
 80f6072e9cd1eb3a4b79401fb44b6ec6a0af6019:scripts/tests/keycloak-apply-realm-settings-test.sh:generic-api-key:97
 80f6072e9cd1eb3a4b79401fb44b6ec6a0af6019:scripts/tests/keycloak-apply-realm-settings-test.sh:generic-api-key:98
+# False positives in the first commit of PR #423: superseded-run file names ("reg0N-api-attempt1.txt") in the suite #340 bundle builder; no secret.
+7ad21bb6108c42619d6b8e1de08f349d18bb826a:docs/verification/issue-340-evidence/scripts/build-outputs340.py:generic-api-key:14
+7ad21bb6108c42619d6b8e1de08f349d18bb826a:docs/verification/issue-340-evidence/scripts/build-outputs340.py:generic-api-key:15
