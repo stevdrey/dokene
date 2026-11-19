@@ -88,7 +88,7 @@ class WorkspaceProvisioningServiceTest {
 
     private final WorkspaceProvisioningRepository provisioningRepository = new WorkspaceProvisioningRepository() {
         @Override
-        public void acquireProvisioningLock(IdentityId identityId) {
+        public void acquireProvisioningLock(IdentityId identityId, String idempotencyKey) {
         }
 
         @Override
@@ -146,6 +146,7 @@ class WorkspaceProvisioningServiceTest {
     private boolean transactionOpen;
     private int commits;
     private int rollbacks;
+    private final List<Integer> isolationLevels = new ArrayList<>();
     private final List<String> refusalEvents = new ArrayList<>();
     private final ProvisioningAuthorizationPolicy policy = id -> {
         if (transactionOpen) {
@@ -159,6 +160,7 @@ class WorkspaceProvisioningServiceTest {
     private final PlatformTransactionManager transactionManager = new PlatformTransactionManager() {
         @Override
         public TransactionStatus getTransaction(TransactionDefinition definition) {
+            isolationLevels.add(definition.getIsolationLevel());
             transactionOpen = true;
             return new SimpleTransactionStatus();
         }
@@ -317,6 +319,14 @@ class WorkspaceProvisioningServiceTest {
         assertThat(rollbacks).isZero();
     }
 
+    /** covers: #312 quota. The count must see rows the previous lock holder committed (ADR 0033 §6). */
+    @Test
+    void runsTheProvisioningTransactionAtReadCommitted() {
+        service.provisionWorkspace(identity, "key-isolation", "Isolation Workspace");
+
+        assertThat(isolationLevels).containsExactly(TransactionDefinition.ISOLATION_READ_COMMITTED);
+    }
+
     /** covers: AC-4 (spec 0021) */
     @Test
     void rollsBackTheTransactionWhenAReplayedKeyCarriesAnotherName() {
@@ -386,7 +396,7 @@ class WorkspaceProvisioningServiceTest {
         List<String> calls = new ArrayList<>();
         WorkspaceProvisioningRepository lockingRepository = new WorkspaceProvisioningRepository() {
             @Override
-            public void acquireProvisioningLock(IdentityId identityId) {
+            public void acquireProvisioningLock(IdentityId identityId, String idempotencyKey) {
                 calls.add("lock");
             }
 

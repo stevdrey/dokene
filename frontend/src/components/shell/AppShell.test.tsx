@@ -4,7 +4,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { AppShell, ActiveTab } from './AppShell';
 import { useSession } from '../../features/auth/SessionContext';
 import { useTenant } from '../../features/tenants/TenantContext';
-import { ApiError } from '../../api/apiClient';
+import { ApiError, ForbiddenError } from '../../api/apiClient';
 
 vi.mock('../../features/auth/SessionContext', () => ({
   useSession: vi.fn(),
@@ -146,6 +146,24 @@ describe('AppShell', () => {
     });
 
     expect(mockSwitchWorkspace).toHaveBeenCalledWith('t-2');
+  });
+
+  it.each([
+    [{ code: 'WORKSPACE_QUOTA_EXCEEDED' }, 'Alcanzaste el límite de espacios de trabajo que puedes crear. Pide a un administrador que lo amplíe.'],
+    [{ code: 'PROVISIONING_NOT_PERMITTED' }, 'No tienes permisos para crear espacios de trabajo.'],
+    [undefined, 'No tienes permisos para crear espacios de trabajo.'],
+  ])('tells a provisioning refusal %j apart in the workspace selector', async (body, message) => {
+    mockProvisionWorkspace.mockRejectedValueOnce(new ForbiddenError('Forbidden', body));
+    render(<AppShell />);
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Seleccionar espacio de trabajo/i })[0]);
+    fireEvent.click(screen.getByText('Nuevo espacio de trabajo'));
+    fireEvent.change(screen.getByLabelText('Nombre del nuevo negocio'), { target: { value: 'Cuarto Café' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Crear' }));
+    });
+
+    expect(screen.getByText(message)).toBeInTheDocument();
   });
 
   it('displays creation form in workspace selector and preserves idempotency key on retry', async () => {

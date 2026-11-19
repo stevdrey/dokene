@@ -1,5 +1,5 @@
 // ABOUTME: Races provisioning requests of one identity with distinct keys against real PostgreSQL (issue 312): the
-// ABOUTME: per-identity lock lets exactly the cap succeed, and every other request is refused, never over-created.
+// ABOUTME: per-identity lock lets exactly the cap succeed, and a previous-release (identity, key) lock is still honoured.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -90,6 +90,36 @@ class ProvisioningQuotaConcurrencyIntegrationTest {
                         "SELECT count(*) FROM dokene.tenant_memberships WHERE identity_id = ?",
                         identity.value())).isEqualTo(CAP);
             }
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    /**
+     * covers: #312 quota. A backend of the previous release locks only (identity, key); a new backend must still wait
+     * for it, so a retry split across the two during a rolling deploy replays instead of colliding.
+     */
+    @Test
+    void waitsForThePreviousReleaseLockOnTheSameIdentityAndKey() throws Exception {
+        IdentityId identity = new IdentityId(UUID.randomUUID());
+        String key = "rollout-key";
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try (Connection oldBackend = TenantSecurityIntegrationFixture.migrationConnection()) {
+            oldBackend.setAutoCommit(false);
+            try (var statement = oldBackend.prepareStatement(
+                    "SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))")) {
+                statement.setString(1, identity.value().toString());
+                statement.setString(2, key);
+                statement.execute();
+            }
+
+            Future<?> request = executor.submit(() -> execution.callWithCorrelation(UUID.randomUUID(),
+                    () -> provisioningService.provisionWorkspace(identity, key, "Rollout Workspace")));
+            Thread.sleep(500);
+            assertThat(request.isDone()).isFalse();
+
+            oldBackend.commit();
+            request.get(30, TimeUnit.SECONDS);
         } finally {
             executor.shutdownNow();
         }

@@ -7,7 +7,7 @@ import {
   countCodePoints,
   MAX_WORKSPACE_NAME_CODE_POINTS,
 } from '../../features/tenants/TenantContext';
-import { ApiError } from '../../api/apiClient';
+import { ApiError, isWorkspaceQuotaExceeded } from '../../api/apiClient';
 import './WorkspaceSelector.css';
 
 export interface WorkspaceSelectorProps {
@@ -123,6 +123,10 @@ export const WorkspaceSelector: React.FC<WorkspaceSelectorProps> = ({ compact = 
           setProvisionError('Ya existe un espacio de trabajo con este nombre.');
         } else if (err.status === 400) {
           setProvisionError('El nombre del espacio de trabajo no es válido o excede los 160 caracteres.');
+        } else if (isWorkspaceQuotaExceeded(err)) {
+          setProvisionError(
+            'Alcanzaste el límite de espacios de trabajo que puedes crear. Pide a un administrador que lo amplíe.'
+          );
         } else if (err.status === 403) {
           setProvisionError('No tienes permisos para crear espacios de trabajo.');
         } else {

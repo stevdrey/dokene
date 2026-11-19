@@ -43,6 +43,13 @@ export class ForbiddenError extends ApiError {
   }
 }
 
+/** True when POST /api/tenants refused because the identity reached its workspace cap (ADR 0033 §6). */
+export function isWorkspaceQuotaExceeded(err: unknown): boolean {
+  if (!(err instanceof ApiError) || err.status !== 403) return false;
+  const body = err.body;
+  return typeof body === 'object' && body !== null && (body as { code?: unknown }).code === 'WORKSPACE_QUOTA_EXCEEDED';
+}
+
 export class AbortedTenantRequestError extends Error {
   constructor(message = 'Request cancelled due to workspace change') {
     super(message);
@@ -247,7 +254,14 @@ class ApiClient {
       }
 
       if (response.status === 403) {
-        throw new ForbiddenError(response.statusText);
+        // Keep a problem+json body (for example a provisioning refusal code); most 403 answers have none.
+        let forbiddenBody: unknown;
+        try {
+          forbiddenBody = await response.json();
+        } catch {
+          // empty or not json
+        }
+        throw new ForbiddenError(response.statusText, forbiddenBody);
       }
 
       if (!response.ok) {

@@ -9,8 +9,11 @@ This record is sanitized. Every identity, tenant and correlation id in the runs 
 - **Run:** 2026-11-18, branch `312-securityl3-constrain-workspace-self-provisioning`.
 - **Tested revision:** the working tree that became the first commit of that branch, based on `main` at `24971f1`. The commit SHA and its CI runs are on the pull request for #312.
 - **Toolchain:** Linux (Fedora 45), OpenJDK 26.0.2 (Temurin), Gradle Wrapper 9.9.1, PostgreSQL from the pinned compose image through Testcontainers.
-- **Command:** `./gradlew check` in `backend/`: 227 suites, 2,848 tests, 0 failed, 0 skipped. An earlier full run on the same change failed one test, `TenantPersistenceIntegrationTest`, which pins the latest migration version and still expected 40; it now expects 41.
-- **Not run:** the frontend suite (no frontend file changed), the containerized local stack with `scripts/seed-local-qa.sh`, and a run with more than one backend instance.
+- **Command:** `./gradlew check` in `backend/`: 227 suites, 2,850 tests, 0 failed, 0 skipped (after the review fixes; 2,848 before them). An earlier full run on the same change failed one test, `TenantPersistenceIntegrationTest`, which pins the latest migration version and still expected 40; it now expects 41.
+- **Frontend:** `npm test` in `frontend/`: 1,143 tests, 1,140 passed, 3 failed (the `FollowUpWorkbench` grid tests, which fail the same way on `main`); `npm run build` passed.
+- **Local stack:** `COMPOSE_PROJECT_NAME=dokene-tmp312 ./scripts/dev-env.sh up --seed --yes` from `982593d` with a `.env` that sets only `DOKENE_PROVISIONING_ENABLED=true`: migration 41 applied, the backend logged open mode with a cap of 1000 at `WARN`, the seed created the QA workspace (`201`) and a second `./scripts/dev-env.sh seed` replayed it (`200`); one record for the seed key. The temporary stack was removed.
+- **Review fixes:** after a code review, the lock also takes the previous release's (identity, key) key, the transaction is pinned to `READ COMMITTED`, and the frontend keeps the `403` body. The final commit and its CI runs are on the pull request.
+- **Not run:** a run with more than one backend instance.
 
 ## Acceptance criteria of #312
 
@@ -18,7 +21,7 @@ This record is sanitized. Every identity, tenant and correlation id in the runs 
 | --- | --- |
 | Non-local provisioning fails closed without an approved policy | Delivered by #414 and unchanged here: `ProvisioningConfigurationTest`, `ProvisioningAllowlistIntegrationTest`, `DefaultProvisioningAuthorizationPolicyTest` pass in the full run. |
 | Configured quotas are enforced and tested | See the table below. |
-| Local setup and legitimate provisioning remain documented and functional | Compose and `.env.example` keep open mode with a local cap of 1000. The seed and journey scripts use fixed idempotency keys, so a rerun replays and is never capped; their refusal hints now name the cap. `bash -n` passes on both scripts. The stack itself was not started (see *Not run*). |
+| Local setup and legitimate provisioning remain documented and functional | Compose and `.env.example` keep open mode with a local cap of 1000. The seed and journey scripts use fixed idempotency keys, so a rerun replays and is never capped; their refusal hints now name the cap. `bash -n` passes on both scripts, and a local stack started from an `.env` with no policy variable seeded and then replayed the QA workspace (see *Environment*). |
 | Sanitized test evidence, tested revision, documentation | This record; ADR 0033 §6, ADR 0008 §3, invariant 39, `backend/README.md`, `infra/docker/README.md`, the RLS recipe and the L3 status in the audit report. |
 
 ## What the tests show
@@ -31,6 +34,9 @@ This record is sanitized. Every identity, tenant and correlation id in the runs 
 | The cap is per identity: another identity is not charged | `ProvisioningQuotaIntegrationTest`, `WorkspaceProvisioningServiceTest` |
 | Six concurrent requests of one identity with distinct keys on a pool of eight connections create exactly the cap (2) and refuse four | `ProvisioningQuotaConcurrencyIntegrationTest` |
 | That race test detects the defect it guards: with the lock keyed on a random value instead of the identity, it fails (`expected: 2`) | Manual mutation run, reverted before the full run |
+| A request waits while a previous-release backend holds the (identity, key) lock, and completes when it is released; with that second lock keyed on another value the test fails | `ProvisioningQuotaConcurrencyIntegrationTest`, manual mutation run |
+| The provisioning transaction is requested at `READ COMMITTED` | `WorkspaceProvisioningServiceTest` |
+| The API client keeps a `403` problem body; the selector and the first-workspace view show limit-specific copy for `WORKSPACE_QUOTA_EXCEEDED` and keep the permission copy otherwise | `apiClientForbiddenBody.test.ts`, `AppShell.test.tsx`, `NoMembershipsView.test.tsx` |
 | The count function counts only the identity of a valid capability, answers 0 for an identity with no records, and raises `insufficient_privilege` for a forged signature, a tenant capability or no capability | `TenantRootRowLevelSecurityIntegrationTest` |
 | The quota refusal answers `403` as `application/problem+json` with exactly `type`, `title`, `status` and `code` = `WORKSPACE_QUOTA_EXCEEDED`; the policy refusal and the other answers are unchanged | `TenantProvisioningProblemTest` |
 | A policy refusal never reaches the count and is still counted as `policy` | `WorkspaceProvisioningServiceTest` |
@@ -39,5 +45,6 @@ This record is sanitized. Every identity, tenant and correlation id in the runs 
 
 - The cap is a lifetime count of provisioning records. Records are never deleted, so archiving a workspace does not free a slot; an operator raises the cap instead.
 - The denial audit row of a quota refusal has the same shape as a policy refusal. The audit table admits only `NO_TENANT_CONTEXT` for a denial without a tenant, so the row cannot tell the two apart; the counter tag can.
-- The frontend shows its generic "no permission to create workspaces" message for either code: the shared API client turns every `403` into a `ForbiddenError` without reading the body. Telling the user they reached the cap needs that client to keep the problem body, which is not part of this change.
+- During a rolling deploy, backends of the previous release do not enforce the cap. They still serialize with new backends on the same identity and key, so a retry split across versions replays instead of failing.
+- The frontend suite has 3 failing `FollowUpWorkbench` grid-template tests locally; they fail the same way on a clean `main` checkout and are unrelated to this change.
 - Look-alike workspace names, also mentioned under L3, are not addressed.

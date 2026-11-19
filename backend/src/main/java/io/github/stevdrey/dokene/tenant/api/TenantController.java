@@ -186,17 +186,19 @@ public class TenantController {
     /** The policy refusal of provisioning (spec 0021): a closed code, sent as problem+json whatever was accepted. */
     @ExceptionHandler(ProvisioningNotPermittedException.class)
     ResponseEntity<ProvisioningProblem> handleProvisioningNotPermitted() {
-        return ResponseEntity.status(HttpStatus.FORBIDDEN)
-                .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(ProvisioningProblem.forbidden(ProvisioningProblemCode.PROVISIONING_NOT_PERMITTED));
+        return provisioningProblem(ProvisioningProblemCode.PROVISIONING_NOT_PERMITTED);
     }
 
     /** The cap refusal of provisioning (ADR 0033 §6): same status, its own code, and no count or cap in the body. */
     @ExceptionHandler(WorkspaceQuotaExceededException.class)
     ResponseEntity<ProvisioningProblem> handleWorkspaceQuotaExceeded() {
+        return provisioningProblem(ProvisioningProblemCode.WORKSPACE_QUOTA_EXCEEDED);
+    }
+
+    private static ResponseEntity<ProvisioningProblem> provisioningProblem(ProvisioningProblemCode code) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN)
                 .contentType(MediaType.APPLICATION_PROBLEM_JSON)
-                .body(ProvisioningProblem.forbidden(ProvisioningProblemCode.WORKSPACE_QUOTA_EXCEEDED));
+                .body(ProvisioningProblem.forbidden(code));
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)

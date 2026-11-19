@@ -20,6 +20,7 @@ import java.util.Optional;
 import java.util.UUID;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -62,6 +63,9 @@ public class WorkspaceProvisioningService {
         this.clock = Objects.requireNonNull(clock, "Clock is required");
         this.transactionTemplate = new TransactionTemplate(
                 Objects.requireNonNull(transactionManager, "Transaction manager is required"));
+        // The cap count must see the rows the previous lock holder committed; under REPEATABLE READ the snapshot would
+        // be taken at the lock statement, before the wait, and two requests could both read a count below the cap.
+        this.transactionTemplate.setIsolationLevel(TransactionDefinition.ISOLATION_READ_COMMITTED);
         this.refusalCounter = Objects.requireNonNull(refusalCounter, "Refusal counter is required");
         this.maxWorkspacesPerIdentity = Objects.requireNonNull(provisioningProperties, "Provisioning properties are required")
                 .maxWorkspacesPerIdentity();
@@ -103,7 +107,7 @@ public class WorkspaceProvisioningService {
     private ProvisionedWorkspace provisionInTransaction(
             IdentityId identityId, String normalizedKey, String normalizedDisplayName
     ) {
-        workspaceProvisioningRepository.acquireProvisioningLock(identityId);
+        workspaceProvisioningRepository.acquireProvisioningLock(identityId, normalizedKey);
 
         Optional<WorkspaceProvisioningRecord> existingRecord =
                 workspaceProvisioningRepository.findByIdentityIdAndIdempotencyKey(identityId, normalizedKey);
