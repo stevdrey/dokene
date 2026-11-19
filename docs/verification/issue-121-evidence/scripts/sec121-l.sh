@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #121 retest of #183: provisioning keeps working through the API after RLS on tenants / workspace_provisioning_records.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; IK="sec121-rt-$RUN"
 prov() { curl -s -m 20 -w ' %{http_code}' -b $QA_TMP/jar-$1.txt -X POST $BFF/api/tenants -H "X-CSRF-TOKEN: $(curl -s -b $QA_TMP/jar-$1.txt $BFF/api/session|jq -r .csrfToken)" -H 'Content-Type: application/json' -H "Idempotency-Key: $IK" -d "{\"displayName\":\"$2\"}"; }
 r1=$(prov testuser "SEC121 RT $RUN"); r2=$(prov testuser "SEC121 RT $RUN"); r3=$(prov testoperator "other $RUN")

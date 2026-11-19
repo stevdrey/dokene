@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #121 gap closure: SEC-01 idle-session expiry and SEC-10 tenant-wide AI limit. Needs the override (DOKENE_SESSION_TIMEOUT=1m, DOKENE_AI_RATE_LIMIT_TENANT_PERMITS=25) and the stub (instant responses).
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh; : > $STUB/fail; echo 0 > $STUB/delay.ms
 echo '{"recommendation":{"outcome":"ACTION","action":"REPEAT_PURCHASE_FOLLOW_UP","templateIntent":"REPEAT_PURCHASE","rationale":"Reposición habitual.","confidence":0.8,"draftVariables":[]}}' > $STUB/rec.json
 echo "== SEC-10 tenant-wide limit (25/min tenant, 20/min actor): operator 20 + owner 5 pass, the 26th tenant call is throttled for BOTH actors"

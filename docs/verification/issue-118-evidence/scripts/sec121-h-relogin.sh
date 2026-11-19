@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # QA suite #121: SEC-09 in-flight authority changes and SEC-10 abuse limits. Provider = local stub (FAULT INJECTION: controllable delay/503), no OpenAI cost.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/curl-protected.sh" || { echo "scripts/lib/curl-protected.sh not found" >&2; return 1 2>/dev/null || exit 1; }  # issue 401: headers, cookies and URLs reach curl in a -K config, not argv
 cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa121/s/env121.sh
 reqs() { wc -l < $STUB/requests.log; }
 setstub() { echo "${1:-0}" > $STUB/delay.ms; echo "${2:-}" > $STUB/fail; }

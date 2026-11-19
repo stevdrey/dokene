@@ -164,7 +164,8 @@ public class TenantController {
                     ))
                     .orElseThrow(TenantContextAuthorizationException::new);
         } catch (TenantContextAuthorizationException exception) {
-            auditRecorder.authorizationDenied(TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT);
+            auditRecorder.authorizationDenied(
+                    TenantPermission.TENANT_READ, AuditDenialReason.NO_TENANT_CONTEXT, identity.identityId());
             throw new ResponseStatusException(HttpStatus.FORBIDDEN);
         }
     }

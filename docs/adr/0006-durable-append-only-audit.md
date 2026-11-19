@@ -45,6 +45,7 @@ the recording boundary. `AuthorizationDeniedEvent` attribution and foreign resou
 tenant IDs are never copied into stored metadata. Denial event timestamps are also
 created by the recorder. Explicit-context `evaluate` methods remain side-effect-free;
 `require*` and boolean `has*` authorization enforcement paths dispatch durable denials.
+Since [ADR 0032](0032-bounded-authorization-denial-audit.md) a denial past its budget is counted and appended later in one `AUTHORIZATION_DENIALS_SUPPRESSED` row instead of getting a row of its own.
 
 `AuditRequestFilter` wraps the servlet/security chain in a fresh server-generated
 correlation UUID, ignoring inbound correlation headers. The UUID is also placed in the

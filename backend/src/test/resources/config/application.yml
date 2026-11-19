@@ -1,0 +1,7 @@
+# ABOUTME: Test suite default for the denial audit bound (spec 0020): a budget no existing suite can reach, so the
+# ABOUTME: shared Spring context never suppresses a row by accident. Tests of the bound set 10 and 60 themselves.
+dokene:
+  audit:
+    denial-limit:
+      rows-per-key: 10000
+      rows-per-identity: 100000
