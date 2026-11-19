@@ -328,7 +328,12 @@ echo "OK (Session rotated, HttpOnly & SameSite enforced, pre-auth session reject
 echo -n "[8/$TOTAL_STEPS] Verifying application session contract and token isolation... "
 curl -s -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" "$BFF_URL/api/session"
 
-# A body that is not JSON leaves every field empty instead of ending the script without a FAILED line.
+# The body must be exactly one JSON object. jq prints fields it parsed before a syntax error, so a valid object followed
+# by trailing garbage would otherwise pass; this check also keeps a parse error from ending the script without a FAILED line.
+if ! jq -s -e 'length == 1 and (.[0] | type) == "object"' "$BODY_LOG" >/dev/null 2>&1; then
+    echo "FAILED (Invalid session contract: response is not a single JSON object; body withheld)"
+    exit 1
+fi
 IS_AUTHENTICATED="$(jq -r '.authenticated // false' "$BODY_LOG" 2>/dev/null || true)"
 IDENTITY_ID="$(jq -r '.identityId // empty' "$BODY_LOG" 2>/dev/null || true)"
 CSRF_TOKEN="$(jq -r '.csrfToken // empty' "$BODY_LOG" 2>/dev/null || true)"
