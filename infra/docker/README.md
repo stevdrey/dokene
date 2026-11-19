@@ -198,17 +198,18 @@ OAuth callback code and state, and customer search terms such as a phone number 
 query string anywhere (issue #330, [security invariant 41](../../docs/security/security-invariants.md)):
 
 - The access log (`docker compose logs frontend`, stdout) has one line per request: client address, time, method,
-  path without its query string, status, bytes, request time, `upstream=<address>/<status>` (`-/-` when nginx never
-  reached the backend), upstream response time, the `Referer` without its query string or fragment, the user agent and
-  the `X-Forwarded-For` it received. It never holds the raw request line, cookies, credential headers or a body.
-- No request scoped error line is written. nginx prints the raw request line, query string included, into every
-  error line it logs while serving a request, and that format cannot be changed. Read a failure from the access log
-  instead: `502` with `upstream=-/-` means the name `backend` did not resolve; `502` with `upstream=<address>/502`
+  path up to its first `?`, `;` (a path parameter such as `;jsessionid=`), `%3F` or `%3B`, status, bytes, request
+  time, `upstream=<address>/<status>` (`-/-` when nginx never reached the backend), upstream response time, and the
+  `Referer` without its userinfo, query string or fragment. It never holds the raw request line, a client supplied
+  header (user agent, `X-Forwarded-For`, cookies, credentials) or a body.
+- No request scoped error line is written, on any route. nginx prints the raw request line, query string included,
+  into every error line it logs while serving a request, and that format cannot be changed. Read a failure from the
+  access log instead: `502` with `upstream=-/-` means the name `backend` did not resolve; `502` with `upstream=<address>/502`
   means the backend refused or dropped the connection; `504` is a backend timeout; `413` a body over the cap; `408` a
   body that arrived too slowly; `503` the webhook connection limit; `429` the login start limit; `500` an edge failure
   such as a full `/tmp`. Process level lines (start, reload, an invalid configuration, a worker that dies) still reach
-  stderr. Do not add an `error_log` to a location, even to debug: it brings the request lines, and the secrets in them,
-  back.
+  stderr. Do not add an `error_log` to a location, even to debug: it brings the request lines, and the secrets in
+  them, back.
 
 **Rotation.** Images built before issue #330 logged the raw request line, query string included, to stdout on every
 request and to stderr on every failed one. If logs of such an image were kept, copied or shipped anywhere, treat them
