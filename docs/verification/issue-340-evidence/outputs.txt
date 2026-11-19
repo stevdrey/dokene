@@ -1,0 +1,572 @@
+# Suite #340 evidence bundle (sanitized). Candidate 753cdff45252e4f64e4eec65df3e23717c730cef.
+# Columns of the result lines: case, check, verdict, UTC time, sanitized note.
+# Final result lines: 188 PASS, 0 FAIL, 19 NOTE.
+
+## 1. Result lines (API / DB / stub checks through the real BFF session; final runs)
+SETUP	roles in tenant A: OWNER testuser, ADMIN testadmin, OPERATOR testoperator, VIEWER testviewer; testnone no membership	PASS	2026-11-19T04:02:41Z	tenant=88429dc5
+SETUP	tenant B: testuser ADMIN, testoperator2 OPERATOR	PASS	2026-11-19T04:02:41Z	tenant=952b9b18
+ENV	candidate worktree SHA	NOTE	2026-11-19T04:02:41Z	sha=753cdff45252e4f64e4eec65df3e23717c730cef
+ENV	product tree of the candidate equals the tree the running images were built from (91915e2f)	PASS	2026-11-19T04:02:41Z	image_label=none
+ENV	flyway: latest successful migration	NOTE	2026-11-19T04:02:41Z	40 all_ok=true
+ENV	AI provider / outbound env	NOTE	2026-11-19T04:02:41Z	provider=fake outbound=false
+ENV	global outbound off (env) and tenant A integration outbound off	PASS	2026-11-19T04:02:41Z	http=200 tenant_outbound=false integration_enabled=true
+ENV	baselines: stub sends and denial rows	NOTE	2026-11-19T04:02:42Z	stub_sends=29 denials=133
+ENV	tenant 88429dc5 volume	NOTE	2026-11-19T04:02:42Z	customers=4 archived=204 queue=1 1 0
+ENV	tenant 952b9b18 volume	NOTE	2026-11-19T04:02:42Z	customers=1 archived=1 queue=1 1 0
+REG-01	no session -> 401	PASS	2026-11-19T04:04:59Z	expected=401 actual=401
+REG-01	OWNER testuser sees both workspaces (A OWNER, B ADMIN)	PASS	2026-11-19T04:04:59Z	expected=OWNER ADMIN actual=OWNER ADMIN
+REG-01	testoperator2 sees only workspace B	PASS	2026-11-19T04:04:59Z	expected=1 OPERATOR actual=1 OPERATOR
+REG-01	operator of A with workspace B header -> 403	PASS	2026-11-19T04:04:59Z	expected=403 actual=403
+REG-01	identity without membership lists no workspace	PASS	2026-11-19T04:04:59Z	expected=0 actual=0
+REG-01	OPERATOR creates CL customer	PASS	2026-11-19T04:04:59Z	expected=201 actual=201
+REG-01	duplicate phone in the same workspace -> 409	PASS	2026-11-19T04:05:00Z	expected=409 actual=409
+REG-01	unparseable phone -> 400 naming phones[0].number (#72)	PASS	2026-11-19T04:05:00Z	expected=400 phones[0].number actual=400 phones[0].number
+REG-01	blank name -> 400 naming displayName	PASS	2026-11-19T04:05:00Z	expected=400 displayName actual=400 displayName
+REG-01	missing region -> 400 naming phones[0].region	PASS	2026-11-19T04:05:00Z	expected=400 phones[0].region actual=400 phones[0].region
+REG-01	VIEWER cannot create a customer	PASS	2026-11-19T04:05:00Z	expected=403 actual=403
+REG-01	update without If-Match -> 400 naming version	PASS	2026-11-19T04:05:00Z	expected=400 version actual=400 version
+REG-01	update with the current version	PASS	2026-11-19T04:05:00Z	expected=200 actual=200
+REG-01	stale If-Match -> 409	PASS	2026-11-19T04:05:00Z	expected=409 actual=409
+REG-01	search by name finds the customer	PASS	2026-11-19T04:05:00Z	expected=QA340 Ana Regresión M actual=QA340 Ana Regresión M
+REG-01	search by national phone + region	PASS	2026-11-19T04:05:00Z	expected=f8530c45-5c45-488e-b349-40a2aecee7c3 actual=f8530c45-5c45-488e-b349-40a2aecee7c3
+REG-01	same phone allowed in workspace B	PASS	2026-11-19T04:05:00Z	expected=201 actual=201
+REG-01	workspace B search returns B customers only (incl. the new one, never A's)	PASS	2026-11-19T04:05:00Z	expected=ok actual=ok
+REG-01	new contact: consent UNKNOWN, not eligible	PASS	2026-11-19T04:05:00Z	expected=[false,"CONSENT_UNKNOWN"] actual=[false,"CONSENT_UNKNOWN"]
+REG-01	grant WhatsApp consent	PASS	2026-11-19T04:05:00Z	expected=200 actual=200
+REG-01	granted -> eligible	PASS	2026-11-19T04:05:01Z	expected=[true,""] actual=[true,""]
+REG-01	do-not-contact on	PASS	2026-11-19T04:05:01Z	expected=200 actual=200
+REG-01	DNC overrides granted consent	PASS	2026-11-19T04:05:01Z	expected=[false,"DO_NOT_CONTACT"] actual=[false,"DO_NOT_CONTACT"]
+REG-01	VIEWER cannot change the contact policy	PASS	2026-11-19T04:05:01Z	expected=403 actual=403
+REG-01	clear DNC	PASS	2026-11-19T04:05:01Z	expected=200 actual=200
+REG-01	eligible again after DNC cleared	PASS	2026-11-19T04:05:01Z	expected=[true,""] actual=[true,""]
+REG-01	stale contact-policy If-Match -> 409	PASS	2026-11-19T04:05:01Z	expected=409 actual=409
+REG-01	policy history lists consent and DNC changes	PASS	2026-11-19T04:05:01Z	expected=ok actual=ok
+REG-01	record a purchase	PASS	2026-11-19T04:05:01Z	expected=201 actual=201
+REG-01	record a backdated purchase	PASS	2026-11-19T04:05:01Z	expected=201 actual=201
+REG-01	last purchase = latest valid by date	PASS	2026-11-19T04:05:01Z	expected=Café 500 g actual=Café 500 g
+REG-01	idempotent replay -> 200 same purchase	PASS	2026-11-19T04:05:01Z	expected=200 e89fa9e9-843c-4818-9cc8-63e25b6bbf1e actual=200 e89fa9e9-843c-4818-9cc8-63e25b6bbf1e
+REG-01	same key, different body -> 409	PASS	2026-11-19T04:05:01Z	expected=409 actual=409
+REG-01	future purchase date -> 400	PASS	2026-11-19T04:05:01Z	expected=400 actual=400
+REG-01	VIEWER cannot record a purchase	PASS	2026-11-19T04:05:01Z	expected=403 actual=403
+REG-01	correct a purchase date	PASS	2026-11-19T04:05:01Z	expected=200 actual=200
+REG-01	last purchase follows the correction	PASS	2026-11-19T04:05:01Z	expected=Café 1 kg actual=Café 1 kg
+REG-01	void the latest purchase	PASS	2026-11-19T04:05:02Z	expected=204 actual=204
+REG-01	last purchase after voiding the latest	PASS	2026-11-19T04:05:02Z	expected=Café 500 g corregida actual=Café 500 g corregida
+REG-01	purchase history keeps RECORDED and VOIDED	PASS	2026-11-19T04:05:02Z	expected=["VOIDED","RECORDED"] actual=["VOIDED","RECORDED"]
+REG-01	tenant A policy at start (restored at the end)	NOTE	2026-11-19T04:05:02Z	cadence/timezone=30 UTC
+REG-01	last valid purchase 90 days ago + tenant cadence -> OVERDUE from LAST_PURCHASE	PASS	2026-11-19T04:05:02Z	expected=OVERDUE LAST_PURCHASE actual=OVERDUE LAST_PURCHASE
+REG-01	OVERDUE filter lists the customer	PASS	2026-11-19T04:05:02Z	expected=f8530c45-5c45-488e-b349-40a2aecee7c3 actual=f8530c45-5c45-488e-b349-40a2aecee7c3
+REG-01	explicit next date = today	PASS	2026-11-19T04:05:02Z	expected=200 actual=200
+REG-01	explicit date today -> DUE from EXPLICIT_DATE	PASS	2026-11-19T04:05:02Z	expected=DUE EXPLICIT_DATE actual=DUE EXPLICIT_DATE
+REG-01	DUE filter lists the customer	PASS	2026-11-19T04:05:02Z	expected=f8530c45-5c45-488e-b349-40a2aecee7c3 actual=f8530c45-5c45-488e-b349-40a2aecee7c3
+REG-01	snooze into the past -> 400	PASS	2026-11-19T04:05:02Z	expected=400 actual=400
+REG-01	snooze a DUE customer	PASS	2026-11-19T04:05:02Z	expected=200 actual=200
+REG-01	snoozed -> NOT_YET_DUE	PASS	2026-11-19T04:05:02Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+REG-01	dismiss a NOT_YET_DUE customer -> 409	PASS	2026-11-19T04:05:02Z	expected=409 actual=409
+REG-01	snooze without a date -> 400 (no clear-snooze operation, ADR 0013)	PASS	2026-11-19T04:05:02Z	expected=400 actual=400
+REG-01	early manual completion of a snoozed customer (allowed by ADR 0013)	PASS	2026-11-19T04:05:03Z	expected=201 actual=201
+REG-01	completion replay (same key) -> 200, original record	PASS	2026-11-19T04:05:03Z	expected=200 d5865085-3b4a-414e-aab7-633434bf58e4 actual=200 d5865085-3b4a-414e-aab7-633434bf58e4
+REG-01	one completion stored	PASS	2026-11-19T04:05:03Z	expected=1 actual=1
+REG-01	completed customer advances to NOT_YET_DUE	PASS	2026-11-19T04:05:03Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+REG-01	VIEWER cannot record a disposition	PASS	2026-11-19T04:05:03Z	expected=403 actual=403
+REG-01	stale If-Match on a disposition -> 409	PASS	2026-11-19T04:05:03Z	expected=409 actual=409
+REG-01	dismiss a DUE customer	PASS	2026-11-19T04:05:03Z	expected=201 actual=201
+REG-01	dismissed -> NOT_YET_DUE	PASS	2026-11-19T04:05:03Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+REG-01	dispositioned customers leave the due queue	PASS	2026-11-19T04:05:03Z	expected=0 actual=0
+REG-01	OPERATOR cannot change the tenant-wide policy (#159)	PASS	2026-11-19T04:05:04Z	expected=403 actual=403
+REG-01	OPERATOR cannot archive (CUSTOMER_DELETE)	PASS	2026-11-19T04:05:04Z	expected=403 actual=403
+REG-01	archive without If-Match -> 400	PASS	2026-11-19T04:05:04Z	expected=400 actual=400
+REG-01	OWNER archives the customer	PASS	2026-11-19T04:05:04Z	expected=204 actual=204
+REG-01	archive is idempotent (second archive does not fail or change state)	PASS	2026-11-19T04:05:04Z	http=409
+REG-01	archived profile still readable by id, status ARCHIVED	PASS	2026-11-19T04:05:04Z	expected=200 ARCHIVED actual=200 ARCHIVED
+REG-01	default list excludes the archived profile	PASS	2026-11-19T04:05:04Z	expected=0 actual=0
+REG-01	ARCHIVED filter lists it	PASS	2026-11-19T04:05:04Z	expected=a208af39-1391-4751-9ea9-99bdd6075c19 actual=a208af39-1391-4751-9ea9-99bdd6075c19
+REG-01	archived -> not eligible (CUSTOMER_ARCHIVED)	PASS	2026-11-19T04:05:04Z	expected=CUSTOMER_ARCHIVED actual=CUSTOMER_ARCHIVED
+REG-01	archived customer leaves the due queue	PASS	2026-11-19T04:05:04Z	expected=0 actual=0
+REG-01	archived customer accepts no new purchase (ADR 0011)	PASS	2026-11-19T04:05:04Z	http=409 code=
+REG-01	archived customer's purchase history stays readable	PASS	2026-11-19T04:05:04Z	expected=200 1 actual=200 1
+REG-01	archived customer's phone stays reserved; creation never reactivates	PASS	2026-11-19T04:05:05Z	expected=409 actual=409
+REG-01	no disposition on an archived customer	PASS	2026-11-19T04:05:05Z	http=409 code=
+REG-01	AI recommendation on an archived customer is refused/ineligible without a provider call	PASS	2026-11-19T04:05:05Z	http=200 outcome=INELIGIBLE
+REG-01	no provider request during REG-01 API	PASS	2026-11-19T04:05:05Z	stub_delta=0
+REG-01-UI	UI-created customer stored with E.164 phone, WhatsApp consent GRANTED (CUSTOMER_VERBAL) and one valid purchase	PASS	2026-11-19T04:07:03Z	customer=3287eda8
+REG-01-UI	snooze chosen in the dialog ('En 3 días') is stored as tenant today + 3	PASS	2026-11-19T04:07:03Z	snoozedUntil=2026-11-22
+REG-01-UI	snoozed customer is NOT_YET_DUE (left the queue)	PASS	2026-11-19T04:07:03Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+REG-01-UI	UI-created customer stored with E.164 phone, WhatsApp consent GRANTED (CUSTOMER_VERBAL) and one valid purchase	PASS	2026-11-19T04:07:11Z	customer=3287eda8
+REG-01-UI	UI consent stored as GRANTED from CUSTOMER_VERBAL	PASS	2026-11-19T04:07:11Z	expected=GRANTED CUSTOMER_VERBAL actual=GRANTED CUSTOMER_VERBAL
+REG-01-UI	snooze chosen in the dialog ('En 3 días') is stored as tenant today + 3	PASS	2026-11-19T04:07:11Z	snoozedUntil=2026-11-22
+REG-01-UI	snoozed customer is NOT_YET_DUE (left the queue)	PASS	2026-11-19T04:07:11Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+REG-01-UI	'Registrar seguimiento' dialog stored exactly one completion	PASS	2026-11-19T04:08:52Z	expected=1 actual=1
+REG-01-UI	'Descartar' dialog stored exactly one dismissal	PASS	2026-11-19T04:08:52Z	expected=1 actual=1
+REG-01-UI	'Confirmar y archivar' archived the dismissed customer	PASS	2026-11-19T04:08:52Z	expected=ARCHIVED actual=ARCHIVED
+REG-01-UI	completed customer NOT_YET_DUE	PASS	2026-11-19T04:08:52Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+REG-01-UI	no provider request during the browser leg	PASS	2026-11-19T04:08:52Z	expected=29 actual=29
+REG-02	baseline before the live draft	NOTE	2026-11-19T04:13:44Z	customer=e16cba88 policy="1"|[false,"GRANTED"] followup="1"|[null,"2026-11-19",null] snap=192/574/29/230/2185/stub=29 ai_rows=193
+REG-02	consent/DNC and contact-policy version unchanged by generation	PASS	2026-11-19T04:15:09Z	expected=b0ee550f8ea7 actual=b0ee550f8ea7
+REG-02	follow-up cadence/explicit date/snooze and version unchanged	PASS	2026-11-19T04:15:09Z	expected=b9bc4537ab41 actual=b9bc4537ab41
+REG-02	customer still DUE	PASS	2026-11-19T04:15:09Z	expected=DUE actual=DUE
+REG-02	no message, approval or send attempt created for the customer	PASS	2026-11-19T04:15:09Z	expected=0 0 actual=0 0
+REG-02	no provider request (stub sends unchanged)	PASS	2026-11-19T04:15:09Z	expected=29 actual=29
+REG-02	live AI invocations since the provider switch (audit AI_INVOCATION_OUTCOME)	NOTE	2026-11-19T04:15:10Z	new_rows=2 outcomes=
+REG-02	consent/DNC and contact-policy version unchanged by generation	PASS	2026-11-19T04:15:21Z	expected=b0ee550f8ea7 actual=b0ee550f8ea7
+REG-02	follow-up cadence/explicit date/snooze and version unchanged	PASS	2026-11-19T04:15:21Z	expected=b9bc4537ab41 actual=b9bc4537ab41
+REG-02	customer still DUE	PASS	2026-11-19T04:15:21Z	expected=DUE actual=DUE
+REG-02	no message, approval or send attempt created for the customer	PASS	2026-11-19T04:15:22Z	expected=0 0 actual=0 0
+REG-02	no provider request (stub sends unchanged)	PASS	2026-11-19T04:15:22Z	expected=29 actual=29
+REG-02	live AI invocations since the provider switch (audit AI_INVOCATION_OUTCOME)	NOTE	2026-11-19T04:15:22Z	new_rows=2 outcomes=NEXT_BEST_ACTION:GENERATED,MESSAGE_DRAFT:GENERATED
+REG-02	consent/DNC and contact-policy version unchanged by generation	PASS	2026-11-19T04:16:00Z	expected=b0ee550f8ea7 actual=b0ee550f8ea7
+REG-02	follow-up cadence/explicit date/snooze and version unchanged	PASS	2026-11-19T04:16:00Z	expected=b9bc4537ab41 actual=b9bc4537ab41
+REG-02	customer still DUE	PASS	2026-11-19T04:16:00Z	expected=DUE actual=DUE
+REG-02	no message, approval or send attempt created for the customer	PASS	2026-11-19T04:16:01Z	expected=0 0 actual=0 0
+REG-02	no provider request (stub sends unchanged)	PASS	2026-11-19T04:16:01Z	expected=29 actual=29
+REG-02	live AI invocations since the provider switch (audit AI_INVOCATION_OUTCOME)	NOTE	2026-11-19T04:16:01Z	new_rows=4 outcomes=NEXT_BEST_ACTION:GENERATED,MESSAGE_DRAFT:GENERATED,NEXT_BEST_ACTION:GENERATED,MESSAGE_DRAFT:GENERATED
+REG-03	[unavailable] backend AI configuration	NOTE	2026-11-19T04:18:16Z	provider=openai base=http://127.0.0.1:18099/v1
+REG-03	[unavailable] recommendation -> 200 AI_UNAVAILABLE reason=UNAVAILABLE retryable=true, evaluation kept, no raw provider error	PASS	2026-11-19T04:18:17Z	http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true eval=DUE
+REG-03	[unavailable] draft -> 200 AI_UNAVAILABLE reason=UNAVAILABLE retryable=true, evaluation kept, no raw provider error	PASS	2026-11-19T04:18:17Z	http=200 status=AI_UNAVAILABLE reason=UNAVAILABLE retryable=true eval=DUE
+REG-03	[unavailable] failed AI calls changed no follow-up policy	PASS	2026-11-19T04:18:18Z	expected="1" actual="1"
+REG-03	[unavailable] failed AI calls wrote no message, attempt, customer or other audit row besides AI outcomes	PASS	2026-11-19T04:18:18Z	expected=192/574/29/234 actual=192/574/29/234
+REG-03	[unavailable] manual snooze still works	PASS	2026-11-19T04:18:18Z	expected=200 actual=200
+REG-03	[unavailable] manual completion still works (early touch on a snoozed customer)	PASS	2026-11-19T04:18:18Z	expected=201 actual=201
+REG-03	[unavailable] message history of a customer with messages still readable	PASS	2026-11-19T04:18:18Z	http=200 items=17
+REG-03	[unavailable] due queue still served	PASS	2026-11-19T04:18:18Z	expected=200 actual=200
+REG-03	[unavailable] ended session: PUT /customers/bda9b244-cddf-455a-b026-0f38376d7ff2/follow-up-snooze -> 401, not 403 (#70)	PASS	2026-11-19T04:18:18Z	expected=401 actual=401
+REG-03	[unavailable] ended session: POST /customers/bda9b244-cddf-455a-b026-0f38376d7ff2/manual-follow-ups -> 401, not 403 (#70)	PASS	2026-11-19T04:18:18Z	expected=401 actual=401
+REG-03	[unavailable] ended session: POST /customers/bda9b244-cddf-455a-b026-0f38376d7ff2/recommendation -> 401, not 403 (#70)	PASS	2026-11-19T04:18:18Z	expected=401 actual=401
+REG-03	[unavailable] no provider send	PASS	2026-11-19T04:18:18Z	expected=29 actual=29
+REG-03-UI	snooze confirmed in a page whose session had ended was not stored	PASS	2026-11-19T04:18:28Z	expected=null actual=null
+REG-03-UI	session-expiry customer still DUE	PASS	2026-11-19T04:18:28Z	expected=DUE actual=DUE
+REG-03-UI	completion saved in the UI while AI was unavailable: exactly one row	PASS	2026-11-19T04:18:28Z	expected=1 actual=1
+REG-03	[disabled] backend AI configuration	NOTE	2026-11-19T04:18:45Z	provider=<empty> base=<default>
+REG-03	[disabled] recommendation -> 200 AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=false, evaluation kept, no raw provider error	PASS	2026-11-19T04:18:46Z	http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=false eval=DUE
+REG-03	[disabled] draft -> 200 AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=false, evaluation kept, no raw provider error	PASS	2026-11-19T04:18:46Z	http=200 status=AI_UNAVAILABLE reason=NOT_AVAILABLE retryable=false eval=DUE
+REG-03	[disabled] failed AI calls changed no follow-up policy	PASS	2026-11-19T04:18:46Z	expected="1" actual="1"
+REG-03	[disabled] failed AI calls wrote no message, attempt, customer or other audit row besides AI outcomes	PASS	2026-11-19T04:18:46Z	expected=192/574/29/235 actual=192/574/29/235
+REG-03	[disabled] manual snooze still works	PASS	2026-11-19T04:18:46Z	expected=200 actual=200
+REG-03	[disabled] manual completion still works (early touch on a snoozed customer)	PASS	2026-11-19T04:18:47Z	expected=201 actual=201
+REG-03	[disabled] message history of a customer with messages still readable	PASS	2026-11-19T04:18:47Z	http=200 items=17
+REG-03	[disabled] due queue still served	PASS	2026-11-19T04:18:47Z	expected=200 actual=200
+REG-03	[disabled] ended session: PUT …/follow-up-snooze -> 401, not 403 (#70)	PASS	2026-11-19T04:18:47Z	expected=401 actual=401
+REG-03	[disabled] ended session: POST …/manual-follow-ups -> 401, not 403 (#70)	PASS	2026-11-19T04:18:47Z	expected=401 actual=401
+REG-03	[disabled] ended session: POST …/recommendation -> 401, not 403 (#70)	PASS	2026-11-19T04:18:47Z	expected=401 actual=401
+REG-03	[disabled] no provider send	PASS	2026-11-19T04:18:47Z	expected=29 actual=29
+REG-03-UI	snooze confirmed in a page whose session had ended was not stored	PASS	2026-11-19T04:19:25Z	expected=null actual=null
+REG-03-UI	session-expiry customer still DUE	PASS	2026-11-19T04:19:25Z	expected=DUE actual=DUE
+REG-03-UI	completion saved in the UI while AI was unavailable: exactly one row	PASS	2026-11-19T04:19:25Z	expected=1 actual=1
+REG-03-UI	snooze saved in the UI while AI was disabled	PASS	2026-11-19T04:19:25Z	expected=2026-11-20 actual=2026-11-20
+REG-05	#66 extra identity testadmin signs in and holds ADMIN in workspace A	PASS	2026-11-19T04:21:18Z	expected=200 ADMIN actual=200 ADMIN
+REG-05	#66 extra identity testoperator2 holds OPERATOR in workspace B only	PASS	2026-11-19T04:21:18Z	expected=1 OPERATOR actual=1 OPERATOR
+REG-05	#68 stale callback via localhost:8080: ends on the app (5173), not /login?error or 'Please sign in'	PASS	2026-11-19T04:21:18Z	http=302 location=http://localhost:5173/?error=login_failed final=http://localhost:5173/?error=login_failed
+REG-05	#68 stale callback via localhost:5173: ends on the app (5173), not /login?error or 'Please sign in'	PASS	2026-11-19T04:21:18Z	http=302 location=http://localhost:5173/?error=login_failed final=http://localhost:5173/?error=login_failed
+REG-05	#72 unparseable CR phone -> 400 naming phones[0].number	PASS	2026-11-19T04:21:18Z	expected=400 phones[0].number actual=400 phones[0].number
+REG-04	volume fixture ready	NOTE	2026-11-19T04:21:18Z	volume_customers=230 long_history_purchases=116
+REG-05	#265 VIEWER cancels a pending message: 403, one denial row naming MESSAGE_DRAFT, nothing else written	PASS	2026-11-19T04:21:19Z	http=403 code=FORBIDDEN denials=+1 last=MESSAGE_DRAFT|INSUFFICIENT_PERMISSION state_same=y stub_delta=0
+REG-05	cleanup: pending #265 message cancelled by the OWNER	PASS	2026-11-19T04:21:19Z	http=201 status=CANCELLED
+REG-05	#266 GET /webhooks -> refused, no Set-Cookie, no challenge echo	PASS	2026-11-19T04:21:19Z	http=403 cookie=0
+REG-05	#266 GET /webhooks/ -> refused, no Set-Cookie, no challenge echo	PASS	2026-11-19T04:21:19Z	http=403 cookie=0
+REG-05	#266 GET /webhooks/other -> refused, no Set-Cookie, no challenge echo	PASS	2026-11-19T04:21:19Z	http=403 cookie=0
+REG-05	#266 GET /webhooks/whatsapp/ -> refused, no Set-Cookie, no challenge echo	PASS	2026-11-19T04:21:19Z	http=403 cookie=0
+REG-05	#266 GET /webhooks/whatsapp/status -> refused, no Set-Cookie, no challenge echo	PASS	2026-11-19T04:21:19Z	http=403 cookie=0
+REG-05	#266 GET /webhooks/WhatsApp -> refused, no Set-Cookie, no challenge echo	PASS	2026-11-19T04:21:19Z	http=403 cookie=0
+REG-05	#266 GET /webhooks/whatsapp2 -> refused, no Set-Cookie, no challenge echo	PASS	2026-11-19T04:21:19Z	http=403 cookie=0
+REG-05	#266 control: the real callback answers the verification challenge without a cookie	PASS	2026-11-19T04:21:19Z	http=200
+REG-05	#293 GET /api/templates with SELECT on tenant_provider_templates revoked -> 500 application/problem+json {type,title,status,code=INTERNAL_ERROR}, no path/timestamp/exception	PASS	2026-11-19T04:21:20Z	http=500 type=application/problem+json keys=code,status,title,type code=INTERNAL_ERROR
+REG-05	#293 grant on tenant_provider_templates restored, route answers 200 again	PASS	2026-11-19T04:21:20Z	expected=200 t actual=200 t
+REG-05	#293 GET /api/integrations/whatsapp with SELECT on tenant_messaging_integrations revoked -> 500 application/problem+json {type,title,status,code=INTERNAL_ERROR}, no path/timestamp/exception	PASS	2026-11-19T04:21:20Z	http=500 type=application/problem+json keys=code,status,title,type code=INTERNAL_ERROR
+REG-05	#293 grant on tenant_messaging_integrations restored, route answers 200 again	PASS	2026-11-19T04:21:20Z	expected=200 t actual=200 t
+REG-05	no provider send during REG-05	PASS	2026-11-19T04:21:20Z	expected=29 actual=29
+REG-04	fixture: volume customers in workspace A	NOTE	2026-11-19T04:22:53Z	volume=230 long_history=122
+REG-04	queue page size 100: every volume customer exactly once over 3 pages, no duplicate, first page full	PASS	2026-11-19T04:22:53Z	pages=3 items=235 volume_seen=230/230 dups=0 first=100
+REG-04	queue page size 37: every volume customer exactly once over 7 pages, no duplicate, first page full	PASS	2026-11-19T04:22:54Z	pages=7 items=235 volume_seen=230/230 dups=0 first=37
+REG-04	queue order: due date never decreases across 7 pages of 37	PASS	2026-11-19T04:22:54Z	expected=sorted actual=sorted
+REG-04	queue item fields	NOTE	2026-11-19T04:22:54Z	customerId,displayName,dueDate,effectiveCadenceDays,evaluatedAt,lastDismissedDate,lastManualFollowUpDate,lastPurchaseAt,policyVersion,primaryPhone,reasons,status,timingSource
+REG-04	status=OVERDUE filter: only OVERDUE items, no duplicate across 3 pages	PASS	2026-11-19T04:22:55Z	pages=3 items=222
+REG-04	status=DUE filter: only DUE items, no duplicate across 1 pages	PASS	2026-11-19T04:22:55Z	pages=1 items=13
+REG-04	queue limit above 100 -> 400	PASS	2026-11-19T04:22:55Z	expected=400 actual=400
+REG-04	forged cursor -> 400	PASS	2026-11-19T04:22:55Z	expected=400 actual=400
+REG-04	workspace A cursor replayed in workspace B never returns A customers	PASS	2026-11-19T04:22:55Z	http=200 items=1
+REG-04	workspace B queue (all pages) holds no workspace A customer	PASS	2026-11-19T04:22:55Z	expected=0 actual=0 b_items=1
+REG-04	customer search 'QA340 Volumen' pages of 50: all 230 once	PASS	2026-11-19T04:22:55Z	expected=230 0 actual=230 0 pages=5
+REG-04	archived list over all pages matches the database, no duplicate	PASS	2026-11-19T04:22:56Z	expected=209 0 actual=209 0 pages=3
+REG-04	purchase history pages of 50: every purchase once	PASS	2026-11-19T04:22:56Z	expected=122 0 actual=122 0 pages=3
+REG-04	purchase history newest first	PASS	2026-11-19T04:22:56Z	expected=true actual=true
+REG-06	#310 25 identical denials -> 25 x 403 with one body (timestamp aside)	PASS	2026-11-19T04:26:07Z	expected=403 1 actual=403 1
+REG-06	#310 at most 10 denial rows for the key in the 15-minute window (rows before: 10)	PASS	2026-11-19T04:26:07Z	rows_after=10 new=0
+CLEANUP	every active QA340 customer archived through the API	PASS	2026-11-19T04:26:42Z	expected=0 0 actual=0 0 archived_now=252
+CLEANUP	no open (pending/approved) QA340 message left	PASS	2026-11-19T04:26:43Z	expected=0 actual=0
+CLEANUP	AI provider back to fake, global outbound off	PASS	2026-11-19T04:26:43Z	expected=provider=fake outbound=false actual=provider=fake outbound=false
+CLEANUP	tenant A outbound switch off	PASS	2026-11-19T04:26:43Z	expected=false actual=false
+CLEANUP	provider send requests over the whole suite	PASS	2026-11-19T04:26:43Z	expected=29 actual=29
+CLEANUP	runtime role SELECT grants restored after #293 probes	PASS	2026-11-19T04:26:43Z	expected=t t actual=t t
+CLEANUP	live OpenAI calls in the suite (audit rows since the switch)	NOTE	2026-11-19T04:26:43Z	ai_rows_since_REG02_baseline=10 (4 live; the rest are UNAVAILABLE/NOT_AVAILABLE outcomes and fake-provider calls)
+CLEANUP	every active QA340 customer archived through the API	PASS	2026-11-19T04:26:55Z	expected=0 0 actual=0 0 archived_now=0
+CLEANUP	no open (pending/approved) QA340 message left	PASS	2026-11-19T04:26:55Z	expected=0 actual=0
+CLEANUP	AI provider back to fake, global outbound off	PASS	2026-11-19T04:26:55Z	expected=provider=fake outbound=false actual=provider=fake outbound=false
+CLEANUP	tenant A outbound switch off	PASS	2026-11-19T04:26:55Z	expected=false actual=false
+CLEANUP	provider send requests over the whole suite	PASS	2026-11-19T04:26:55Z	expected=29 actual=29
+CLEANUP	runtime role SELECT grants restored after #293 probes	PASS	2026-11-19T04:26:55Z	expected=t t actual=t t
+CLEANUP	AI invocations in the suite by operation:outcome:detail (GENERATED = live OpenAI)	NOTE	2026-11-19T04:26:55Z	MESSAGE_DRAFT:FAILED:NOT_AVAILABLE=1, MESSAGE_DRAFT:FAILED:UNAVAILABLE=1, MESSAGE_DRAFT:GENERATED:NONE=2, NEXT_BEST_ACTION:FAILED:NOT_AVAILABLE=2, NEXT_BEST_ACTION:FAILED:UNAVAILABLE=2, NEXT_BEST_ACTION:GENERATED:NONE=2
+REG-01	#421 backend provisioning policy	NOTE	2026-11-19T04:27:26Z	enabled=true allow_all=true allowlist_set=n
+REG-01	#421 identity without workspaces provisions one (allow-all policy) -> 201	PASS	2026-11-19T04:27:26Z	expected=201 actual=201
+REG-01	#421 replay with the same key returns the same workspace	PASS	2026-11-19T04:27:27Z	expected=a4e53535-b2ba-401e-b613-fad7d9e12738 actual=a4e53535-b2ba-401e-b613-fad7d9e12738 http=200
+REG-01	#421 creator is OWNER of exactly the new workspace	PASS	2026-11-19T04:27:27Z	expected=1 OWNER a4e53535-b2ba-401e-b613-fad7d9e12738 actual=1 OWNER a4e53535-b2ba-401e-b613-fad7d9e12738
+REG-01	#421 new owner still has no access to workspace A	PASS	2026-11-19T04:27:27Z	expected=403 actual=403
+
+## 2. Person-driven browser observations (in-app Chromium pane unless stated)
+REG-01	Browser	login through local Keycloak (OIDC code+PKCE via BFF :8080) lands on Seguimientos of QA Café Norte	PASS
+REG-01	Browser	Nuevo cliente with phone '123' -> field message 'no es válido para la región seleccionada (Chile requiere 9 dígitos)', no generic HTTP 400 (#72)	PASS
+REG-01	Browser	Nuevo cliente QA340 Navegador Regresión with 9-digit CL phone -> profile shows E.164, 'No elegible (Sin registro de consentimiento)'	PASS
+REG-01	Browser	Gestionar consentimiento -> Concedido / Verbal -> 'Contacto habilitado', origin and date shown	PASS
+REG-01	Browser	Registrar compra dated 8 Oct 2026 -> 'Última compra registrada 08 oct 2026', history (1) Válida	PASS
+REG-01	Browser	Seguimientos: customer appears 'Vencido hace 12 d', reason 'cadencia de 30 días' (purchase 8 Oct + 30 = 7 Nov; tenant today 19 Nov); counters Vencidos 1->2	PASS
+REG-01	Browser	search by name filters the loaded queue; no-match shows 'Sin resultados en los seguimientos cargados'	PASS
+REG-01	Browser	Posponer 'En 3 días' -> card leaves the queue, counters 2->1; server snoozedUntil = today+3	PASS
+REG-01	Browser	Registrar seguimiento with notes on a due-today customer -> leaves the queue, 'programados' 2->1	PASS
+REG-01	Browser	Descartar seguimiento with notes -> leaves the queue, 'programados' 1->0	PASS
+REG-01	Browser	Archivar ficha -> confirmation explains effect; after confirm profile 'Archivado', 'No elegible (Cliente archivado)', purchases kept; edit/purchase/consent/DNC/archive controls gone	PASS
+REG-01	Browser	Workspace switch Norte -> Sur: list shows only Sur customers (QA340 Ana Sur x4, QA333 Elena Sur Vencida); open Norte profile closed	PASS
+REG-01	Browser	Switch back to Norte reopens the last Norte profile; 'Archivados' filter lists the archived customer and offers paging over 200+ archived rows	PASS
+REG-02	Browser (in-app, real OpenAI)	Obtener recomendación on QA340 Lucía Borrador -> 'Recomendación lista', Seguimiento por recompra, Spanish rationale grounded in the coffee+filters purchase about a month ago, 94 %	PASS
+REG-02	Browser (in-app, real OpenAI)	Generar borrador -> editable Spanish draft naming only the purchased products, no price, link or discount; 'DATOS EN LOS QUE SE BASA' lists the product; 'Edición local: no se guarda ni se envía'	PASS
+REG-02	Browser (in-app)	edit appended ' (editado QA340)'; counter 179->195/1000; 'Copiar borrador' -> 'No se pudo copiar el borrador' because this pane denies clipboard writes; edited text kept (environment limit, copy verified in Chromium)	NOTE
+REG-02	Browser (headless Chromium, clipboard granted, real OpenAI)	recommendation + draft, edit, 'Copiar borrador' -> 'Borrador copiado'; clipboard text equals the edited draft	PASS
+REG-03	Browser (session expiry)	snooze dialog left open, backend restarted (BFF session gone), 'Confirmar fecha' -> first request 401, page shows 'Tu sesión ya no está activa. Por favor inicia sesión nuevamente.'; no permission/workspace error (#70); snooze not stored	PASS
+REG-03	Browser (AI unavailable: adapter pointed at a closed loopback port)	Obtener recomendación -> 'El asistente IA no está disponible en este momento. Puedes continuar con el seguimiento manual. También puedes reintentar.' + Reintentar; Registrar seguimiento saved; history of QA333 Ana Vencida (17 rows) refreshes without error	PASS
+REG-03	Browser (AI disabled: empty provider)	Obtener recomendación -> 'El asistente IA no está habilitado para este espacio de trabajo. Puedes continuar con el seguimiento manual.' with no retry button; Posponer 'Mañana' saved	PASS
+REG-04	Browser (headless Chromium + Firefox)	queue loads 50, 'Cargar más seguimientos' x4 -> 235 cards, 230/230 volume customers once, control gone at the end; counters 235 pendientes / 222 vencidos	PASS
+REG-04	Browser (headless Chromium + Firefox)	switch to QA Café Sur with the full list loaded -> only 'QA333 Elena Sur Vencida'; back to Norte -> fresh first page of 50	PASS
+REG-04	Browser (headless Chromium + Firefox)	customer with 122 purchases: 'Historial de compras (50)' -> 'Cargar compras anteriores' x2 -> 122 = database count; repeated descriptions are fixture data (a second 'Compra larga 118') and the last-purchase summary card	PASS
+REG-05	Browser (headless Chromium + Firefox)	#82 768 px and #83 320 px: Clientes and Seguimientos have no page overflow, no element past the viewport, no clipped control	PASS
+REG-05	Browser (in-app)	#68 stale callback on :8080 signed out -> app with 'No se pudo completar el inicio de sesión o el enlace de autenticación ha expirado'; signed in -> back in the app, session still 200; never Spring's 'Please sign in' page	PASS
+
+## 3. REG-02 copy leg, headless Chromium with clipboard permission, real OpenAI
+generated_length	190
+generated_is_spanish	true
+generated_no_link_or_price	true
+clipboard_equals_edited_draft	true
+edited_suffix_in_clipboard	true
+copy_feedback	Borrador copiado
+local_edit_notice	true
+no_send_or_approve_without_review	true
+
+## 3. REG-04/REG-05 real-browser harness, Chromium
+REG-04	chromium	first_load_cards	50
+REG-04	chromium	load_more_clicks	4
+REG-04	chromium	cards_after_all_pages	235
+REG-04	chromium	volume_cards_unique	230/230
+REG-04	chromium	load_more_gone_at_end	true
+REG-04	chromium	counters	235 pendientes / 222 vencidos
+REG-04	chromium	sur_queue_cards	QA333 Elena Sur Vencida
+REG-04	chromium	sur_has_no_norte_card	true
+REG-04	chromium	norte_after_switch_back_cards	50
+REG-04	chromium	norte_back_is_fresh_first_page	true
+REG-04	chromium	purchase_history_first_page	50
+REG-04	chromium	purchase_history_after_all_pages	122 (clicks=2)
+REG-04	chromium	purchase_rows_unique	120/122
+REG-05	chromium	Clientes@768px overflow	pageOverflowX=false scrollWidth=768/768 overflowing=0 clippedControls=0
+REG-05	chromium	Seguimientos@768px overflow	pageOverflowX=false scrollWidth=768/768 overflowing=0 clippedControls=0
+REG-05	chromium	Clientes@320px overflow	pageOverflowX=false scrollWidth=320/320 overflowing=0 clippedControls=0
+REG-05	chromium	Seguimientos@320px overflow	pageOverflowX=false scrollWidth=320/320 overflowing=0 clippedControls=0
+
+## 3. REG-04/REG-05 real-browser harness, Firefox
+REG-04	firefox	first_load_cards	50
+REG-04	firefox	load_more_clicks	4
+REG-04	firefox	cards_after_all_pages	235
+REG-04	firefox	volume_cards_unique	230/230
+REG-04	firefox	load_more_gone_at_end	true
+REG-04	firefox	counters	235 pendientes / 222 vencidos
+REG-04	firefox	sur_queue_cards	QA333 Elena Sur Vencida
+REG-04	firefox	sur_has_no_norte_card	true
+REG-04	firefox	norte_after_switch_back_cards	50
+REG-04	firefox	norte_back_is_fresh_first_page	true
+REG-04	firefox	purchase_history_first_page	50
+REG-04	firefox	purchase_history_after_all_pages	122 (clicks=2)
+REG-04	firefox	purchase_rows_unique	120/122
+REG-05	firefox	Clientes@768px overflow	pageOverflowX=false scrollWidth=756/756 overflowing=0 clippedControls=0
+REG-05	firefox	Seguimientos@768px overflow	pageOverflowX=false scrollWidth=756/756 overflowing=0 clippedControls=0
+REG-05	firefox	Clientes@320px overflow	pageOverflowX=false scrollWidth=308/308 overflowing=0 clippedControls=0
+REG-05	firefox	Seguimientos@320px overflow	pageOverflowX=false scrollWidth=308/308 overflowing=0 clippedControls=0
+
+## 4. #64 clean Keycloak start in a disposable compose project (docker compose up --wait)
+ Network dokene-qa340kc_default Creating 
+ Network dokene-qa340kc_default Created 
+ Container dokene-qa340kc-keycloak-1 Creating 
+ Container dokene-qa340kc-keycloak-1 Created 
+ Container dokene-qa340kc-keycloak-1 Starting 
+ Container dokene-qa340kc-keycloak-1 Started 
+ Container dokene-qa340kc-keycloak-1 Waiting 
+ Container dokene-qa340kc-keycloak-1 Healthy 
+
+## 5. Superseded runs (HARNESS-ERROR; see the report's setup notes). Not counted above.
+### reg01-api-attempt1.txt
+HARNESS-ERROR	REG-01	no session -> 401	PASS	2026-11-19T04:04:11Z	expected=401 actual=401
+HARNESS-ERROR	REG-01	OWNER testuser sees both workspaces (A OWNER, B ADMIN)	PASS	2026-11-19T04:04:11Z	expected=OWNER ADMIN actual=OWNER ADMIN
+HARNESS-ERROR	REG-01	testoperator2 sees only workspace B	PASS	2026-11-19T04:04:11Z	expected=1 OPERATOR actual=1 OPERATOR
+HARNESS-ERROR	REG-01	operator of A with workspace B header -> 403	PASS	2026-11-19T04:04:11Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	identity without membership lists no workspace	PASS	2026-11-19T04:04:11Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	OPERATOR creates CL customer	PASS	2026-11-19T04:04:11Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	duplicate phone in the same workspace -> 409	PASS	2026-11-19T04:04:11Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	unparseable phone -> 400 naming phones[0].number (#72)	PASS	2026-11-19T04:04:11Z	expected=400 phones[0].number actual=400 phones[0].number
+HARNESS-ERROR	REG-01	blank name -> 400 naming displayName	PASS	2026-11-19T04:04:11Z	expected=400 displayName actual=400 displayName
+HARNESS-ERROR	REG-01	missing region -> 400 naming phones[0].region	PASS	2026-11-19T04:04:11Z	expected=400 phones[0].region actual=400 phones[0].region
+HARNESS-ERROR	REG-01	VIEWER cannot create a customer	PASS	2026-11-19T04:04:12Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	update without If-Match -> 400 naming version	PASS	2026-11-19T04:04:12Z	expected=400 version actual=400 version
+HARNESS-ERROR	REG-01	update with the current version	PASS	2026-11-19T04:04:12Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	stale If-Match -> 409	PASS	2026-11-19T04:04:12Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	search by name finds the customer	PASS	2026-11-19T04:04:12Z	expected=QA340 Ana Regresión M actual=QA340 Ana Regresión M
+HARNESS-ERROR	REG-01	search by national phone + region	PASS	2026-11-19T04:04:12Z	expected=dc1610a5-e1a9-4f6a-b5c5-bd07593947f7 actual=dc1610a5-e1a9-4f6a-b5c5-bd07593947f7
+HARNESS-ERROR	REG-01	same phone allowed in workspace B	PASS	2026-11-19T04:04:12Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	workspace B search lists only its own customer	PASS	2026-11-19T04:04:12Z	expected=1 7f80d67c-8253-4aa2-adbf-94b018e1930c actual=1 7f80d67c-8253-4aa2-adbf-94b018e1930c
+HARNESS-ERROR	REG-01	new contact: consent UNKNOWN, not eligible	PASS	2026-11-19T04:04:12Z	expected=[false,"CONSENT_UNKNOWN"] actual=[false,"CONSENT_UNKNOWN"]
+HARNESS-ERROR	REG-01	grant WhatsApp consent	PASS	2026-11-19T04:04:12Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	granted -> eligible	PASS	2026-11-19T04:04:12Z	expected=[true,""] actual=[true,""]
+HARNESS-ERROR	REG-01	do-not-contact on	PASS	2026-11-19T04:04:12Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	DNC overrides granted consent	PASS	2026-11-19T04:04:12Z	expected=[false,"DO_NOT_CONTACT"] actual=[false,"DO_NOT_CONTACT"]
+HARNESS-ERROR	REG-01	VIEWER cannot change the contact policy	PASS	2026-11-19T04:04:12Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	clear DNC	PASS	2026-11-19T04:04:13Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	eligible again after DNC cleared	PASS	2026-11-19T04:04:13Z	expected=[true,""] actual=[true,""]
+HARNESS-ERROR	REG-01	stale contact-policy If-Match -> 409	PASS	2026-11-19T04:04:13Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	policy history lists consent and DNC changes	PASS	2026-11-19T04:04:13Z	expected=ok actual=ok
+HARNESS-ERROR	REG-01	record a purchase	PASS	2026-11-19T04:04:13Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	record a backdated purchase	PASS	2026-11-19T04:04:13Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	last purchase = latest valid by date	PASS	2026-11-19T04:04:13Z	expected=Café 500 g actual=Café 500 g
+HARNESS-ERROR	REG-01	idempotent replay -> 200 same purchase	PASS	2026-11-19T04:04:13Z	expected=200 5ede16e2-af17-484c-bb6c-4066204075ed actual=200 5ede16e2-af17-484c-bb6c-4066204075ed
+HARNESS-ERROR	REG-01	same key, different body -> 409	PASS	2026-11-19T04:04:13Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	future purchase date -> 400	PASS	2026-11-19T04:04:13Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	VIEWER cannot record a purchase	PASS	2026-11-19T04:04:13Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	correct a purchase date	PASS	2026-11-19T04:04:13Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	last purchase follows the correction	PASS	2026-11-19T04:04:13Z	expected=Café 1 kg actual=Café 1 kg
+HARNESS-ERROR	REG-01	void the latest purchase	PASS	2026-11-19T04:04:13Z	expected=204 actual=204
+HARNESS-ERROR	REG-01	last purchase after voiding the latest	PASS	2026-11-19T04:04:13Z	expected=Café 500 g corregida actual=Café 500 g corregida
+HARNESS-ERROR	REG-01	purchase history keeps RECORDED and VOIDED	PASS	2026-11-19T04:04:13Z	expected=["VOIDED","RECORDED"] actual=["VOIDED","RECORDED"]
+HARNESS-ERROR	REG-01	tenant A policy at start (restored at the end)	NOTE	2026-11-19T04:04:13Z	cadence/timezone=30 UTC
+HARNESS-ERROR	REG-01	last valid purchase 90 days ago + tenant cadence -> OVERDUE from LAST_PURCHASE	PASS	2026-11-19T04:04:13Z	expected=OVERDUE LAST_PURCHASE actual=OVERDUE LAST_PURCHASE
+HARNESS-ERROR	REG-01	OVERDUE filter lists the customer	PASS	2026-11-19T04:04:14Z	expected=dc1610a5-e1a9-4f6a-b5c5-bd07593947f7 actual=dc1610a5-e1a9-4f6a-b5c5-bd07593947f7
+HARNESS-ERROR	REG-01	explicit next date = today	PASS	2026-11-19T04:04:14Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	explicit date today -> DUE from EXPLICIT_DATE	PASS	2026-11-19T04:04:14Z	expected=DUE EXPLICIT_DATE actual=DUE EXPLICIT_DATE
+HARNESS-ERROR	REG-01	DUE filter lists the customer	PASS	2026-11-19T04:04:14Z	expected=dc1610a5-e1a9-4f6a-b5c5-bd07593947f7 actual=dc1610a5-e1a9-4f6a-b5c5-bd07593947f7
+HARNESS-ERROR	REG-01	snooze into the past -> 400	PASS	2026-11-19T04:04:14Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	snooze a DUE customer	PASS	2026-11-19T04:04:14Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	snoozed -> NOT_YET_DUE	PASS	2026-11-19T04:04:14Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	dismiss a NOT_YET_DUE customer -> 409	PASS	2026-11-19T04:04:14Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	clear the snooze	FAIL	2026-11-19T04:04:14Z	http=400 status=NOT_YET_DUE
+HARNESS-ERROR	REG-01	manual completion of a DUE customer	PASS	2026-11-19T04:04:14Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	completion replay (same key) -> 200, original record	PASS	2026-11-19T04:04:14Z	expected=200 fc9b3639-e28a-4f67-9806-51de16cf5ef8 actual=200 fc9b3639-e28a-4f67-9806-51de16cf5ef8
+HARNESS-ERROR	REG-01	one completion stored	PASS	2026-11-19T04:04:15Z	expected=1 actual=1
+HARNESS-ERROR	REG-01	completed customer advances to NOT_YET_DUE	PASS	2026-11-19T04:04:15Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	VIEWER cannot record a disposition	PASS	2026-11-19T04:04:15Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	stale If-Match on a disposition -> 409	PASS	2026-11-19T04:04:15Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	dismiss a DUE customer	PASS	2026-11-19T04:04:15Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	dismissed -> NOT_YET_DUE	PASS	2026-11-19T04:04:15Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	dispositioned customers leave the due queue	PASS	2026-11-19T04:04:15Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	OPERATOR cannot change the tenant-wide policy (#159)	PASS	2026-11-19T04:04:15Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	OPERATOR cannot archive (CUSTOMER_DELETE)	PASS	2026-11-19T04:04:16Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	archive without If-Match -> 400	PASS	2026-11-19T04:04:16Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	OWNER archives the customer	PASS	2026-11-19T04:04:16Z	expected=204 actual=204
+HARNESS-ERROR	REG-01	archive is idempotent (second archive does not fail or change state)	PASS	2026-11-19T04:04:16Z	http=409
+HARNESS-ERROR	REG-01	archived profile still readable by id, status ARCHIVED	PASS	2026-11-19T04:04:16Z	expected=200 ARCHIVED actual=200 ARCHIVED
+HARNESS-ERROR	REG-01	default list excludes the archived profile	PASS	2026-11-19T04:04:16Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	ARCHIVED filter lists it	PASS	2026-11-19T04:04:16Z	expected=af325a51-77e1-4e29-a5e2-4c00bd7b997e actual=af325a51-77e1-4e29-a5e2-4c00bd7b997e
+HARNESS-ERROR	REG-01	archived -> not eligible (CUSTOMER_ARCHIVED)	PASS	2026-11-19T04:04:16Z	expected=CUSTOMER_ARCHIVED actual=CUSTOMER_ARCHIVED
+HARNESS-ERROR	REG-01	archived customer leaves the due queue	PASS	2026-11-19T04:04:16Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	archived customer accepts no new purchase (ADR 0011)	PASS	2026-11-19T04:04:16Z	http=409 code=
+HARNESS-ERROR	REG-01	archived customer's purchase history stays readable	PASS	2026-11-19T04:04:16Z	expected=200 1 actual=200 1
+HARNESS-ERROR	REG-01	archived customer's phone stays reserved; creation never reactivates	PASS	2026-11-19T04:04:16Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	no disposition on an archived customer	PASS	2026-11-19T04:04:16Z	http=409 code=
+HARNESS-ERROR	REG-01	AI recommendation on an archived customer is refused/ineligible without a provider call	PASS	2026-11-19T04:04:17Z	http=200 outcome=INELIGIBLE
+HARNESS-ERROR	REG-01	no provider request during REG-01 API	PASS	2026-11-19T04:04:17Z	stub_delta=0
+HARNESS-ERROR	1 check(s) FAILED
+### reg01-api-attempt2.txt
+HARNESS-ERROR	REG-01	no session -> 401	PASS	2026-11-19T04:04:30Z	expected=401 actual=401
+HARNESS-ERROR	REG-01	OWNER testuser sees both workspaces (A OWNER, B ADMIN)	PASS	2026-11-19T04:04:30Z	expected=OWNER ADMIN actual=OWNER ADMIN
+HARNESS-ERROR	REG-01	testoperator2 sees only workspace B	PASS	2026-11-19T04:04:31Z	expected=1 OPERATOR actual=1 OPERATOR
+HARNESS-ERROR	REG-01	operator of A with workspace B header -> 403	PASS	2026-11-19T04:04:31Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	identity without membership lists no workspace	PASS	2026-11-19T04:04:31Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	OPERATOR creates CL customer	PASS	2026-11-19T04:04:31Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	duplicate phone in the same workspace -> 409	PASS	2026-11-19T04:04:31Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	unparseable phone -> 400 naming phones[0].number (#72)	PASS	2026-11-19T04:04:31Z	expected=400 phones[0].number actual=400 phones[0].number
+HARNESS-ERROR	REG-01	blank name -> 400 naming displayName	PASS	2026-11-19T04:04:31Z	expected=400 displayName actual=400 displayName
+HARNESS-ERROR	REG-01	missing region -> 400 naming phones[0].region	PASS	2026-11-19T04:04:31Z	expected=400 phones[0].region actual=400 phones[0].region
+HARNESS-ERROR	REG-01	VIEWER cannot create a customer	PASS	2026-11-19T04:04:31Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	update without If-Match -> 400 naming version	PASS	2026-11-19T04:04:31Z	expected=400 version actual=400 version
+HARNESS-ERROR	REG-01	update with the current version	PASS	2026-11-19T04:04:31Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	stale If-Match -> 409	PASS	2026-11-19T04:04:31Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	search by name finds the customer	PASS	2026-11-19T04:04:31Z	expected=QA340 Ana Regresión M actual=QA340 Ana Regresión M
+HARNESS-ERROR	REG-01	search by national phone + region	PASS	2026-11-19T04:04:31Z	expected=41543f3e-16ef-4c98-9b50-2bebc341b8d0 actual=41543f3e-16ef-4c98-9b50-2bebc341b8d0
+HARNESS-ERROR	REG-01	same phone allowed in workspace B	PASS	2026-11-19T04:04:31Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	workspace B search lists only its own customer	FAIL	2026-11-19T04:04:32Z	expected=1 d2f6c6b4-b0ef-45a6-9ea5-d56be2ee9395 actual=2 d2f6c6b4-b0ef-45a6-9ea5-d56be2ee9395
+HARNESS-ERROR	REG-01	new contact: consent UNKNOWN, not eligible	PASS	2026-11-19T04:04:32Z	expected=[false,"CONSENT_UNKNOWN"] actual=[false,"CONSENT_UNKNOWN"]
+HARNESS-ERROR	REG-01	grant WhatsApp consent	PASS	2026-11-19T04:04:32Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	granted -> eligible	PASS	2026-11-19T04:04:32Z	expected=[true,""] actual=[true,""]
+HARNESS-ERROR	REG-01	do-not-contact on	PASS	2026-11-19T04:04:32Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	DNC overrides granted consent	PASS	2026-11-19T04:04:32Z	expected=[false,"DO_NOT_CONTACT"] actual=[false,"DO_NOT_CONTACT"]
+HARNESS-ERROR	REG-01	VIEWER cannot change the contact policy	PASS	2026-11-19T04:04:32Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	clear DNC	PASS	2026-11-19T04:04:32Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	eligible again after DNC cleared	PASS	2026-11-19T04:04:32Z	expected=[true,""] actual=[true,""]
+HARNESS-ERROR	REG-01	stale contact-policy If-Match -> 409	PASS	2026-11-19T04:04:32Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	policy history lists consent and DNC changes	PASS	2026-11-19T04:04:32Z	expected=ok actual=ok
+HARNESS-ERROR	REG-01	record a purchase	PASS	2026-11-19T04:04:32Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	record a backdated purchase	PASS	2026-11-19T04:04:32Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	last purchase = latest valid by date	PASS	2026-11-19T04:04:32Z	expected=Café 500 g actual=Café 500 g
+HARNESS-ERROR	REG-01	idempotent replay -> 200 same purchase	PASS	2026-11-19T04:04:32Z	expected=200 3c28b0d6-2506-4ede-8438-a530747076cd actual=200 3c28b0d6-2506-4ede-8438-a530747076cd
+HARNESS-ERROR	REG-01	same key, different body -> 409	PASS	2026-11-19T04:04:32Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	future purchase date -> 400	PASS	2026-11-19T04:04:32Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	VIEWER cannot record a purchase	PASS	2026-11-19T04:04:33Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	correct a purchase date	PASS	2026-11-19T04:04:33Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	last purchase follows the correction	PASS	2026-11-19T04:04:33Z	expected=Café 1 kg actual=Café 1 kg
+HARNESS-ERROR	REG-01	void the latest purchase	PASS	2026-11-19T04:04:33Z	expected=204 actual=204
+HARNESS-ERROR	REG-01	last purchase after voiding the latest	PASS	2026-11-19T04:04:33Z	expected=Café 500 g corregida actual=Café 500 g corregida
+HARNESS-ERROR	REG-01	purchase history keeps RECORDED and VOIDED	PASS	2026-11-19T04:04:33Z	expected=["VOIDED","RECORDED"] actual=["VOIDED","RECORDED"]
+HARNESS-ERROR	REG-01	tenant A policy at start (restored at the end)	NOTE	2026-11-19T04:04:33Z	cadence/timezone=30 UTC
+HARNESS-ERROR	REG-01	last valid purchase 90 days ago + tenant cadence -> OVERDUE from LAST_PURCHASE	PASS	2026-11-19T04:04:33Z	expected=OVERDUE LAST_PURCHASE actual=OVERDUE LAST_PURCHASE
+HARNESS-ERROR	REG-01	OVERDUE filter lists the customer	PASS	2026-11-19T04:04:33Z	expected=41543f3e-16ef-4c98-9b50-2bebc341b8d0 actual=41543f3e-16ef-4c98-9b50-2bebc341b8d0
+HARNESS-ERROR	REG-01	explicit next date = today	PASS	2026-11-19T04:04:33Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	explicit date today -> DUE from EXPLICIT_DATE	PASS	2026-11-19T04:04:33Z	expected=DUE EXPLICIT_DATE actual=DUE EXPLICIT_DATE
+HARNESS-ERROR	REG-01	DUE filter lists the customer	PASS	2026-11-19T04:04:33Z	expected=41543f3e-16ef-4c98-9b50-2bebc341b8d0 actual=41543f3e-16ef-4c98-9b50-2bebc341b8d0
+HARNESS-ERROR	REG-01	snooze into the past -> 400	PASS	2026-11-19T04:04:33Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	snooze a DUE customer	PASS	2026-11-19T04:04:33Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	snoozed -> NOT_YET_DUE	PASS	2026-11-19T04:04:33Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	dismiss a NOT_YET_DUE customer -> 409	PASS	2026-11-19T04:04:34Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	snooze without a date -> 400 (no clear-snooze operation, ADR 0013)	PASS	2026-11-19T04:04:34Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	early manual completion of a snoozed customer (allowed by ADR 0013)	PASS	2026-11-19T04:04:34Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	completion replay (same key) -> 200, original record	PASS	2026-11-19T04:04:34Z	expected=200 33179a22-47af-4a83-9ecf-25b4cc448727 actual=200 33179a22-47af-4a83-9ecf-25b4cc448727
+HARNESS-ERROR	REG-01	one completion stored	PASS	2026-11-19T04:04:34Z	expected=1 actual=1
+HARNESS-ERROR	REG-01	completed customer advances to NOT_YET_DUE	PASS	2026-11-19T04:04:34Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	VIEWER cannot record a disposition	PASS	2026-11-19T04:04:34Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	stale If-Match on a disposition -> 409	PASS	2026-11-19T04:04:34Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	dismiss a DUE customer	PASS	2026-11-19T04:04:35Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	dismissed -> NOT_YET_DUE	PASS	2026-11-19T04:04:35Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	dispositioned customers leave the due queue	PASS	2026-11-19T04:04:35Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	OPERATOR cannot change the tenant-wide policy (#159)	PASS	2026-11-19T04:04:35Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	OPERATOR cannot archive (CUSTOMER_DELETE)	PASS	2026-11-19T04:04:35Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	archive without If-Match -> 400	PASS	2026-11-19T04:04:35Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	OWNER archives the customer	PASS	2026-11-19T04:04:35Z	expected=204 actual=204
+HARNESS-ERROR	REG-01	archive is idempotent (second archive does not fail or change state)	PASS	2026-11-19T04:04:35Z	http=409
+HARNESS-ERROR	REG-01	archived profile still readable by id, status ARCHIVED	PASS	2026-11-19T04:04:35Z	expected=200 ARCHIVED actual=200 ARCHIVED
+HARNESS-ERROR	REG-01	default list excludes the archived profile	PASS	2026-11-19T04:04:35Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	ARCHIVED filter lists it	PASS	2026-11-19T04:04:35Z	expected=ed434160-1814-4daa-91bd-51931d5807ac actual=ed434160-1814-4daa-91bd-51931d5807ac
+HARNESS-ERROR	REG-01	archived -> not eligible (CUSTOMER_ARCHIVED)	PASS	2026-11-19T04:04:35Z	expected=CUSTOMER_ARCHIVED actual=CUSTOMER_ARCHIVED
+HARNESS-ERROR	REG-01	archived customer leaves the due queue	PASS	2026-11-19T04:04:35Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	archived customer accepts no new purchase (ADR 0011)	PASS	2026-11-19T04:04:36Z	http=409 code=
+HARNESS-ERROR	REG-01	archived customer's purchase history stays readable	PASS	2026-11-19T04:04:36Z	expected=200 1 actual=200 1
+HARNESS-ERROR	REG-01	archived customer's phone stays reserved; creation never reactivates	PASS	2026-11-19T04:04:36Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	no disposition on an archived customer	PASS	2026-11-19T04:04:36Z	http=409 code=
+HARNESS-ERROR	REG-01	AI recommendation on an archived customer is refused/ineligible without a provider call	PASS	2026-11-19T04:04:36Z	http=200 outcome=INELIGIBLE
+HARNESS-ERROR	REG-01	no provider request during REG-01 API	PASS	2026-11-19T04:04:36Z	stub_delta=0
+HARNESS-ERROR	1 check(s) FAILED
+### reg01-api-attempt3.txt
+HARNESS-ERROR	REG-01	no session -> 401	PASS	2026-11-19T04:04:46Z	expected=401 actual=401
+HARNESS-ERROR	REG-01	OWNER testuser sees both workspaces (A OWNER, B ADMIN)	PASS	2026-11-19T04:04:46Z	expected=OWNER ADMIN actual=OWNER ADMIN
+HARNESS-ERROR	REG-01	testoperator2 sees only workspace B	PASS	2026-11-19T04:04:46Z	expected=1 OPERATOR actual=1 OPERATOR
+HARNESS-ERROR	REG-01	operator of A with workspace B header -> 403	PASS	2026-11-19T04:04:46Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	identity without membership lists no workspace	PASS	2026-11-19T04:04:46Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	OPERATOR creates CL customer	PASS	2026-11-19T04:04:47Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	duplicate phone in the same workspace -> 409	PASS	2026-11-19T04:04:47Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	unparseable phone -> 400 naming phones[0].number (#72)	PASS	2026-11-19T04:04:47Z	expected=400 phones[0].number actual=400 phones[0].number
+HARNESS-ERROR	REG-01	blank name -> 400 naming displayName	PASS	2026-11-19T04:04:47Z	expected=400 displayName actual=400 displayName
+HARNESS-ERROR	REG-01	missing region -> 400 naming phones[0].region	PASS	2026-11-19T04:04:47Z	expected=400 phones[0].region actual=400 phones[0].region
+HARNESS-ERROR	REG-01	VIEWER cannot create a customer	PASS	2026-11-19T04:04:47Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	update without If-Match -> 400 naming version	PASS	2026-11-19T04:04:47Z	expected=400 version actual=400 version
+HARNESS-ERROR	REG-01	update with the current version	PASS	2026-11-19T04:04:47Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	stale If-Match -> 409	PASS	2026-11-19T04:04:47Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	search by name finds the customer	PASS	2026-11-19T04:04:47Z	expected=QA340 Ana Regresión M actual=QA340 Ana Regresión M
+HARNESS-ERROR	REG-01	search by national phone + region	PASS	2026-11-19T04:04:47Z	expected=e2da1996-a0d9-4efb-9bec-833455d0eb7a actual=e2da1996-a0d9-4efb-9bec-833455d0eb7a
+HARNESS-ERROR	REG-01	same phone allowed in workspace B	PASS	2026-11-19T04:04:47Z	expected=201 actual=201
+HARNESS-ERROR	ERROR:  syntax error at or near ")"
+HARNESS-ERROR	LINE 1: ...elect count(*) from dokene.customers where id in () and tena...
+HARNESS-ERROR	                                                             ^
+HARNESS-ERROR	REG-01	workspace B search returns B customers only (incl. the new one, never A's)	FAIL	2026-11-19T04:04:47Z	expected=ok actual=ids=
+HARNESS-ERROR	REG-01	new contact: consent UNKNOWN, not eligible	PASS	2026-11-19T04:04:48Z	expected=[false,"CONSENT_UNKNOWN"] actual=[false,"CONSENT_UNKNOWN"]
+HARNESS-ERROR	REG-01	grant WhatsApp consent	PASS	2026-11-19T04:04:48Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	granted -> eligible	PASS	2026-11-19T04:04:48Z	expected=[true,""] actual=[true,""]
+HARNESS-ERROR	REG-01	do-not-contact on	PASS	2026-11-19T04:04:48Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	DNC overrides granted consent	PASS	2026-11-19T04:04:48Z	expected=[false,"DO_NOT_CONTACT"] actual=[false,"DO_NOT_CONTACT"]
+HARNESS-ERROR	REG-01	VIEWER cannot change the contact policy	PASS	2026-11-19T04:04:48Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	clear DNC	PASS	2026-11-19T04:04:48Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	eligible again after DNC cleared	PASS	2026-11-19T04:04:48Z	expected=[true,""] actual=[true,""]
+HARNESS-ERROR	REG-01	stale contact-policy If-Match -> 409	PASS	2026-11-19T04:04:48Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	policy history lists consent and DNC changes	PASS	2026-11-19T04:04:48Z	expected=ok actual=ok
+HARNESS-ERROR	REG-01	record a purchase	PASS	2026-11-19T04:04:48Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	record a backdated purchase	PASS	2026-11-19T04:04:48Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	last purchase = latest valid by date	PASS	2026-11-19T04:04:48Z	expected=Café 500 g actual=Café 500 g
+HARNESS-ERROR	REG-01	idempotent replay -> 200 same purchase	PASS	2026-11-19T04:04:48Z	expected=200 9a4c1bb8-bcc6-4b55-acee-35b27db3327e actual=200 9a4c1bb8-bcc6-4b55-acee-35b27db3327e
+HARNESS-ERROR	REG-01	same key, different body -> 409	PASS	2026-11-19T04:04:48Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	future purchase date -> 400	PASS	2026-11-19T04:04:48Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	VIEWER cannot record a purchase	PASS	2026-11-19T04:04:49Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	correct a purchase date	PASS	2026-11-19T04:04:49Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	last purchase follows the correction	PASS	2026-11-19T04:04:49Z	expected=Café 1 kg actual=Café 1 kg
+HARNESS-ERROR	REG-01	void the latest purchase	PASS	2026-11-19T04:04:49Z	expected=204 actual=204
+HARNESS-ERROR	REG-01	last purchase after voiding the latest	PASS	2026-11-19T04:04:49Z	expected=Café 500 g corregida actual=Café 500 g corregida
+HARNESS-ERROR	REG-01	purchase history keeps RECORDED and VOIDED	PASS	2026-11-19T04:04:49Z	expected=["VOIDED","RECORDED"] actual=["VOIDED","RECORDED"]
+HARNESS-ERROR	REG-01	tenant A policy at start (restored at the end)	NOTE	2026-11-19T04:04:49Z	cadence/timezone=30 UTC
+HARNESS-ERROR	REG-01	last valid purchase 90 days ago + tenant cadence -> OVERDUE from LAST_PURCHASE	PASS	2026-11-19T04:04:49Z	expected=OVERDUE LAST_PURCHASE actual=OVERDUE LAST_PURCHASE
+HARNESS-ERROR	REG-01	OVERDUE filter lists the customer	PASS	2026-11-19T04:04:49Z	expected=e2da1996-a0d9-4efb-9bec-833455d0eb7a actual=e2da1996-a0d9-4efb-9bec-833455d0eb7a
+HARNESS-ERROR	REG-01	explicit next date = today	PASS	2026-11-19T04:04:49Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	explicit date today -> DUE from EXPLICIT_DATE	PASS	2026-11-19T04:04:49Z	expected=DUE EXPLICIT_DATE actual=DUE EXPLICIT_DATE
+HARNESS-ERROR	REG-01	DUE filter lists the customer	PASS	2026-11-19T04:04:49Z	expected=e2da1996-a0d9-4efb-9bec-833455d0eb7a actual=e2da1996-a0d9-4efb-9bec-833455d0eb7a
+HARNESS-ERROR	REG-01	snooze into the past -> 400	PASS	2026-11-19T04:04:49Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	snooze a DUE customer	PASS	2026-11-19T04:04:49Z	expected=200 actual=200
+HARNESS-ERROR	REG-01	snoozed -> NOT_YET_DUE	PASS	2026-11-19T04:04:49Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	dismiss a NOT_YET_DUE customer -> 409	PASS	2026-11-19T04:04:50Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	snooze without a date -> 400 (no clear-snooze operation, ADR 0013)	PASS	2026-11-19T04:04:50Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	early manual completion of a snoozed customer (allowed by ADR 0013)	PASS	2026-11-19T04:04:50Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	completion replay (same key) -> 200, original record	PASS	2026-11-19T04:04:50Z	expected=200 bd9b4d76-6a10-4400-a322-53c207aecb13 actual=200 bd9b4d76-6a10-4400-a322-53c207aecb13
+HARNESS-ERROR	REG-01	one completion stored	PASS	2026-11-19T04:04:50Z	expected=1 actual=1
+HARNESS-ERROR	REG-01	completed customer advances to NOT_YET_DUE	PASS	2026-11-19T04:04:50Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	VIEWER cannot record a disposition	PASS	2026-11-19T04:04:50Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	stale If-Match on a disposition -> 409	PASS	2026-11-19T04:04:50Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	dismiss a DUE customer	PASS	2026-11-19T04:04:51Z	expected=201 actual=201
+HARNESS-ERROR	REG-01	dismissed -> NOT_YET_DUE	PASS	2026-11-19T04:04:51Z	expected=NOT_YET_DUE actual=NOT_YET_DUE
+HARNESS-ERROR	REG-01	dispositioned customers leave the due queue	PASS	2026-11-19T04:04:51Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	OPERATOR cannot change the tenant-wide policy (#159)	PASS	2026-11-19T04:04:51Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	OPERATOR cannot archive (CUSTOMER_DELETE)	PASS	2026-11-19T04:04:51Z	expected=403 actual=403
+HARNESS-ERROR	REG-01	archive without If-Match -> 400	PASS	2026-11-19T04:04:51Z	expected=400 actual=400
+HARNESS-ERROR	REG-01	OWNER archives the customer	PASS	2026-11-19T04:04:51Z	expected=204 actual=204
+HARNESS-ERROR	REG-01	archive is idempotent (second archive does not fail or change state)	PASS	2026-11-19T04:04:51Z	http=409
+HARNESS-ERROR	REG-01	archived profile still readable by id, status ARCHIVED	PASS	2026-11-19T04:04:51Z	expected=200 ARCHIVED actual=200 ARCHIVED
+HARNESS-ERROR	REG-01	default list excludes the archived profile	PASS	2026-11-19T04:04:51Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	ARCHIVED filter lists it	PASS	2026-11-19T04:04:52Z	expected=50acde19-165d-4373-8a8a-986a6e35dde5 actual=50acde19-165d-4373-8a8a-986a6e35dde5
+HARNESS-ERROR	REG-01	archived -> not eligible (CUSTOMER_ARCHIVED)	PASS	2026-11-19T04:04:52Z	expected=CUSTOMER_ARCHIVED actual=CUSTOMER_ARCHIVED
+HARNESS-ERROR	REG-01	archived customer leaves the due queue	PASS	2026-11-19T04:04:52Z	expected=0 actual=0
+HARNESS-ERROR	REG-01	archived customer accepts no new purchase (ADR 0011)	PASS	2026-11-19T04:04:52Z	http=409 code=
+HARNESS-ERROR	REG-01	archived customer's purchase history stays readable	PASS	2026-11-19T04:04:52Z	expected=200 1 actual=200 1
+HARNESS-ERROR	REG-01	archived customer's phone stays reserved; creation never reactivates	PASS	2026-11-19T04:04:52Z	expected=409 actual=409
+HARNESS-ERROR	REG-01	no disposition on an archived customer	PASS	2026-11-19T04:04:52Z	http=409 code=
+HARNESS-ERROR	REG-01	AI recommendation on an archived customer is refused/ineligible without a provider call	PASS	2026-11-19T04:04:52Z	http=200 outcome=INELIGIBLE
+HARNESS-ERROR	REG-01	no provider request during REG-01 API	PASS	2026-11-19T04:04:52Z	stub_delta=0
+HARNESS-ERROR	1 check(s) FAILED
+### reg04-api-attempt1.txt
+HARNESS-ERROR	REG-04	fixture: volume customers in workspace A	NOTE	2026-11-19T04:22:42Z	volume=230 long_history=122
+HARNESS-ERROR	REG-04	queue page size 100: every volume customer exactly once over 3 pages, no duplicate, first page full	PASS	2026-11-19T04:22:42Z	pages=3 items=235 volume_seen=230/230 dups=0 first=100
+HARNESS-ERROR	REG-04	queue page size 37: every volume customer exactly once over 7 pages, no duplicate, first page full	PASS	2026-11-19T04:22:43Z	pages=7 items=235 volume_seen=230/230 dups=0 first=37
+HARNESS-ERROR	REG-04	queue item fields	NOTE	2026-11-19T04:22:43Z	customerId,displayName,dueDate,effectiveCadenceDays,evaluatedAt,lastDismissedDate,lastManualFollowUpDate,lastPurchaseAt,policyVersion,primaryPhone,reasons,status,timingSource
+HARNESS-ERROR	REG-04	status=OVERDUE filter: only OVERDUE items, no duplicate across 3 pages	PASS	2026-11-19T04:22:43Z	pages=3 items=222
+HARNESS-ERROR	REG-04	status=DUE filter: only DUE items, no duplicate across 1 pages	PASS	2026-11-19T04:22:43Z	pages=1 items=13
+HARNESS-ERROR	REG-04	queue limit above 100 -> 400	PASS	2026-11-19T04:22:44Z	expected=400 actual=400
+HARNESS-ERROR	REG-04	forged cursor -> 400	PASS	2026-11-19T04:22:44Z	expected=400 actual=400
+HARNESS-ERROR	REG-04	workspace A cursor replayed in workspace B never returns A customers	PASS	2026-11-19T04:22:44Z	http=200 items=1
+HARNESS-ERROR	REG-04	workspace B queue (all pages) holds no workspace A customer	PASS	2026-11-19T04:22:44Z	expected=0 actual=0 b_items=1
+HARNESS-ERROR	REG-04	customer search 'QA340 Volumen' pages of 50: all 230 once	PASS	2026-11-19T04:22:44Z	expected=230 0 actual=230 0 pages=5
+HARNESS-ERROR	REG-04	archived list over all pages matches the database, no duplicate	PASS	2026-11-19T04:22:44Z	expected=209 0 actual=209 0 pages=3
+HARNESS-ERROR	REG-04	purchase history pages of 50: every purchase once	PASS	2026-11-19T04:22:45Z	expected=122 0 actual=122 0 pages=3
+HARNESS-ERROR	REG-04	purchase history newest first	PASS	2026-11-19T04:22:45Z	expected=true actual=true
+### reg04-ui-chromium-attempt1.txt
+HARNESS-ERROR	REG-04	chromium	first_load_cards	50
+HARNESS-ERROR	REG-04	chromium	load_more_clicks	4
+HARNESS-ERROR	REG-04	chromium	cards_after_all_pages	235
+HARNESS-ERROR	REG-04	chromium	volume_cards_unique	230/230
+HARNESS-ERROR	REG-04	chromium	load_more_gone_at_end	true
+HARNESS-ERROR	REG-04	chromium	counters	235 pendientes / 222 vencidos
+HARNESS-ERROR	REG-04	chromium	sur_queue_cards	QA333 Elena Sur Vencida
+HARNESS-ERROR	REG-04	chromium	sur_has_no_norte_card	true
+HARNESS-ERROR	REG-04	chromium	norte_after_switch_back_cards	50
+HARNESS-ERROR	REG-04	chromium	norte_back_is_fresh_first_page	true
+HARNESS-ERROR	REG-04	chromium	purchase_history_first_page	0
+HARNESS-ERROR	REG-04	chromium	purchase_history_after_all_pages	0 (clicks=0)
+HARNESS-ERROR	REG-04	chromium	purchase_rows_unique	1/1
+HARNESS-ERROR	REG-05	chromium	Clientes@768px overflow	pageOverflowX=false scrollWidth=768/768 overflowing=0 clippedControls=0
+HARNESS-ERROR	REG-05	chromium	Seguimientos@768px overflow	pageOverflowX=false scrollWidth=768/768 overflowing=0 clippedControls=0
+HARNESS-ERROR	REG-05	chromium	Clientes@320px overflow	pageOverflowX=false scrollWidth=320/320 overflowing=0 clippedControls=0
+HARNESS-ERROR	REG-05	chromium	Seguimientos@320px overflow	pageOverflowX=false scrollWidth=320/320 overflowing=0 clippedControls=0
+### first #310 run
+HARNESS-ERROR	REG-06	#310 25 identical denials -> 25 x 403 with one body	FAIL	2026-11-19T04:25:49Z	expected=403 1 actual=403 25
+HARNESS-ERROR	REG-06	#310 at most 10 denial rows for the key in the 15-minute window (rows before: 0)	FAIL	2026-11-19T04:25:49Z	rows_after=0 new=0
