@@ -43,7 +43,7 @@ try {
   await workspace('QA Café Norte');
   const back = await queueNames();
   out('REG-04', 'norte_after_switch_back_cards', back.length);
-  out('REG-04', 'norte_back_is_fresh_first_page', back.length <= 50);
+  out('REG-04', 'norte_back_is_fresh_first_page', back.length === 50);
   // --- long purchase history ---
   await p.getByRole('link', { name: 'Clientes' }).or(p.getByRole('button', { name: 'Clientes' })).first().click();
   await p.getByPlaceholder('Buscar por nombre...').fill('QA340 Historial Largo');

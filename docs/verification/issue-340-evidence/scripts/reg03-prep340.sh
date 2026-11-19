@@ -6,4 +6,7 @@ qa_login testuser || exit 1
 [ -n "${SE_C:-}" ] || mkcust SE_C "QA340 Sesión Vencida" || exit 1
 [ -n "${UN_C:-}" ] || mkcust UN_C "QA340 IA Caída" || exit 1
 [ -n "${DI_C:-}" ] || mkcust DI_C "QA340 IA Apagada" || exit 1
+# Customer with message history (from suite #333) for the history checks of reg03-api340.sh.
+[ -n "${QA333_ANA:-}" ] || setid QA333_ANA "$(psqlq "select id from dokene.customers where tenant_id='$A' and display_name='QA333 Ana Vencida'")"
+[ -n "$QA333_ANA" ] || { echo "QA333 Ana Vencida not found in tenant A (suite #333 fixture)" >&2; exit 1; }
 echo "fixtures ok"

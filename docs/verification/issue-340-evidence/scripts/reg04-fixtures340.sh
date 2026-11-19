@@ -23,6 +23,7 @@ if [ -z "${LONG_C:-}" ]; then
   mkcust LONG_C "QA340 Historial Largo" || exit 1
   for k in $(seq 1 120); do
     req testuser "$A" POST "/api/customers/$LONG_C/purchases" "$(jq -cn --arg t "$(date -u -d "-$((k + 1)) days" +%FT10:00:00Z)" --arg d "$(printf 'Compra larga %03d' "$k")" '{purchasedAt:$t,description:$d}')" -H "Idempotency-Key: qa340-long-$k"
+    { [ "$CODE" = 201 ] || [ "$CODE" = 200 ]; } || { echo "purchase $k: $CODE" >&2; exit 1; }
   done
 fi
 rec REG-04 "volume fixture ready" NOTE "volume_customers=$(psqlq "select count(*) from dokene.customers where tenant_id='$A' and display_name like 'QA340 Volumen %' and status='ACTIVE'") long_history_purchases=$(psqlq "select count(*) from dokene.purchases where customer_id='$LONG_C'")"

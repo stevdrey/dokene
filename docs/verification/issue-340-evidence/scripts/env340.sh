@@ -16,8 +16,10 @@ req testuser "$A" GET /api/integrations/whatsapp -
 rec $C "global outbound off (env) and tenant A integration outbound off" \
   "$( { [ "$(jb .outboundEnabled)" = false ] && [ "$(docker compose -f "$WT/compose.yaml" exec -T backend sh -c 'echo $DOKENE_MESSAGING_OUTBOUND_ENABLED')" = false ]; } && echo PASS || echo FAIL)" \
   "http=$CODE tenant_outbound=$(jb .outboundEnabled) integration_enabled=$(jb .enabled)"
-setid STUB0_340 "$(stub_sends)"; setid DENY0_340 "$(deny_n)"
-rec $C "baselines: stub sends and denial rows" NOTE "stub_sends=$STUB0_340 denials=$DENY0_340"
+# The suite baselines are taken once; a rerun keeps them and only records the current values.
+[ -n "${STUB0_340:-}" ] || setid STUB0_340 "$(stub_sends)"
+[ -n "${DENY0_340:-}" ] || setid DENY0_340 "$(deny_n)"
+rec $C "baselines: stub sends and denial rows" NOTE "stub_sends=$STUB0_340 denials=$DENY0_340 (now: $(stub_sends) / $(deny_n))"
 for T in "$A" "$B"; do
   rec $C "tenant ${T:0:8} volume" NOTE "$(psqlq "set app.tenant_id='$T'; select 'customers='||count(*) filter (where status='ACTIVE')||' archived='||count(*) filter (where status='ARCHIVED') from dokene.customers where tenant_id='$T'" | tail -1) queue=$(queue_pages testuser "$T")"
 done

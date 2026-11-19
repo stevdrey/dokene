@@ -96,11 +96,11 @@ Between the first suite and the candidate, three product changes landed (`git lo
 | Change | Area | Covered on the final tree by |
 | --- | --- | --- |
 | [#420](https://github.com/stevdrey/dokene/pull/420) (#415–#418 fixes) | Frontend: message labels, integration status, shell and shared components | #338 rerun on `91915e2f` (136 PASS in Chromium and Firefox); #339 and #340 ran on the same tree |
-| [#413](https://github.com/stevdrey/dokene/pull/413) (#310, V40) | Authorization-denial audit bound | #340 REG-05 #265 (one row per denial) and REG-06 #310 (51 denials → 10 rows, same 403). The #337 "exactly one denial row" checks stay inside the 10-row budget, so they are not affected |
+| [#413](https://github.com/stevdrey/dokene/pull/413) (#310, V40) | Authorization-denial audit bound | #340 REG-05 #265 (one row per denial) and REG-06 #310 (51 denials → 10 rows, same 403). #337 was not rerun on the final tree: its outputs record up to 20 `INTEGRATION_MANAGE` and 8 `MESSAGE_DRAFT` denial checks, split across identities, so a rerun inside one 15-minute window could see suppressed rows (`denials=+0`) for a key past 10. That would affect only the row-count assertion, not the 403 outcome (limitation 9) |
 | [#421](https://github.com/stevdrey/dokene/pull/421) (#414) | Workspace provisioning policy at startup | #340 REG-01 provisioning checks under the dev allow-all policy; the allowlist mode and the startup refusals were not exercised on the stack |
 
 Suites #333 to #337 ran on the `3807963` tree. Their Phase 3 routes (integration, templates, approval, sends, webhooks,
-history) are untouched by these three changes, so their evidence carries over for those routes.
+history) are untouched by these three changes, so their evidence carries over for those routes, apart from the denial-row counts in limitation 9.
 
 ### Browser, role and provider matrix
 
@@ -149,6 +149,8 @@ four was a safety, tenant or security defect.
 7. #312 and #318 remain open hardening items (#305), and the dev stack's provisioning policy is allow-all.
 8. Evidence is for the exact candidate `753cdff4` (product tree `91915e2f`) on a local stack. Later commits and other
    deployments are not certified by it.
+9. Suite #337 was not rerun after #413. Its "exactly one denial row" assertions could see suppressed rows for keys
+   denied more than 10 times in one 15-minute window; the authorization outcome (403) is unaffected.
 
 ### Mapping to the #332 exit criteria
 

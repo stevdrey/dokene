@@ -10,9 +10,10 @@ rec $C "fixture: volume customers in workspace A" NOTE "volume=$VOL long_history
 # walk <path-with-?> <items-jq> <page-size>: all pages; prints "<pages> <items> <dups> <first-page-size>"
 walk() {
   local path=$1 items=$2 size=$3 t=${4:-$A} u=${5:-testuser} cur="" pages=0 first="" f=$QA_TMP/walk.$$; : > "$f"
+  rm -f "$QA_TMP/walk.last"   # a failed walk must not leave the previous walk's ids for the checks that follow
   while :; do
     req "$u" "$t" GET "${path}limit=$size${cur:+&cursor=$cur}" -
-    [ "$CODE" = 200 ] || { echo "ERR $CODE"; return; }
+    [ "$CODE" = 200 ] || { echo "ERR $CODE"; rm -f "$f"; return; }
     pages=$((pages + 1)); jb "$items" >> "$f"; [ -n "$first" ] || first=$(jb "[$items]|length")
     cur=$(jb '.nextCursor // empty'); [ -n "$cur" ] && [ $pages -lt 60 ] || break
   done
@@ -40,7 +41,7 @@ req testuser "$A" GET "/api/follow-up-queue?limit=50&cursor=not-a-cursor" -; chk
 req testuser "$A" GET "/api/follow-up-queue?limit=50" -; CUR=$(jb .nextCursor)
 req testuser "$B" GET "/api/follow-up-queue?limit=50&cursor=$CUR" -
 rec $C "workspace A cursor replayed in workspace B never returns A customers" \
-  "$( { [ "$CODE" = 400 ] || [ "$(jb '[.items[].customerId]|map(select(startswith("x")|not))|length')" -ge 0 ]; } && [ "$(printf '%s' "$BODY" | jq -r '.items[]?.customerId' | grep -cFf <(psqlq "select id from dokene.customers where tenant_id='$A'") || true)" = 0 ] && echo PASS || echo FAIL)" "http=$CODE items=$(jb '.items|length // 0')"
+  "$( { [ "$CODE" = 400 ] || { [ "$CODE" = 200 ] && [ "$(printf '%s' "$BODY" | jq -r '.items[]?.customerId' | grep -cFf <(psqlq "select id from dokene.customers where tenant_id='$A'") || true)" = 0 ]; }; } && echo PASS || echo FAIL)" "http=$CODE items=$(jb '.items|length // 0')"
 r=$(walk "/api/follow-up-queue?" '.items[].customerId' 100 "$B" testoperator2); read -r pg n dup first <<< "$r"
 chk $C "workspace B queue (all pages) holds no workspace A customer" 0 "$(grep -cFf <(psqlq "select id from dokene.customers where tenant_id='$A'") "$QA_TMP/walk.last" || true)" "b_items=$n"
 # customers list
