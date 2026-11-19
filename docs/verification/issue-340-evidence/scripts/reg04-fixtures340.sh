@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # ABOUTME: Suite #340 REG-04 volume fixture: N due/overdue customers in workspace A (default 230, "QA340 Volumen NNN"),
 # ABOUTME: each with WhatsApp consent, one purchase and an explicit next date spread over the last 25 days, plus one
-# ABOUTME: customer with 120 purchases for long purchase-history pages. Synthetic data only; re-runnable (skips existing).
+# ABOUTME: customer with 120 purchases for long purchase-history pages. Synthetic data only; re-runnable (completes a partial run).
 set -uo pipefail
 . "$(dirname "$0")/qa340.sh"
 N=${N:-230}
@@ -19,12 +19,12 @@ for i in $(seq $((have + 1)) "$N"); do
   [ "$CODE" = 200 ] || { echo "policy $name: $CODE" >&2; exit 1; }
   [ $((i % 50)) = 0 ] && echo "  $i customers"
 done
-if [ -z "${LONG_C:-}" ]; then
-  mkcust LONG_C "QA340 Historial Largo" || exit 1
-  for k in $(seq 1 120); do
-    req testuser "$A" POST "/api/customers/$LONG_C/purchases" "$(jq -cn --arg t "$(date -u -d "-$((k + 1)) days" +%FT10:00:00Z)" --arg d "$(printf 'Compra larga %03d' "$k")" '{purchasedAt:$t,description:$d}')" -H "Idempotency-Key: qa340-long-$k"
-    { [ "$CODE" = 201 ] || [ "$CODE" = 200 ]; } || { echo "purchase $k: $CODE" >&2; exit 1; }
-  done
-fi
+# The long-history customer gets 120 purchases. Idempotency keys are workspace scoped, so they carry the customer id:
+# a rerun completes a partial history without duplicates, and a new customer never collides with an earlier one's keys.
+[ -n "${LONG_C:-}" ] || mkcust LONG_C "QA340 Historial Largo" || exit 1
+for k in $(seq 1 120); do
+  req testuser "$A" POST "/api/customers/$LONG_C/purchases" "$(jq -cn --arg t "$(date -u -d "-$((k + 1)) days" +%FT10:00:00Z)" --arg d "$(printf 'Compra larga %03d' "$k")" '{purchasedAt:$t,description:$d}')" -H "Idempotency-Key: qa340-long-${LONG_C:0:8}-$k"
+  { [ "$CODE" = 201 ] || [ "$CODE" = 200 ]; } || { echo "purchase $k: $CODE $(code)" >&2; exit 1; }
+done
 rec REG-04 "volume fixture ready" NOTE "volume_customers=$(psqlq "select count(*) from dokene.customers where tenant_id='$A' and display_name like 'QA340 Volumen %' and status='ACTIVE'") long_history_purchases=$(psqlq "select count(*) from dokene.purchases where customer_id='$LONG_C'")"
 qa_finish

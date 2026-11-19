@@ -25,7 +25,7 @@ the maintainer.
 | AI provider | `fake` by default. **Real OpenAI** (`gpt-6-luna`) only in REG-02, authorized by the user for at most 6 calls: **4 calls** were made (2 `NEXT_BEST_ACTION`, 2 `MESSAGE_DRAFT`, all `GENERATED`). REG-03 used an OpenAI adapter pointed at a closed loopback port (no external call) and an empty provider (disabled). Reset to `fake` and verified |
 | WhatsApp provider | Loopback Graph API stub with synthetic canary tokens. No real Meta. **Provider send requests during the suite: 0** (stub count 29 before and after) |
 | Switches | Global outbound off (environment) and tenant outbound off for the whole suite; no window opened |
-| Fixtures | Tenant A *QA Café Norte*: OWNER `testuser`, ADMIN `testadmin`, OPERATOR `testoperator`, VIEWER `testviewer`. Tenant B *QA Café Sur*: `testuser` ADMIN, `testoperator2` OPERATOR. `testnone` without membership. Keycloak had again dropped the extra users after its last restart; they were recreated and re-invited through the real invitation flow. About 260 disposable `QA340 …` customers (CL test-range phones `+5698340xxxx`), all archived at the end |
+| Fixtures | Tenant A *QA Café Norte*: OWNER `testuser`, ADMIN `testadmin`, OPERATOR `testoperator`, VIEWER `testviewer`. Tenant B *QA Café Sur*: `testuser` ADMIN, `testoperator2` OPERATOR. `testnone` without membership. Keycloak had again dropped the extra users after its last restart; they were recreated and re-invited through the real invitation flow. About 490 disposable `QA340 …` customers (CL test-range phones `+5698340xxxx`), including the fresh REG-04 fixture of the fail-closed rerun, all archived at the end |
 
 Evidence kinds are kept apart. *Browser* is a person-driven action in the real UI (in-app pane), read back as page
 text, DOM queries and the network panel. *Real browser harness* is a Playwright run in headless Chromium/Firefox that
@@ -40,13 +40,13 @@ test fixtures.
 | REG-01 Phase 1/2 journeys on the pinned SHA | **PASS** | OIDC login through Keycloak; *Nuevo cliente* with an invalid phone shows the field message for Chile (#72), then creates the customer; consent granted (*Contacto habilitado*); purchase recorded; the customer appears *Vencido hace 12 d* from the 30-day cadence; search filters the loaded queue; *Posponer* (3 days), *Registrar seguimiento* and *Descartar* each remove the card and update the counters; *Archivar* turns the profile read-only and *No elegible (Cliente archivado)*; switching to *QA Café Sur* shows only its customers and closes the Norte profile; *Archivados* lists the archived profile. 13 observations | 75 checks (`reg01-api340.sh`): 401 without session, workspace roles and 403 across workspaces; phone, name and region validation; optimistic versions; search by name and by national phone; same phone allowed in B; consent/DNC precedence and history; purchases with idempotent replay, key reuse 409, future date 400, correction, void and last-purchase rules; OVERDUE from last purchase, DUE from explicit date, snooze rules, completion and dismissal with replay and stale-version checks; VIEWER and OPERATOR limits; archive (403 OPERATOR, 400 without `If-Match`, idempotent, readable, excluded, not eligible, out of the queue, no new purchase, phone stays reserved, no disposition, AI recommendation refused). Browser writes read back (5 checks). #421 provisioning: one workspace provisioned under the allow-all policy, idempotent replay, OWNER of only that workspace (4 checks) | The API has no "clear snooze" operation (ADR 0013); see setup note 1 |
 | REG-02 Real OpenAI draft: generate, edit, copy | **PASS** | In-app pane: *Obtener recomendación* → *Seguimiento por recompra*, Spanish rationale grounded in the coffee-and-filters purchase, 94 %; *Generar borrador* → an editable Spanish draft that names only the purchased products, with no price, link or discount, *Edición local: no se guarda ni se envía*. The edit is kept. *Copiar borrador* says *No se pudo copiar el borrador* there because the pane denies clipboard writes. In headless Chromium with clipboard permission the same flow says *Borrador copiado* and the clipboard equals the edited draft | Consent, DNC and contact-policy version unchanged; follow-up cadence, explicit date, snooze and version unchanged; customer still `DUE`; no message, approval or send attempt; no stub request | 4 live calls, inside the authorized 6 |
 | REG-03 AI unavailable/disabled and session expiry | **PASS** | Session expiry: with the snooze dialog open, the backend restart ended the BFF session; *Confirmar fecha* got 401 and the page said *Tu sesión ya no está activa…*, not a permission error (#70); nothing stored. Unavailable: *El asistente IA no está disponible en este momento… También puedes reintentar* with *Reintentar*; a completion saved; the 17-row message history refreshed. Disabled: *…no está habilitado para este espacio de trabajo…* with no retry; a snooze saved | Per mode: recommendation and draft → 200 `AI_UNAVAILABLE` (`UNAVAILABLE`/retryable, or `NOT_AVAILABLE`/not retryable) with the deterministic evaluation and no raw provider error; nothing written; snooze, completion, history and queue work; an ended session's cookie and CSRF token get **401** on snooze, completion and recommendation (24 checks). Browser writes read back (5 checks) | Session end was produced by logout and a backend restart; the 30-minute idle and 8-hour absolute timeouts were not waited out |
-| REG-04 High volume, long pages, workspace switching | **PASS** | Chromium and Firefox: the queue loads 50, *Cargar más seguimientos* ×4 → 235 cards, 230/230 volume customers once, then the control disappears; switching to Sur with the full list shows only Sur's card, and back shows a fresh first page; a customer with 122 purchases loads 50, then *Cargar compras anteriores* ×2 → 122 | Queue pages of 100 and 37: every volume customer once, no duplicate; due date never decreases across 7 pages; `OVERDUE`/`DUE` filters pure; limit 101 → 400; forged cursor → 400; an A cursor replayed in B returns only B data; B's whole queue holds no A customer; customer search (5 pages of 50), archived list (209) and purchase history (122) match the database exactly (13 checks) | Fixture limits from #140 are separated in the next section |
+| REG-04 High volume, long pages, workspace switching | **PASS** | Chromium and Firefox, fail-closed rerun on fresh fixtures (12 assertions per browser, 24/24 PASS): the queue loads one page of 50, *Cargar más seguimientos* ×4 → 232 cards = 232 distinct customer ids received = the API total, 230/230 volume customers once, then the control disappears; switching to Sur with the full list shows exactly its 1 due customer and no A id, and back loads a fresh first page of 50; a customer with 121 purchases loads 50 rows, then *Cargar compras anteriores* ×2 → 121 rows = 121 distinct purchase ids, the same id set as the database | Queue pages of 100 and 37: every volume customer once, no duplicate; due date never decreases across 7 pages; `OVERDUE`/`DUE` filters pure; limit 101 → 400; forged cursor → 400; an A cursor replayed in B returns only B data; B's whole queue holds no A customer; customer search (5 pages of 50), archived list (209) and purchase history (122) match the database exactly (13 checks) | Fixture limits from #140 are separated in the next section |
 | REG-05 Older defects | **PASS** | #72 field message; #70 session-ended message; #68 stale callback lands on the app with *No se pudo completar el inicio de sesión…* when signed out and keeps the session when signed in; #82 and #83: no page overflow at 768 px and 320 px on *Clientes* and *Seguimientos* in Chromium and Firefox | #66, #68, #72, #265, #266, #293 (20 checks), #70 (REG-03), #64 (clean Keycloak start) | Table below |
 | REG-06 Consolidation and verdict | **PASS** | – | #310 recheck on the candidate (2 checks) | [Consolidation](#reg-06-consolidated-campaign-findings) |
 
 Totals in `issue-340-evidence/outputs.txt`: 188 PASS result lines, 0 FAIL, 19 NOTE in the final runs, 25 person-driven
 browser observations (24 PASS, 1 NOTE), and the real-browser harness outputs. Superseded harness runs are kept at the
-end as `HARNESS-ERROR` and are not counted (setup notes 1 to 4). Some read-only verification scripts were run twice on
+end as `SUPERSEDED` and are not counted (setup notes 1 to 4 and 7). Some read-only verification scripts were run twice on
 purpose; their repeated lines are included.
 
 ### REG-04: product behaviour versus fixture limits (#140)
@@ -186,9 +186,10 @@ four was a safety, tenant or security defect.
    key's rows in the window and compares bodies without the timestamp.
 3. **Fixture collision, REG-04.** REG-05 ran while the volume fixture was still recording the 120 purchases, and both
    used the same `testuser` cookie-jar file; REG-05's fresh login ended the fixture's session, so 5 purchases were not
-   recorded. They were recorded afterwards with the same keys (all 201); one description was recorded twice, which the
-   harness output explains. The first Chromium harness run read the purchase count before the list loaded, and the
-   first REG-04 API run lacked the ordering check; both were rerun.
+   recorded. They were recorded afterwards with the same keys (all 201); one description was recorded twice. The first
+   Chromium harness run read the purchase count before the list loaded, and the first REG-04 API run lacked the
+   ordering check; both were rerun. The browser figures of that first fixture (235 cards, 122 purchases) were
+   superseded by note 7.
 4. **Side effect.** The #421 provisioning check made `testnone` the OWNER of the disposable workspace *QA340 Taller
    Provisionado*. Later suites that need an identity with no membership at all must create a new one.
 5. **Script revisions after the run.** The two AI-mode NOTE lines of REG-03 were recorded by a revision of
@@ -199,6 +200,17 @@ four was a safety, tenant or security defect.
    (as `sec06-337.sh` does). No check or expectation changed.
 6. **Keycloak users.** Keycloak keeps its users in memory; after a restart the extra users must be recreated
    (`fixtures337.sh`, run with `OUTD=~/qa340/out`).
+7. **Fail-closed browser evidence (PR review).** The first REG-04 browser harness only printed metrics, caught
+   exceptions without failing, and counted purchase rows by description; the bundle builder copied the logs
+   unchecked. Now `reg04-ui340.mjs` and `reg02-copy340.mjs` assert every result and exit nonzero on a mismatch, a
+   missing expectation or an exception; `reg04-ui340.mjs` identifies queue cards and purchase rows by the customer and
+   purchase ids the UI received; `reg04-ui-run340.sh` derives the expectations from the database; and
+   `build-outputs340.py` refuses to write the bundle when an input is missing or a result, assertion or REG-02 check
+   failed (negative controls in `build-outputs340-test.sh`, 15 cases). REG-04's browser leg was rerun on
+   2026-11-19 on a fresh fixture (230 due customers, one customer with 121 purchases): 24/24 assertions PASS in Chromium
+   and Firefox. The fixture rerun first stopped on a reused idempotency key; purchase keys now carry the customer id.
+   The earlier browser logs are kept as superseded. The recorded REG-02 copy log already satisfies the new checks and
+   was not rerun (no further OpenAI call). The fresh fixture was archived afterwards.
 
 ## Reproducing
 
@@ -213,7 +225,10 @@ From the #333 stack (see its report), with the extra users present, from the rep
 4. REG-03: `reg03-prep340.sh`; browser session-expiry step; switch the provider to a closed loopback base URL and run
    `reg03-api340.sh unavailable`; empty provider and `reg03-api340.sh disabled`; `reg03-browser-verify340.sh disabled`.
    Restore `DOKENE_AI_PROVIDER=fake`.
-5. REG-04: `reg04-fixtures340.sh`, `reg04-api340.sh`, `node reg04-ui340.mjs chromium` and `… firefox`.
+5. REG-04: `reg04-fixtures340.sh`, `reg04-api340.sh`, then `reg04-ui-run340.sh` (derives the expectations from the
+   database and runs `reg04-ui340.mjs` in Chromium and Firefox; nonzero exit on any failed assertion).
 6. REG-05: `reg05-api340.sh` (revokes and restores two grants: never on a shared database); #64:
    `COMPOSE_PROJECT_NAME=dokene-qa340kc KEYCLOAK_PORT=18081 docker compose up --wait --no-build keycloak`, then `down -v`.
-7. REG-06: `reg06-sec310-340.sh`; close-out `final340.sh`; bundle `python3 build-outputs340.py`.
+7. REG-06: `reg06-sec310-340.sh`; close-out `final340.sh`; bundle `python3 build-outputs340.py`, which refuses to
+   write the bundle if an input is missing or any result or browser assertion failed. Its negative controls:
+   `bash build-outputs340-test.sh`.
