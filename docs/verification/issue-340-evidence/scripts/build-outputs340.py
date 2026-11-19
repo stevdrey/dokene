@@ -11,8 +11,8 @@ def lines(name):
     p = OUT / name
     return p.read_text(encoding="utf-8").splitlines() if p.exists() else []
 
-attempts = {n: lines(n) for n in ("reg01-api-attempt1.txt", "reg01-api-attempt2.txt", "reg01-api-attempt3.txt",
-                                   "reg04-api-attempt1.txt", "reg04-ui-chromium-attempt1.txt")}
+# Superseded runs were saved as <run>-attempt<N>.txt next to the final outputs.
+attempts = {p.name: lines(p.name) for p in sorted(OUT.glob("*-attempt*.txt"))}
 superseded = {l for ls in attempts.values() for l in ls}
 # The first #310 run (REG-06) used two wrong harness assumptions; its two lines are superseded by the rerun.
 harness310 = [l for l in lines("results.tsv") if l.startswith("REG-06\t#310") and "\tFAIL\t" in l]
