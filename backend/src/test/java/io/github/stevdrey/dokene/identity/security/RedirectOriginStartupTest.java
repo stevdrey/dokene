@@ -97,6 +97,34 @@ class RedirectOriginStartupTest {
     }
 
     /**
+     * covers: AC-4, AC-5, AC-9. Only Boot's repository bean backs off for a hand written repository; the condition
+     * that binds {@link OAuth2ClientProperties} reads the registration settings alone. So the settings still
+     * require the origin and run the registration checks, and an upgrade that changes this must fail here.
+     */
+    @Test
+    void aHandWrittenRepositoryDoesNotHideTheConfiguredRegistration() {
+        WebApplicationContextRunner handWritten =
+                withRegistration.withUserConfiguration(DokeneOnlyRepositoryConfiguration.class);
+
+        handWritten.run(context -> assertStartupRefused(context, "DOKENE_PUBLIC_ORIGIN", "must be set"));
+        handWritten.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.servlet.context-path=/dokene")
+                .run(context -> assertStartupRefused(context, "SERVER_SERVLET_CONTEXT_PATH"));
+        handWritten.withPropertyValues("dokene.security.public-origin=" + ORIGIN).run(context -> {
+            assertThat(dokeneRegistration(context).getRedirectUri())
+                    .isEqualTo(ORIGIN + "/login/oauth2/code/{registrationId}");
+            assertThat(context).hasSingleBean(OAuth2ClientProperties.class);
+        });
+    }
+
+    /** covers: AC-5. With no registration settings a hand written repository is refused for what is true of it. */
+    @Test
+    void aHandWrittenRepositoryWithoutRegistrationSettingsStopsStartup() {
+        withoutRegistration.withUserConfiguration(DokeneOnlyRepositoryConfiguration.class)
+                .withPropertyValues("dokene.security.public-origin=" + ORIGIN)
+                .run(context -> assertStartupRefused(context, "no OAuth client registration is configured"));
+    }
+
+    /**
      * covers: AC-7, AC-9. Under lazy initialization nothing asks for the check beans until the first request builds
      * the filter chains, so they must refuse startup on their own.
      */
@@ -479,6 +507,16 @@ class RedirectOriginStartupTest {
         @Bean
         ClientRegistrationRepository customRepository() {
             return registrationId -> null;
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class DokeneOnlyRepositoryConfiguration {
+
+        @Bean
+        ClientRegistrationRepository dokeneOnly() {
+            return new InMemoryClientRegistrationRepository(
+                    SecondRegistrationRepositoryConfiguration.registration("dokene"));
         }
     }
 
