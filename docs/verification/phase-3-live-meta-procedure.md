@@ -9,7 +9,7 @@ The procedure was written for issue 140, first used on `main` `f4cb0ec` and used
 All of these must hold. If one does not, the live leg is **BLOCKED**, not PASS.
 
 1. **Non-production Meta assets.**
-   - A Meta developer app in development mode, with a WhatsApp Business test account.
+   - A Meta developer app with a WhatsApp Business test account. Development mode is enough for every leg except the real status callbacks, which need the app published (see below).
    - Its test sender number, and an approved template in that account.
    - Never a production business account or a customer's number.
 2. **Recipient consent.**

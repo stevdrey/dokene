@@ -1,0 +1,27 @@
+# Issue 339 live journey: backend/migrate/frontend images built from main c53cea24 in the dokene-qa-run worktree.
+services:
+  migrate:
+    image: dokene-backend:qa339
+    build:
+      context: /home/stevdrey/Projects/Java/dokene-qa-run/backend
+      dockerfile: /home/stevdrey/Projects/Java/dokene-qa-run/infra/docker/backend/Dockerfile
+      additional_contexts:
+        entrypoint: /home/stevdrey/Projects/Java/dokene-qa-run/infra/docker/backend
+  backend:
+    image: dokene-backend:qa339
+    build:
+      context: /home/stevdrey/Projects/Java/dokene-qa-run/backend
+      dockerfile: /home/stevdrey/Projects/Java/dokene-qa-run/infra/docker/backend/Dockerfile
+      additional_contexts:
+        entrypoint: /home/stevdrey/Projects/Java/dokene-qa-run/infra/docker/backend
+  frontend:
+    image: dokene-frontend:qa339
+    build:
+      context: /home/stevdrey/Projects/Java/dokene-qa-run/frontend
+      dockerfile: /home/stevdrey/Projects/Java/dokene-qa-run/infra/docker/frontend/Dockerfile
+      additional_contexts:
+        nginx: /home/stevdrey/Projects/Java/dokene-qa-run/infra/docker/frontend
+  webhook-gateway:
+    # Same gateway, plus an access log of method, path, status and size (no headers or bodies).
+    volumes: !override
+    - /home/stevdrey/qa339/nginx.conf:/etc/nginx/nginx.conf:ro,Z
