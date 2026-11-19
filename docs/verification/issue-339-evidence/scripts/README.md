@@ -16,3 +16,16 @@ explicit authorization for every run.
 The helpers import the operator's private local files (`live_cases_oct24.py`, the recipient file, and a copy of
 `local_api.py` that reads the owner password of issue 314 from the stack's `.env`). Those files are not in this
 repository, and neither are any secret values.
+
+## Known caveats for reuse
+
+These are as-run copies, kept unchanged so they match the evidence. Before another live run:
+
+- `live339.sh` and `send339.py` repeat `live.sh` and `send140*.py` with only paths, prefixes and the interval changed.
+  A single parametrized helper should replace these copies rather than adding another one.
+- `send339.py send` sets the recipient's follow-up policy to no cadence and an explicit date of today, and does not
+  restore it. Record the policy first and restore it after the run.
+- That date is `date.today()`, the host's local date. This run was at 11:56 CST (17:56Z, the same day), but near
+  midnight UTC the host date and the server's date can differ.
+- `status339.py` reads only the first 50 messages of one customer record. It is a local sanity check, not proof that
+  the contact interval holds: the server's own check at send time is.

@@ -79,3 +79,18 @@ inbox rows since 2026-11-18 3
 messages created since 2026-11-18 1
 tunnel: stopped
 send attempts since 2026-11-18 1
+
+== offline window tests, after the run (finding review of PR #422; no Meta, no Docker, no credentials)
+# live-test.sh of phase-3-evidence/scripts, run against a scratch copy of live339.sh whose only change is
+# QA_DIR=/home/stevdrey/qa339 -> QA_DIR=${QA_DIR:?}; the harness copy calls "send" instead of "es", reads
+# live-339-window.txt instead of live-140-es.txt, and expects interval=24h (not 1m) in backend-recreation-failure.
+PASS  success (exit 0, tenant=false global=false interval=24h)
+PASS  interrupted (exit 130, tenant=false global=false interval=24h)
+PASS  transient-disable-failure (exit 0, tenant=false global=false interval=24h)
+PASS  tenant-disable-failure (exit 70, tenant=true global=false interval=24h)
+PASS  backend-recreation-failure (exit 70, tenant=false global=true interval=24h)
+PASS  send-failure (exit 17, tenant=false global=false interval=24h)
+PASS  send-timeout (exit 124, tenant=false global=false interval=24h)
+PASS  enable-failure (exit 5, tenant=false global=false interval=24h)
+PASS  status-failure (exit 9, tenant=false global=false interval=24h)
+SUMMARY live-test fails=0
