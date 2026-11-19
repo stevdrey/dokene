@@ -91,13 +91,17 @@ provider_test_override() {
             return 2
         fi
     done <<< "$extra"
-    {
-        printf 'services:\n  backend:\n    environment:\n'
-        printf '      DOKENE_AI_PROVIDER: "openai"\n'
-        printf '      DOKENE_AI_OPENAI_BASE_URL: "%s"\n' "$url"
-        printf '      DOKENE_AI_OPENAI_API_KEY: "%s"\n' "$PROVIDER_TEST_API_KEY"
-        if [ -n "$extra" ]; then printf '%s\n' "$extra"; fi
-    } > "$file"
+    # Mode 600 (issue 328): the override is readable by its owner only.
+    (
+        umask 077
+        {
+            printf 'services:\n  backend:\n    environment:\n'
+            printf '      DOKENE_AI_PROVIDER: "openai"\n'
+            printf '      DOKENE_AI_OPENAI_BASE_URL: "%s"\n' "$url"
+            printf '      DOKENE_AI_OPENAI_API_KEY: "%s"\n' "$PROVIDER_TEST_API_KEY"
+            if [ -n "$extra" ]; then printf '%s\n' "$extra"; fi
+        } > "$file"
+    )
 }
 
 provider_test_export() {
