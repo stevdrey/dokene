@@ -55,6 +55,7 @@ check "up does not run a Keycloak realm reconcile script (#319 review)" \
 # Scripts that are ShellCheck-clean today. The scripts/verify-issue-*.sh helpers still carry findings and are not listed.
 shellcheck_targets=(
   scripts/dev-env.sh scripts/tests/dev-env-smoke.sh scripts/tests/nginx-headers-smoke.sh scripts/seed-local-qa.sh scripts/verify-keycloak-bff-e2e.sh
+  scripts/tests/nginx-log-redaction-smoke.sh
   scripts/keycloak-apply-realm-settings.sh scripts/tests/keycloak-apply-realm-settings-test.sh
   scripts/tests/keycloak-realm-config-test.sh scripts/lib/test-passwords.sh scripts/lib/secret-match.sh scripts/lib/curl-protected.sh
   scripts/lib/provider-test-double.sh scripts/tests/provider-test-double-test.sh
