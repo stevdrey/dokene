@@ -14,8 +14,12 @@ def lines(name):
 # Superseded runs were saved as <run>-attempt<N>.txt next to the final outputs.
 attempts = {p.name: lines(p.name) for p in sorted(OUT.glob("*-attempt*.txt"))}
 superseded = {l for ls in attempts.values() for l in ls}
-# The first #310 run (REG-06) used two wrong harness assumptions; its two lines are superseded by the rerun.
-harness310 = [l for l in lines("results.tsv") if l.startswith("REG-06\t#310") and "\tFAIL\t" in l]
+# The first #310 run (REG-06) used two wrong harness assumptions and was rerun. Only its two recorded lines (one
+# timestamp, the original labels) are superseded; any other #310 failure stays in the final results.
+HARNESS310 = {("#310 25 identical denials -> 25 x 403 with one body", "2026-11-19T04:25:49Z"),
+              ("#310 at most 10 denial rows for the key in the 15-minute window (rows before: 0)", "2026-11-19T04:25:49Z")}
+harness310 = [l for l in lines("results.tsv")
+              if l.split("\t")[0] == "REG-06" and tuple(l.split("\t")[1:4:2]) in HARNESS310]
 superseded.update(harness310)
 
 main = [l for l in lines("results.tsv") if l not in superseded and "\t" in l]

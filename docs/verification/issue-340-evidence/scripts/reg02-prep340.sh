@@ -10,5 +10,7 @@ req testuser "$A" POST "/api/customers/$AI_C/purchases" "$(jq -cn --arg t "$(dat
 req testuser "$A" GET "/api/customers/$AI_C/contact-policy" -; POL0="$(etag)|$(jb '[.doNotContact, (.consents|map(.status)|join(","))]|@json')"; setid AI_POL0 "$(printf '%s' "$POL0" | md5sum | cut -c1-12)"
 req testuser "$A" GET "/api/customers/$AI_C/follow-up-policy" -; FU0="$(etag)|$(jb '[.cadenceDays,.explicitNextDate,.snoozedUntil]|@json')"; setid AI_FU0 "$(printf '%s' "$FU0" | md5sum | cut -c1-12)"
 setid AI_SNAP0 "$(snap1)"
+# Baseline of AI audit rows before the authorized live calls; reg02-verify340.sh and final340.sh count from it.
+[ -n "${AI0_340:-}" ] || setid AI0_340 "$(ai_n)"
 rec $C "baseline before the live draft" NOTE "customer=${AI_C:0:8} policy=$POL0 ($AI_POL0) followup=$FU0 ($AI_FU0) snap=$AI_SNAP0 ai_rows=$(ai_n)"
 qa_finish
