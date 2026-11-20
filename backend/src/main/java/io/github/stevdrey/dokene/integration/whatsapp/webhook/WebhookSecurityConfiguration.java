@@ -2,6 +2,7 @@
 // ABOUTME: The HMAC over the raw body is the only trust decision; a session cookie on this route proves nothing.
 package io.github.stevdrey.dokene.integration.whatsapp.webhook;
 
+import io.github.stevdrey.dokene.identity.security.PublicOriginSettings;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication.Type;
 import org.springframework.context.annotation.Bean;
@@ -32,7 +33,8 @@ class WebhookSecurityConfiguration {
 
     @Bean
     @Order(Ordered.HIGHEST_PRECEDENCE)
-    SecurityFilterChain webhookSecurityFilterChain(HttpSecurity http) throws Exception {
+    SecurityFilterChain webhookSecurityFilterChain(HttpSecurity http, PublicOriginSettings publicOrigin)
+            throws Exception {
         http.securityMatcher(WEBHOOK_PATHS)
                 .authorizeHttpRequests(authorize -> authorize
                         .requestMatchers(WhatsAppWebhookController.PATH).permitAll()
@@ -45,6 +47,8 @@ class WebhookSecurityConfiguration {
                 .csrf(csrf -> csrf.ignoringRequestMatchers(WhatsAppWebhookController.PATH)
                         .csrfTokenRepository(new SessionFreeCsrfTokenRepository()))
                 .cors(cors -> cors.disable())
+                // The same HSTS decision as the BFF chain: from the configured origin, never the request's scheme.
+                .headers(headers -> publicOrigin.applyHsts(headers))
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .securityContext(context -> context.disable())
                 .requestCache(cache -> cache.disable())

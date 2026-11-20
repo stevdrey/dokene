@@ -47,8 +47,17 @@ final class OidcProviderStub {
     private OidcProviderStub() {
     }
 
-    /** Starts the shared provider if needed and points the "dokene" client registration at it. */
+    /**
+     * Starts the shared provider if needed, points the "dokene" client registration at it, and gives the application
+     * a public origin on a pinned loopback port, so a whole login can run.
+     */
     static OidcProviderStub register(DynamicPropertyRegistry registry) throws Exception {
+        DirectBackend.registerOrigin(registry);
+        return registerClient(registry);
+    }
+
+    /** Only the client registration: no public origin and no port, for tests that set or omit those themselves. */
+    static OidcProviderStub registerClient(DynamicPropertyRegistry registry) throws Exception {
         SHARED.start();
         registry.add("spring.security.oauth2.client.registration.dokene.provider", () -> "dokene");
         registry.add("spring.security.oauth2.client.registration.dokene.client-id", () -> CLIENT_ID);
@@ -56,8 +65,6 @@ final class OidcProviderStub {
         registry.add("spring.security.oauth2.client.registration.dokene.scope", () -> "openid");
         registry.add("spring.security.oauth2.client.registration.dokene.authorization-grant-type",
                 () -> "authorization_code");
-        registry.add("spring.security.oauth2.client.registration.dokene.redirect-uri",
-                () -> "{baseUrl}/login/oauth2/code/{registrationId}");
         registry.add("spring.security.oauth2.client.provider.dokene.issuer-uri", SHARED::issuer);
         return SHARED;
     }
@@ -95,13 +102,13 @@ final class OidcProviderStub {
     private void discovery(HttpExchange exchange) throws IOException {
         json(exchange, 200, """
                 {"issuer":"%s","authorization_endpoint":"%s/authorize","token_endpoint":"%s/token",
-                "jwks_uri":"%s/jwks","response_types_supported":["code"],"subject_types_supported":["public"],
+                "jwks_uri":"%s/jwks","end_session_endpoint":"%s/logout","response_types_supported":["code"],"subject_types_supported":["public"],
                 "id_token_signing_alg_values_supported":["RS256"],
                 "grant_types_supported":["authorization_code","refresh_token"],
                 "backchannel_logout_supported":true,"backchannel_logout_session_supported":true,
                 "token_endpoint_auth_methods_supported":["client_secret_basic","client_secret_post"],
                 "scopes_supported":["openid","profile"]}
-                """.formatted(issuer, issuer, issuer, issuer));
+                """.formatted(issuer, issuer, issuer, issuer, issuer));
     }
 
     private void authorize(HttpExchange exchange) throws IOException {
