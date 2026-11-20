@@ -116,7 +116,7 @@ The verifier returns JSON in this shape (schema version 1):
   ],
   "checks": [
     { "id": "C1", "kind": "automated", "required": true, "command": "./gradlew test --tests …",
-      "result": "passed", "environment": "local, JDK 26", "summary": "…",
+      "result": "passed", "environment": "local, JDK 27", "summary": "…",
       "candidate": { "base": "<commit id>", "head": "<commit id>", "tree": "<tree id>" } }
   ],
   "limitations": ["…"],

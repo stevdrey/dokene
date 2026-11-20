@@ -181,8 +181,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # -XX:-UseBASE64Intrinsics: Java4Shell (CVE-2026-114938) interim mitigation, as in the backend entrypoint (issue 429).
     entrypoint:
       - java
+      - -XX:-UseBASE64Intrinsics
       - -Dloader.main=io.github.stevdrey.dokene.migration.DokeneMigrationApplication
       - -cp
       - /app/dokene.jar

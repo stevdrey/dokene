@@ -13,7 +13,7 @@ Every reference to an image that is not built from this tree has the form
 ```
 
 ```dockerfile
-FROM eclipse-temurin:26-jdk@sha256:<index digest> AS build
+FROM eclipse-temurin:27-jdk@sha256:<index digest> AS build
 ```
 
 ```yaml
@@ -106,6 +106,10 @@ A pinned image no longer picks up upstream security patches by itself. Patches a
 3. For a PostgreSQL bump, confirm `backend.yml` ran. For a PostgreSQL or Keycloak bump, start the local stack once on its existing volumes.
 4. Read the tag: a major version move never comes from Dependabot.
 5. Merge on green CI.
+
+## Downloaded archives
+
+A Dockerfile that fetches an archive by URL uses `ADD --checksum=sha256:<64 lowercase hex> <https URL>`, so BuildKit refuses content that differs from the recorded hash. The checksum is read from two vendor sources that must agree (for Temurin: the Adoptium API `package.checksum` and the `.sha256.txt` published beside the archive), and the URL names an exact release, never `latest`. Dependabot does not update such a line: it is a hand change with its own evidence row, and it is removed in favour of a pinned image as soon as an official image carries the same content. The only such line is the Java4Shell-fixed x64 JRE of the backend image ([java4shell-cve-2026-114938.md](java4shell-cve-2026-114938.md), issue [#429](https://github.com/stevdrey/dokene/issues/429)). `scripts/check-image-pins.sh` does not read `ADD` lines; review covers them.
 
 ## Deferred
 

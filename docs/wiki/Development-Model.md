@@ -18,7 +18,7 @@ A monorepo does not mean the frontend and backend are one runtime application. T
 
 ## Backend baseline
 
-- Java 26;
+- Java 27 (a Java4Shell-fixed build, 27.0.1.1 or later; [ADR 0034](../adr/0034-java-27-runtime-baseline-and-java4shell-response.md));
 - Spring Boot;
 - Gradle;
 - PostgreSQL;

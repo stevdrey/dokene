@@ -9,7 +9,7 @@
 | `postgres` | `postgres:17-alpine@sha256:<digest>` (runs as the `postgres` user, read-only; pinned in `compose.yaml`, see [build input pinning](../../docs/security/build-input-pinning.md)) | `127.0.0.1:5432` (`DOKENE_DB_HOST_PORT`) | creates the migration/runtime roles on first start |
 | `keycloak` | `infra/docker/keycloak` (non-root, read-only) | `127.0.0.1:8081` (`KEYCLOAK_PORT`) | imports the `dokene` realm at every container start |
 | `migrate` | backend image, one-shot | none | applies Flyway migrations as `dokene_migration`, then exits (issue 308) |
-| `backend` | `infra/docker/backend` (Temurin 26 JRE, non-root, read-only) | `127.0.0.1:8080` | starts after `migrate` succeeded; validates the schema as `dokene_runtime` |
+| `backend` | `infra/docker/backend` (Temurin 27 JRE, on amd64 the Java4Shell-fixed 27.0.1.1 build, every JVM started with `-XX:-UseBASE64Intrinsics`, issue 429; non-root, read-only) | `127.0.0.1:8080` | starts after `migrate` succeeded; validates the schema as `dokene_runtime` |
 | `oidc-bridge` | `alpine/socat` | `127.0.0.1:8080` (published for the backend) | owns the network namespace the backend joins, see below |
 | `frontend` | `infra/docker/frontend` (unprivileged nginx) | `127.0.0.1:5173` | static build + same-origin proxy of `/api`, `/oauth2`, `/login`, `/logout`, `/webhooks` |
 
@@ -79,7 +79,7 @@ Remaining exceptions (issue 319):
 `up` checks that Docker and Compose are installed and running, validates `.env` (and creates it from
 `.env.example` with generated local-only secrets when it does not exist), verifies that the required host ports
 are free and waits for every container to become healthy. `--infra-only` starts only PostgreSQL and Keycloak for
-backends/frontends run from the host (JDK 26 / Node 24):
+backends/frontends run from the host (JDK 27, a Java4Shell-fixed build 27.0.1.1 or later, checked with `scripts/check-java4shell-runtime.sh`; Node 24):
 
 ```bash
 ./scripts/dev-env.sh up --infra-only
