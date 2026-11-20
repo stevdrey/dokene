@@ -56,6 +56,11 @@ dokene:
       tenant-permits-per-minute: ${DOKENE_AI_RATE_LIMIT_TENANT_PERMITS:60}
       actor-permits-per-minute: ${DOKENE_AI_RATE_LIMIT_ACTOR_PERMITS:20}
       retry-after: ${DOKENE_AI_RATE_LIMIT_RETRY_AFTER:5s}
+    # Per-tenant monthly AI token budget (issue 346, ADR 0035): provider-reported input plus output tokens per UTC
+    # calendar month, failed and retried attempts included. Must be positive; a tenant over budget makes no provider
+    # call and gets AI_UNAVAILABLE / TOKEN_BUDGET_EXHAUSTED while the deterministic workflow stays available.
+    token-budget:
+      monthly-tokens: ${DOKENE_AI_TOKEN_BUDGET_MONTHLY_TOKENS:2000000}
     openai:
       api-key: ${DOKENE_AI_OPENAI_API_KEY:}
       model: ${DOKENE_AI_OPENAI_MODEL:gpt-6-luna}

@@ -85,6 +85,9 @@ export function unavailableMessage(reason: AiUnavailableReason | string | null, 
   if (reason === 'NOT_AVAILABLE') {
     return `El asistente IA no está habilitado para este espacio de trabajo. ${AI_MANUAL_FALLBACK}`;
   }
+  if (reason === 'TOKEN_BUDGET_EXHAUSTED') {
+    return `Este espacio de trabajo alcanzó el límite mensual de uso del asistente IA. Volverá a estar disponible el próximo mes. ${AI_MANUAL_FALLBACK}`;
+  }
   if (retryable) {
     return `El asistente IA no está disponible en este momento. ${AI_MANUAL_FALLBACK} También puedes reintentar.`;
   }

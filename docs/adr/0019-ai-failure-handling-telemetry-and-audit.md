@@ -29,7 +29,7 @@ A local `CANCELLED` is a cancellation observed by the provider stack: an interru
 
 Only `TIMEOUT`, `THROTTLED` and `UNAVAILABLE` are `retryable()`. A *valid* explicit "no recommendation / no draft" outcome is a successful invocation, not a failure.
 
-Client-facing results use the closed enum `AiUnavailableReason` (the categories above, `DISALLOWED_ACTION`, `DISALLOWED_TEMPLATE_INTENT`, `INVALID_RECOMMENDATION`, `CONTEXT_TOO_LARGE`, `CONTEXT_UNSUPPORTED`) and a derived boolean `retryable`. Provider or exception text never crosses the HTTP boundary.
+Client-facing results use the closed enum `AiUnavailableReason` (the categories above, `DISALLOWED_ACTION`, `DISALLOWED_TEMPLATE_INTENT`, `INVALID_RECOMMENDATION`, `CONTEXT_TOO_LARGE`, `CONTEXT_UNSUPPORTED`, and since [ADR 0035](0035-per-tenant-monthly-ai-token-budget.md) `TOKEN_BUDGET_EXHAUSTED`) and a derived boolean `retryable`. Provider or exception text never crosses the HTTP boundary.
 
 ### 2. Bounded retry, owned by one decorator
 
