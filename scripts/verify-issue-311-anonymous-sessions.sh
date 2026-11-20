@@ -59,9 +59,10 @@ if [ -n "$(git -C "$ROOT_DIR" status --porcelain --untracked-files=no)" ]; then
   REVISION="$REVISION plus uncommitted changes (not valid as recorded evidence)"
 fi
 
+# -J-XX:-UseBASE64Intrinsics: the jcmd JVM gets the Java4Shell interim mitigation too (invariant 42, issue 429).
 jcmd_backend() {
   docker run --rm --pid="container:$BACKEND" --user "$(docker exec "$BACKEND" id -u):$(docker exec "$BACKEND" id -g)" \
-    "$JDK_IMAGE" jcmd 1 "$1" 2>/dev/null
+    "$JDK_IMAGE" jcmd -J-XX:-UseBASE64Intrinsics 1 "$1" 2>/dev/null
 }
 # Used heap in KiB, read right after a full collection so that only live objects count.
 used_heap_kib() {

@@ -34,4 +34,6 @@ if [[ -n "$issuer" ]]; then
   done
 fi
 
-exec java -jar /app/dokene.jar
+# -XX:-UseBASE64Intrinsics: Java4Shell (CVE-2026-114938) interim mitigation, issue 429. Keep it until the runtime image
+# reports a vendor-fixed build (27.0.1.1 or later); see infra/docker/backend/Dockerfile.
+exec java -XX:-UseBASE64Intrinsics -jar /app/dokene.jar

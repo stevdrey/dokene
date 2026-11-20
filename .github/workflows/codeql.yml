@@ -27,12 +27,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Set up Java 26
+      - name: Set up Java 27
         if: matrix.language == 'java-kotlin'
         uses: actions/setup-java@77dd5b2ce225ea11469928ac317850245a74ae78 # v6.2.0
         with:
           distribution: temurin
-          java-version: '26'
+          java-version: '27'
+          # check-latest: the runner's cached Temurin can predate the Java4Shell fix (CVE-2026-114938, issue 429).
+          check-latest: true
+
+      - name: Require a Java4Shell-fixed JDK
+        if: matrix.language == 'java-kotlin'
+        run: ./scripts/check-java4shell-runtime.sh --require-patched
 
       - name: Set up Gradle
         if: matrix.language == 'java-kotlin'

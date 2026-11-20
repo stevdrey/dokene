@@ -13,7 +13,7 @@ Every reference to an image that is not built from this tree has the form
 ```
 
 ```dockerfile
-FROM eclipse-temurin:26-jdk@sha256:<index digest> AS build
+FROM eclipse-temurin:27-jdk@sha256:<index digest> AS build
 ```
 
 ```yaml
