@@ -59,6 +59,7 @@ shellcheck_targets=(
   scripts/keycloak-apply-realm-settings.sh scripts/tests/keycloak-apply-realm-settings-test.sh
   scripts/tests/keycloak-realm-config-test.sh scripts/lib/test-passwords.sh scripts/lib/secret-match.sh scripts/lib/curl-protected.sh
   scripts/lib/provider-test-double.sh scripts/tests/provider-test-double-test.sh
+  scripts/tests/verify-keycloak-bff-e2e-test.sh
   infra/docker/backend/entrypoint.sh infra/docker/postgres/init/01-create-database-roles.sh
 )
 shellcheck_min_version=0.11.0   # the annotations target this release (SC2329 does not exist before it)
