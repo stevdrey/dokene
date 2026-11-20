@@ -101,7 +101,9 @@ status=200 body="" headers=() new_sid=""
 case "$url" in
   "$KC/realms/dokene/.well-known/openid-configuration") body='{}' ;;
   "$KC/realms/dokene/protocol/openid-connect/token")
-    if fault client-not-allowed; then
+    if fault token-error-reflects-secret; then
+      status=400 body="{\"error\":\"${form[client_secret]:-}\"}"
+    elif fault client-not-allowed; then
       status=400 body='{"error":"unauthorized_client","error_description":"Client not allowed for this grant"}'
     elif [ "${form[client_secret]:-}" = "$STUB_KC_SECRET" ]; then
       status=400 body='{"error":"invalid_grant","error_description":"Code not valid"}'
@@ -253,6 +255,15 @@ expect_failure "client secret in the session body" session-body-secret "Forbidde
 expect_failure "token in the session body" session-body-token "Forbidden value 'access_token' exposed in session response body"
 expect_failure "client secret in the session headers" session-header-secret "Forbidden value '<OIDC client secret>' exposed in session response headers"
 expect_failure "logout cookie without expiry" logout-no-expiry "has neither Max-Age=0 nor an Expires date; header withheld"
+
+# --- a token error field that reflects the secret is not printed: only registered OAuth error codes are
+LETTER_SECRET="$(synthetic lettersecret | tr '0-9' 'g-p')"  # lowercase letters only, so it looks like an error code
+write_env "SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET=$LETTER_SECRET"
+run_e2e token-error-reflects-secret "$LETTER_SECRET"
+assert "a token error reflecting the secret fails with a fixed label" \
+  failed_with "Expected HTTP 400 invalid_grant for an unusable code, got HTTP 400, error <unrecognized error>"
+refute "a token error reflecting the secret does not print it" grep -qF "$LETTER_SECRET" "$TMP/out"
+write_env
 
 # --- literal matching: a value that only matches as a pattern is not reported as the secret
 REGEX_SECRET="a.b*c[d]$(synthetic rx)"

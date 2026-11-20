@@ -193,8 +193,17 @@ CLIENT_CHECK_STATUS="$(printf '%s' "$TEST_CLIENT_SECRET" | curl -s -o "$BODY_LOG
     --data-urlencode "grant_type=authorization_code" --data-urlencode "client_id=dokene-bff" \
     --data-urlencode "code=dokene-e2e-unusable-code" --data-urlencode "redirect_uri=$BFF_URL/login/oauth2/code/dokene" \
     --data-urlencode "client_secret@-" "$KEYCLOAK_URL/realms/dokene/protocol/openid-connect/token" || true)"
-CLIENT_CHECK_ERROR="$(jq -r '.error // empty' "$BODY_LOG" 2>/dev/null || true)"
-[[ "$CLIENT_CHECK_ERROR" =~ ^[a-z_]{1,64}$ ]] || CLIENT_CHECK_ERROR="<none>"
+# Only a registered OAuth token error code (RFC 6749 section 5.2) is printed, as the script's own copy; any other value
+# of the error field, which a faulty response could fill with the secret it was sent, becomes a fixed label.
+CLIENT_CHECK_ERROR_RAW="$(jq -r '.error // empty' "$BODY_LOG" 2>/dev/null || true)"
+CLIENT_CHECK_ERROR="<unrecognized error>"
+[ -n "$CLIENT_CHECK_ERROR_RAW" ] || CLIENT_CHECK_ERROR="<none>"
+for oauth_error in invalid_request invalid_client invalid_grant unauthorized_client unsupported_grant_type invalid_scope; do
+    [ "$CLIENT_CHECK_ERROR_RAW" = "$oauth_error" ] && CLIENT_CHECK_ERROR="$oauth_error"
+done
+unset CLIENT_CHECK_ERROR_RAW oauth_error
+# curl's %{http_code} is three digits; anything else is not printed either.
+[[ "$CLIENT_CHECK_STATUS" =~ ^[0-9]{3}$ ]] || CLIENT_CHECK_STATUS="<none>"
 if [ "$CLIENT_CHECK_STATUS" = "401" ] || [ "$CLIENT_CHECK_ERROR" = "invalid_client" ]; then
     echo "FAILED (Keycloak refused the configured <OIDC client secret>: HTTP $CLIENT_CHECK_STATUS, error $CLIENT_CHECK_ERROR)"
     echo "The leak checks would search for a value the stack does not use. Make SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET in your environment and .env match the running stack."
