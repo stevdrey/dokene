@@ -322,6 +322,20 @@ class RedirectOriginStartupTest {
                         .isEqualTo("http://localhost:18443/logout/connect/back-channel/{registrationId}"));
     }
 
+    /**
+     * covers: AC-3. With server.port unset, the port in application.yml's replay default and the validator's own
+     * default must be the same number, or the loopback port rule refuses the shipped default.
+     */
+    @Test
+    void theReplayUriDefaultStartsWhenTheServerPortIsUnset() {
+        withoutReplayUri.withInitializer(new ConfigDataApplicationContextInitializer())
+                .withPropertyValues(stubClientRegistration())
+                .withPropertyValues("dokene.security.public-origin=" + ORIGIN)
+                .run(context -> assertThat(context.getBean(RedirectOriginStartupValidator.class)
+                        .backChannelLogoutUri())
+                        .isEqualTo("http://localhost:8080/logout/connect/back-channel/{registrationId}"));
+    }
+
     /** covers: AC-3. The default is written once, in application.yml; no second copy fills in for a missing one. */
     @Test
     void aMissingReplayUriPropertyStopsStartup() {
