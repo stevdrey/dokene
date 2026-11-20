@@ -12,6 +12,8 @@ public enum AiAuditDetail {
     INVALID_STRUCTURED_RESPONSE(Kind.FAILURE), REJECTED_REQUEST(Kind.FAILURE), CANCELLED(Kind.FAILURE),
     NOT_AVAILABLE(Kind.FAILURE), REFUSED(Kind.FAILURE),
     CONTEXT_TOO_LARGE(Kind.FAILURE), CONTEXT_UNSUPPORTED(Kind.FAILURE),
+    // the tenant's monthly token budget was exhausted before any provider call (V42, ADR 0035)
+    TOKEN_BUDGET_EXHAUSTED(Kind.FAILURE),
     // Action Gate rejection reasons (GATE_REJECTED). NO_TENANT_CONTEXT, UNAUTHORIZED and CUSTOMER_NOT_FOUND are
     // deliberately absent: they are raised before the customer is verified to belong to the tenant, so the
     // caller-supplied id must never be audited (see V14 and AiOutcomeReporter).
