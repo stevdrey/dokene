@@ -115,19 +115,26 @@ logs, or audit events.
     when the origin is set but malformed (with or without a registration); when
     `spring.security.oauth2.client.registration.dokene.redirect-uri` is set to anything but the origin's own callback;
     when a registration id other than `dokene` exists; when a `ClientRegistrationRepository` bean other than Spring
-    Boot's own is defined, or one of the same class that holds a registration other than `dokene`; when `server.servlet.context-path` is set alongside a
+    Boot's own is defined, or one of the same class that holds a registration other than `dokene`; when, once every
+    bean exists, a registration in the live repository carries any redirect URI but the derived callback (a
+    repository that a `BeanPostProcessor` depends on is built before the rewrite can reach it, and Spring only logs
+    that); when `server.servlet.context-path` is set alongside a
     registration; when `DOKENE_BACK_CHANNEL_LOGOUT_URI` is blank, not an absolute `http(s)` URI with a host, or holds
     any placeholder other than `{registrationId}` (that covers the request derived `{baseUrl}`, `{baseScheme}`,
     `{baseHost}`, `{basePort}` and `{basePath}` in every spelling Spring expands, such as `{basePort:\d*}`); when, with
     a registration, the replay URI uses port 0 (the default under `server.port=0`), is not `https` while `server.ssl`
-    is enabled, or names a loopback host (`localhost`, `127.0.0.1`, `[::1]`) on a port other than `server.port` (a
-    port left out counts as 80 or 443), since the default follows the configured port over plain http and a replay
+    is enabled, or names a loopback host on a port other than `server.port` (a port left out counts as 80 or 443;
+    loopback is decided from the spelling, without a lookup: `localhost` and any name under it, with or without the
+    root dot, and every literal address in `127.0.0.0/8` or equal to `::1` however it is written, so a name that only
+    a hosts file maps to loopback is not recognized), since the default follows the configured port over plain http and a replay
     that reaches no listener would leave sessions alive after a provider logout without an error; and when
     `server.forward-headers-strategy` is anything but `none` or `framework`. That refuses `native` and also an unset
     or blank strategy, which Spring Boot turns into `native` on a detected cloud platform. Every refusal happens
     while the context refreshes, before the server accepts a request, and never repeats the refused origin. The
     replay URI checks are skipped under a negative `server.port`: that instance has no listener, so it receives and
-    replays nothing, and the default would otherwise read `http://localhost:-1`.
+    replays nothing, and the default would otherwise read `http://localhost:-1`. Startup cannot check a
+    certificate: with `server.ssl` enabled the replay URI must use a host name the listener's certificate carries,
+    or each replay fails its TLS handshake and is only logged.
   - *The direct backend port bypasses the edge*: a caller on it skips the edge's header rules and the login start
     limit (spec 0016), and under `framework` can still forge its own client address and request scheme. A deployment
     must not expose the backend port beyond the edge; the local stack binds it to `127.0.0.1`.

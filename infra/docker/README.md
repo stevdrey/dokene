@@ -174,7 +174,9 @@ is no longer set; a leftover value stops startup with a message that says to rem
   HSTS). Keep that port reachable only from the edge and from this host.
 - `DOKENE_BACK_CHANNEL_LOGOUT_URI` defaults to loopback on the backend's listen port. An override must be a fixed
   absolute URI; a request derived placeholder such as `{basePort}` stops startup, and so does a loopback override on
-  another port than the backend listens on (`SERVER_PORT`).
+  another port than the backend listens on (`SERVER_PORT`); loopback covers `localhost`, any name under it and
+  every literal address in `127.0.0.0/8` or equal to `::1`. With `server.ssl` enabled it must be `https` on a host
+  name the listener's certificate carries, which startup cannot check.
 
 **Trusting a tunnel or load balancer.** By default no peer is trusted: the image's
 `/etc/nginx/snippets/trusted-proxies.conf` holds comments only. To trust an outer proxy, find its address first: send

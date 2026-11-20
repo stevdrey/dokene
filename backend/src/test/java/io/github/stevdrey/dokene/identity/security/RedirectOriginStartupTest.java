@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.boot.LazyInitializationBeanFactoryPostProcessor;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -266,6 +267,8 @@ class RedirectOriginStartupTest {
             "localhost:8080/logout/connect/back-channel/{registrationId}",
             "ftp://localhost/logout/connect/back-channel/{registrationId}",
             "http:///logout/connect/back-channel/{registrationId}",
+            "http://user@dokene_backend/logout/connect/back-channel/{registrationId}",
+            "http://dokene_backend:port/logout/connect/back-channel/{registrationId}",
             "http://local host/logout/connect/back-channel/{registrationId}"
     })
     void aBlankOrNonAbsoluteReplayUriStopsStartupWithOrWithoutARegistration(String replayUri) {
@@ -294,6 +297,18 @@ class RedirectOriginStartupTest {
                 .withPropertyValues("dokene.security.public-origin=" + ORIGIN)
                 .run(context -> assertStartupRefused(context, "ClientRegistrationRepository", "twoRegistrations",
                         "\"dokene\""));
+    }
+
+    /**
+     * covers: AC-1, AC-5. A repository built while the post processors are still being created skips the rewrite and
+     * keeps Boot's {baseUrl} template, which reads the request; Spring only logs an INFO line about that.
+     */
+    @Test
+    void aRepositoryBuiltBeforeThePostProcessorIsRegisteredStopsStartup() {
+        withRegistration.withUserConfiguration(EarlyRepositoryConfiguration.class)
+                .withPropertyValues("dokene.security.public-origin=" + ORIGIN)
+                .run(context -> assertStartupRefused(context, "login callback", "DOKENE_PUBLIC_ORIGIN",
+                        "before"));
     }
 
     /** covers: AC-3. The default as application.yml writes it, the copy the shipped backend reads. */
@@ -330,12 +345,20 @@ class RedirectOriginStartupTest {
         withoutRegistration.withPropertyValues(onPortZero).run(context -> assertThat(context).hasNotFailed());
     }
 
+    /** covers: AC-3. java.net.URI gives such a name no host and no port, so the port has to be read another way. */
+    @Test
+    void aReplayUriOnPortZeroStopsStartupWhenTheHostNameHasAnUnderscore() {
+        withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN,
+                        REPLAY + "=http://dokene_backend:0/logout/connect/back-channel/{registrationId}")
+                .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", "port 0"));
+    }
+
     /** covers: AC-3. A TLS listener does not answer the plain http replay the default sends. */
     @Test
     void aPlainHttpReplayUriStopsStartupWhenTheListenerUsesTls() {
         withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.ssl.bundle=web")
                 .run(context -> assertStartupRefused(context, "DOKENE_BACK_CHANNEL_LOGOUT_URI", "server.ssl",
-                        "https://"));
+                        "https://", "certificate"));
         withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, "server.ssl.bundle=web",
                         "server.ssl.enabled=false")
                 .run(context -> assertThat(context).hasNotFailed());
@@ -353,7 +376,9 @@ class RedirectOriginStartupTest {
             "http://backend.internal:9000/logout/connect/back-channel/{registrationId}",
             "http://localhost:8080/internal/logout/connect/back-channel/dokene",
             "http://127.0.0.1:8080/logout/connect/back-channel/{registrationId}",
-            "http://[::1]:8080/logout/connect/back-channel/{registrationId}"
+            "http://[::1]:8080/logout/connect/back-channel/{registrationId}",
+            "http://dokene_backend:9000/logout/connect/back-channel/{registrationId}",
+            "http://dokene_backend/logout/connect/back-channel/{registrationId}"
     })
     void aFixedReplayUriOverrideIsKept(String replayUri) {
         withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, REPLAY + "=" + replayUri)
@@ -373,7 +398,11 @@ class RedirectOriginStartupTest {
             "http://LOCALHOST:9000/logout/connect/back-channel/{registrationId}",
             "http://127.0.0.1:9000/logout/connect/back-channel/{registrationId}",
             "http://[::1]:9000/logout/connect/back-channel/{registrationId}",
-            "https://localhost/logout/connect/back-channel/{registrationId}"
+            "https://localhost/logout/connect/back-channel/{registrationId}",
+            "http://127.0.0.2:9000/logout/connect/back-channel/{registrationId}",
+            "http://localhost.:9000/logout/connect/back-channel/{registrationId}",
+            "http://backend.localhost:9000/logout/connect/back-channel/{registrationId}",
+            "http://[0:0:0:0:0:0:0:1]:9000/logout/connect/back-channel/{registrationId}"
     })
     void aLoopbackReplayUriOnAnotherPortThanTheListenerStopsStartupWithARegistrationOnly(String replayUri) {
         withRegistration.withPropertyValues("dokene.security.public-origin=" + ORIGIN, REPLAY + "=" + replayUri)
@@ -507,6 +536,17 @@ class RedirectOriginStartupTest {
         @Bean
         ClientRegistrationRepository customRepository() {
             return registrationId -> null;
+        }
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class EarlyRepositoryConfiguration {
+
+        /** Depending on the repository makes Spring build it before the post processors are registered. */
+        @Bean
+        static BeanPostProcessor needsTheRepositoryEarly(ClientRegistrationRepository repository) {
+            return new BeanPostProcessor() {
+            };
         }
     }
 

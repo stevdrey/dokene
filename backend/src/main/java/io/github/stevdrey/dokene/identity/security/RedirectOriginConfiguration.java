@@ -11,6 +11,7 @@ import org.springframework.boot.web.server.autoconfigure.ServerProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
+import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnWebApplication(type = Type.SERVLET)
@@ -49,5 +50,14 @@ class RedirectOriginConfiguration {
             ObjectProvider<RedirectOriginStartupValidator> validator
     ) {
         return new ConfiguredRedirectUriPostProcessor(validator);
+    }
+
+    @Bean
+    @Lazy(false)
+    DerivedRedirectUriCheck derivedRedirectUriCheck(
+            ObjectProvider<ClientRegistrationRepository> repositories,
+            RedirectOriginStartupValidator validator
+    ) {
+        return new DerivedRedirectUriCheck(repositories, validator);
     }
 }

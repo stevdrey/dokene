@@ -2,9 +2,12 @@
 // ABOUTME: leftover redirect URI, a second registration, an unfixed replay URI, a context path, the native strategy.
 package io.github.stevdrey.dokene.identity.security;
 
+import java.net.InetAddress;
 import java.net.URI;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.springframework.boot.security.oauth2.client.autoconfigure.OAuth2ClientProperties;
 import org.springframework.boot.web.server.autoconfigure.ServerProperties.ForwardHeadersStrategy;
 
@@ -22,6 +25,9 @@ public final class RedirectOriginStartupValidator {
 
     private static final String BACK_CHANNEL_LOGOUT_SETTING =
             "dokene.security.oidc.back-channel-logout-uri (DOKENE_BACK_CHANNEL_LOGOUT_URI)";
+
+    /** A host name {@link URI} gives no host for, such as one with an underscore, and its optional port. */
+    private static final Pattern NAME_AUTHORITY = Pattern.compile("([A-Za-z0-9._-]+)(?::([0-9]{1,5}))?");
 
     private final PublicOrigin origin;
     private final String backChannelLogoutUri;
@@ -86,7 +92,7 @@ public final class RedirectOriginStartupValidator {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must not contain a placeholder other "
                     + "than {registrationId}; write it as a fixed URI");
         }
-        if (!isAbsoluteHttpUriWithHost(uri)) {
+        if (replayTarget(uri) == null) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must be an absolute http:// or https:// "
                     + "URI with a host");
         }
@@ -99,38 +105,78 @@ public final class RedirectOriginStartupValidator {
      * override must name the configured port for the same reason; another host is the operator's to get right.
      */
     static void requireReplayUriReachesTheListener(String uri, boolean tlsListener, int serverPort) {
-        URI parsed = parse(uri);
-        if (parsed.getPort() == 0) {
+        ReplayTarget target = replayTarget(uri);
+        if (target.port() == 0) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must not use port 0: with server.port "
                     + "(SERVER_PORT) set to 0 the server picks its port after this URI is built; set a fixed "
                     + "SERVER_PORT, or write the replay URI with the real port");
         }
-        if (tlsListener && !"https".equals(parsed.getScheme())) {
+        boolean https = "https".equals(target.scheme());
+        if (tlsListener && !https) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " must start with https:// while server.ssl "
-                    + "is enabled: the listener does not answer the plain http replay of the default");
+                    + "is enabled: the listener does not answer the plain http replay of the default; write it "
+                    + "with a host name the listener's certificate carries, or the replay fails the TLS handshake");
         }
-        int replayPort = parsed.getPort() >= 0 ? parsed.getPort() : "https".equals(parsed.getScheme()) ? 443 : 80;
-        boolean loopback = PublicOrigin.LOOPBACK_HOSTS.contains(parsed.getHost().toLowerCase(Locale.ROOT));
-        if (loopback && replayPort != serverPort) {
+        int replayPort = target.port() >= 0 ? target.port() : https ? 443 : 80;
+        if (isLoopback(target.host()) && replayPort != serverPort) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " points at loopback port " + replayPort
                     + " while server.port (SERVER_PORT) is " + serverPort + ": no listener answers that replay; "
                     + "write the replay URI with the port the server listens on, or unset it to use the default");
         }
     }
 
-    private static boolean isAbsoluteHttpUriWithHost(String uri) {
-        try {
-            URI parsed = parse(uri);
-            return ("http".equals(parsed.getScheme()) || "https".equals(parsed.getScheme()))
-                    && parsed.getHost() != null && !parsed.getHost().isEmpty();
-        } catch (IllegalArgumentException malformed) {
-            return false;
-        }
+    /** Port -1 when the URI leaves it out. */
+    private record ReplayTarget(String scheme, String host, int port) {
     }
 
-    /** {@code {registrationId}} is the one placeholder left; it is not a legal URI character, so it is filled first. */
-    private static URI parse(String uri) {
-        return URI.create(uri.replace("{registrationId}", REGISTRATION_ID));
+    /**
+     * The scheme, host and port of an absolute http or https replay URI, or null when it is not one.
+     * {@code {registrationId}} is the one placeholder left; it is not a legal URI character, so it is filled first.
+     */
+    private static ReplayTarget replayTarget(String uri) {
+        URI parsed;
+        try {
+            parsed = URI.create(uri.replace("{registrationId}", REGISTRATION_ID));
+        } catch (IllegalArgumentException malformed) {
+            return null;
+        }
+        String scheme = parsed.getScheme();
+        if (!"http".equals(scheme) && !"https".equals(scheme)) {
+            return null;
+        }
+        if (parsed.getHost() != null) {
+            return parsed.getHost().isEmpty() ? null : new ReplayTarget(scheme, parsed.getHost(), parsed.getPort());
+        }
+        // URI reports no host and no port for a name it does not accept as a server, such as dokene_backend,
+        // while Spring's own URI handling replays to it; the authority still holds both.
+        Matcher authority = NAME_AUTHORITY.matcher(parsed.getAuthority() == null ? "" : parsed.getAuthority());
+        if (!authority.matches()) {
+            return null;
+        }
+        return new ReplayTarget(scheme, authority.group(1),
+                authority.group(2) == null ? -1 : Integer.parseInt(authority.group(2)));
+    }
+
+    /**
+     * Decided from the spelling alone, never by a lookup: {@code localhost} and any name under it, with or without
+     * the root dot, and every literal address in 127.0.0.0/8 or equal to ::1 however it is written. A name that
+     * only a hosts file maps to loopback is not recognized.
+     */
+    private static boolean isLoopback(String host) {
+        String name = host.toLowerCase(Locale.ROOT);
+        if (name.endsWith(".")) {
+            name = name.substring(0, name.length() - 1);
+        }
+        if (name.equals("localhost") || name.endsWith(".localhost")) {
+            return true;
+        }
+        boolean bracketed = name.startsWith("[") && name.endsWith("]");
+        try {
+            return InetAddress.ofLiteral(bracketed ? name.substring(1, name.length() - 1) : name)
+                    .isLoopbackAddress();
+        } catch (IllegalArgumentException notALiteralAddress) {
+            return false;
+        }
     }
 
     /** The callback path is fixed at {@code /login/oauth2/code/}, so under a context path it would miss the app. */
