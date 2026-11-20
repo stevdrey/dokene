@@ -14,8 +14,9 @@
 # error or the JVM could not be inspected.
 #
 # Fixed builds are those published in the Adoptium and Red Hat advisories of 2026-11-17/18: 17.0.21.1, 21.0.13.1,
-# 25.0.5.1 and 27.0.1.1. Feature releases 8 and 11 are not affected. 18-20, 22-24 and 26 receive no fix. A feature
-# release above 27 is treated as fixed (it branches after the fix); revisit this when it ships.
+# 25.0.5.1 and 27.0.1.1. Feature releases 8 and 11 are not affected. 18-20, 22-24 and 26 receive no fix. A GA build of
+# a feature release above 27 is treated as fixed (it ships after the fix); an early-access build (`-ea`) is not, since
+# it may predate the fix.
 # The CPU line is informational: exploitation needs x86-64 with AVX-512 VBMI, but the status never depends on the
 # host the check happens to run on, because an image or a toolchain moves between hosts.
 set -Eeuo pipefail
@@ -112,7 +113,7 @@ case "$feature" in
   27) if at_least 0 1 1; then fixed=yes; else fixed=no; fi ;;
   18|19|20|22|23|24|26) fixed=no-fix-available ;;
   *)
-    if ((10#$feature > 27)); then fixed=yes; else fixed=no; fi ;;
+    if ((10#$feature > 27)) && [[ "$runtime_version" != *-ea* ]]; then fixed=yes; else fixed=no; fi ;;
 esac
 
 cpu="unknown"

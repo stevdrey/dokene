@@ -107,3 +107,16 @@ The first CI run of the pull request failed `Analyze (java-kotlin)`: `CodeQL cou
 | C17 | live | the same build with `--build-arg TARGETARCH=s390x` | fails: `Unsupported TARGETARCH 's390x'` (an unknown platform no longer skips the fix silently) |
 | C18 | not-run | the CodeQL job with the release flag | runs on the pull request; no local CodeQL CLI |
 
+
+## Review fixes (code review of PR #430)
+
+A code review of the pull request reported eight optional findings. Six were fixed: the guard no longer counts an early-access build above 27 as fixed; the Dockerfile fails when `TARGETARCH` does not match the build container's machine; the entrypoint comment ties the flag to official fixed images for every platform; invariant 42 names the CodeQL `--release 26` exception; `-PcodeqlJavaRelease` applies to `compileJava` only; the Dockerfile header is rewrapped. Two were recorded as residual risk instead (the image's inherited `JAVA_VERSION` value and the old JRE in a lower layer); both disappear with issue #432.
+
+| Id | Kind | Command | Result |
+| --- | --- | --- | --- |
+| C19 | automated | `scripts/tests/check-java4shell-runtime-test.sh`, `shellcheck` | 27 checks passed (adds `28+10` PATCHED, `28-ea+3` VULNERABLE, `28-ea+3` with the flag MITIGATED); clean |
+| C20 | automated | `scripts/check-image-pins.sh`, `scripts/tests/provider-test-double-test.sh`, `scripts/tests/check-image-pins-test.sh` | passed |
+| C21 | live | `docker build --no-cache` (linux/amd64), guard `--require-patched` | `27.0.1.1+4`, `PATCHED` (`sha256:47dbb0f32162…`) |
+| C22 | live | same build with `--build-arg TARGETARCH=arm64` on the x86_64 builder | fails: `TARGETARCH arm64 but the build container is x86_64` |
+| C23 | automated | `./gradlew classes testClasses -PcodeqlJavaRelease=26 --rerun-tasks`, then without the property | main 70 / test 71, then main 71 / test 71 |
+| C24 | automated | `./gradlew test` (JDK 27) | 2958 tests, 0 failures, 0 errors |

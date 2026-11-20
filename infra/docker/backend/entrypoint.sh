@@ -34,6 +34,7 @@ if [[ -n "$issuer" ]]; then
   done
 fi
 
-# -XX:-UseBASE64Intrinsics: Java4Shell (CVE-2026-114938) interim mitigation, issue 429. Keep it until the runtime image
-# reports a vendor-fixed build (27.0.1.1 or later); see infra/docker/backend/Dockerfile.
+# -XX:-UseBASE64Intrinsics: Java4Shell (CVE-2026-114938) mitigation, issue 429. Keep it until the official images hold a
+# vendor-fixed build (27.0.1.1 or later) for every platform (issue 432): the amd64 image already ships a fixed JRE, but
+# the arm64 image runs the unfixed official one and depends on this flag; see infra/docker/backend/Dockerfile.
 exec java -XX:-UseBASE64Intrinsics -jar /app/dokene.jar

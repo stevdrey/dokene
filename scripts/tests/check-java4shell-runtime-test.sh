@@ -74,7 +74,9 @@ expect "17.0.5+8 predates the bug"           0 NOT_AFFECTED --require-patched --
 expect "11.0.25+9 is not affected"           0 NOT_AFFECTED --require-patched --java "$(stub t11 11.0.25+9)"
 expect "1.8.0_402-b06 is not affected"       0 NOT_AFFECTED --java "$(stub t8 1.8.0_402-b06)"
 expect "26.0.2.1+1 has no fix"               1 VULNERABLE   --java "$(stub t26 26.0.2.1+1)"
-expect "28-ea is treated as fixed"           0 PATCHED      --java "$(stub t28 28-ea+3)"
+expect "28 GA is treated as fixed"           0 PATCHED      --java "$(stub t28 28+10)"
+expect "28-ea may predate the fix"           1 VULNERABLE   --java "$(stub t28e 28-ea+3)"
+expect "28-ea with the flag is mitigated"    0 MITIGATED    --java "$(stub t28m 28-ea+3)" -- -XX:-UseBASE64Intrinsics
 
 # The interim mitigation.
 expect "26 with the flag is mitigated"       0 MITIGATED    --java "$(stub t26m 26.0.2.1+1)" "${MIT[@]}"

@@ -5,7 +5,8 @@
 # images held 27.0.1, which predates the vendor fix 27.0.1.1, and Adoptium had published the fixed 27.0.1.1+4 JRE for
 # x64 only. So on linux/amd64 the runtime stage replaces the image's JRE with that vendor build, fetched by URL and
 # checked against its published SHA-256 (stage jre-fixed-x64). linux/arm64, which the advisories do not list as
-# affected, keeps the image's JRE; any other target platform fails the build. Every JVM also runs with -XX:-UseBASE64Intrinsics (here, in entrypoint.sh
+# affected, keeps the image's JRE; any other target platform, or a TARGETARCH that does not match the build
+# container's machine, fails the build. Every JVM also runs with -XX:-UseBASE64Intrinsics (here, in entrypoint.sh
 # and in the compose `migrate` entrypoint): the build stage JDK and the arm64 JRE are unfixed builds. Once the official
 # images hold 27.0.1.1 or later for both platforms, bump the digests and drop the jre-fixed-x64 stage and the JRE swap.
 # scripts/check-java4shell-runtime.sh reports which case applies.
@@ -46,11 +47,14 @@ FROM eclipse-temurin:27-jre@sha256:acfb350b50e707addf3dcbb47f7052d1882d1e5f1670c
 ARG TARGETARCH
 RUN --mount=type=bind,from=jre-fixed-x64,source=/jre,target=/mnt/jre-fixed \
     case "$TARGETARCH" in \
-        amd64) rm -rf /opt/java/openjdk \
+        amd64) [ "$(uname -m)" = "x86_64" ] \
+            || { echo "TARGETARCH amd64 but the build container is $(uname -m)" >&2; exit 1; }; \
+            rm -rf /opt/java/openjdk \
             && cp -a /mnt/jre-fixed /opt/java/openjdk \
             && /opt/java/openjdk/bin/java -XshowSettings:properties -version 2>&1 \
                 | grep -q 'java.runtime.version = 27\.0\.1\.1+' ;; \
-        arm64) : ;; \
+        arm64) [ "$(uname -m)" = "aarch64" ] \
+            || { echo "TARGETARCH arm64 but the build container is $(uname -m)" >&2; exit 1; } ;; \
         *) echo "Unsupported TARGETARCH '$TARGETARCH': no Java4Shell decision for this platform" >&2; exit 1 ;; \
     esac
 
