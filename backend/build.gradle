@@ -21,6 +21,15 @@ java {
     }
 }
 
+// CodeQL analyzes Java 7 to 26 only (CLI 2.27.5). The CodeQL workflow passes -PcodeqlJavaRelease=26 so the JDK 27
+// toolchain compiles with --release 26 there; the code uses no Java 27 language feature. Remove once CodeQL supports
+// Java 27 (issue 429).
+if (project.hasProperty('codeqlJavaRelease')) {
+    tasks.withType(JavaCompile).configureEach {
+        options.release = Integer.parseInt(project.property('codeqlJavaRelease').toString())
+    }
+}
+
 repositories {
     mavenCentral()
 }

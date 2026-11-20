@@ -54,7 +54,8 @@ jobs:
 
       - name: Build backend for CodeQL
         if: matrix.language == 'java-kotlin'
-        run: ./backend/gradlew -p backend classes
+        # CodeQL extracts Java 7 to 26 only: compile with --release 26 on the fixed JDK 27 (backend/build.gradle).
+        run: ./backend/gradlew -p backend classes -PcodeqlJavaRelease=26
 
       - name: Analyze
         uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3

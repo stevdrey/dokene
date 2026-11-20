@@ -17,13 +17,29 @@ Evidence rows in the format of [build-input-pinning.md](../security/build-input-
 
 | file:line | image | tag | index digest | platforms confirmed | resolved on | method |
 | --- | --- | --- | --- | --- | --- | --- |
-| `infra/docker/backend/Dockerfile:9` | `eclipse-temurin` | `27-jdk` | `sha256:5e6d9093c7a8e95adfaa8828253c58f2c6820116d07a062440a778358807578a` | amd64, arm64 | 2026-11-20 | `docker buildx imagetools inspect` |
-| `infra/docker/backend/Dockerfile:27` | `eclipse-temurin` | `27-jre` | `sha256:acfb350b50e707addf3dcbb47f7052d1882d1e5f1670ce838a9c7838d82d4fe5` | amd64, arm64 | 2026-11-20 | `docker buildx imagetools inspect` |
+| `infra/docker/backend/Dockerfile:13` | `eclipse-temurin` | `27-jdk` | `sha256:5e6d9093c7a8e95adfaa8828253c58f2c6820116d07a062440a778358807578a` | amd64, arm64 | 2026-11-20 | `docker buildx imagetools inspect` |
+| `infra/docker/backend/Dockerfile:34`, `:42` | `eclipse-temurin` | `27-jre` | `sha256:acfb350b50e707addf3dcbb47f7052d1882d1e5f1670ce838a9c7838d82d4fe5` | amd64, arm64 | 2026-11-20 | `docker buildx imagetools inspect` |
+| `infra/docker/backend/Dockerfile` (`jre-fixed-x64`, `ADD --checksum`) | Temurin JRE archive `OpenJDK27U-jre_x64_linux_hotspot_27.0.1.1_4.tar.gz` | release `jdk-27.0.1.1+4` | `sha256:9e15835ca3451a0089aac2c3667c009bc2743b9cb15030a14c6f5ec05f8d5aaf` (file digest, not an index) | x64 only (no aarch64 build published) | 2026-11-20 | Adoptium API `package.checksum` = `.sha256.txt` on the GitHub release |
 | `infra/docker/keycloak/Dockerfile:3`, `:11` | `quay.io/keycloak/keycloak` | `26.8.2-3` | `sha256:7e66a96e4739239070aeaf72e4c5decf0f7f682cfc725b9f7ea2b336eaba38b3` | amd64, arm64 | 2026-11-20 | `docker buildx imagetools inspect` |
 
 On the same date `eclipse-temurin:26-jdk` and `26-jre` still resolved to the digests pinned before the advisory (no Java 26 fix), and every platform of `eclipse-temurin:27-jdk`/`27-jre` reported `JAVA_VERSION=jdk-27.0.1.0` (image config, created 2026-11-11), so no official fixed Temurin 27 image existed yet.
 
 ## Runtime evidence
+
+### Final image (fixed x64 JRE)
+
+`dokene-backend:issue429b` (`sha256:c3bcc5ad375d…`), built with `docker build --no-cache` from the final tree for linux/amd64. The build's own check (the JRE must report `java.runtime.version = 27.0.1.1+`) passed.
+
+| Runtime | JVM build | `UseBASE64Intrinsics` | Script status | Exit |
+| --- | --- | --- | --- | --- |
+| Backend image, image defaults, `--require-patched` | Temurin `27.0.1.1+4` | `false` | `PATCHED` | 0 |
+| Backend image, `JAVA_TOOL_OPTIONS` emptied, no flag, `--require-patched` | Temurin `27.0.1.1+4` | `true` | `PATCHED` | 0 |
+| Backend application JVM started by `entrypoint.sh`, `JAVA_TOOL_OPTIONS` emptied | `27.0.1.1+4` (`jcmd 1 VM.version`) | `false {command line}` (`jcmd 1 VM.flags -all`) | n/a | n/a |
+
+`/opt/java/openjdk/release` in the image reads `IMPLEMENTOR_VERSION="Temurin-27.0.1.1+4"`. The application logged `Starting DokeneApplication` before stopping for lack of a database. linux/arm64 was not built: this host has no arm64 emulation. That platform keeps the official `27-jre` JRE (`27.0.1.0.2+1`) with the flag, which the first image below covers.
+
+### First candidate image (official JRE only)
+
 
 `scripts/check-java4shell-runtime.sh` was mounted read-only into containers of the images built from this tree with `docker build --no-cache`: `dokene-backend:issue429` (`sha256:b35338383d9a…`) and `dokene-keycloak:issue429` (`sha256:20c7fdf0f5b3…`).
 
@@ -67,5 +83,27 @@ C11 (automated): `shellcheck scripts/verify-issue-311-anonymous-sessions.sh` cle
 ## Limitations
 
 - No production or other deployed environment is defined in this repository. CPU flags, image digests and JVM flags of such an environment are not evidenced here; the security page lists the commands for the deployer. Acceptance criterion 3 is therefore met for the local environment only.
-- The backend image runs an unfixed Temurin build with the intrinsic disabled until official fixed `eclipse-temurin:27` images are published and the digests are bumped.
+- On linux/amd64 the backend image runs the vendor-fixed JRE. The linux/arm64 image (not built here) and the build stage JDK run unfixed builds with the intrinsic disabled until official fixed `eclipse-temurin:27` images exist for both platforms.
 - No test executed the vulnerable intrinsic: the host lacks AVX-512 VBMI, and an exploit input would not belong in a public repository.
+
+## Checks on the final tree (fixed x64 JRE)
+
+| Id | Kind | Command | Result |
+| --- | --- | --- | --- |
+| C12 | live | `docker build --no-cache -f infra/docker/backend/Dockerfile --build-context entrypoint=infra/docker/backend backend` (linux/amd64) | built; the in-build version check passed; runtime evidence as tabled above |
+| C13 | automated | `scripts/check-image-pins.sh`, `scripts/tests/provider-test-double-test.sh`, `scripts/tests/check-image-pins-test.sh`, `scripts/tests/dev-env-smoke.sh`, `scripts/tests/check-java4shell-runtime-test.sh` | passed |
+| C14 | not-run | linux/arm64 image build | no arm64 emulation on this host; that path is unchanged from the first candidate (official JRE plus flag) |
+
+No backend source or test changed after C4, so C1-C4 stand for the final tree.
+
+## CodeQL and the final candidate
+
+The first CI run of the pull request failed `Analyze (java-kotlin)`: `CodeQL could not process any code written in Java/Kotlin`, although `compileJava` ran on Temurin `27.0.1.1+4` (the CI guard step reported `PATCHED`). CodeQL CLI 2.27.5 analyzes Java 7 to 26 only (its supported-versions table, also on its `main`). The CodeQL job therefore compiles with `-PcodeqlJavaRelease=26`, which sets `--release 26` on the same fixed JDK 27; every other build keeps `--release 27`. The code uses no Java 27 language feature.
+
+| Id | Kind | Command | Result |
+| --- | --- | --- | --- |
+| C15 | automated | `./gradlew classes -PcodeqlJavaRelease=26 --rerun-tasks`, then `./gradlew classes --rerun-tasks` | class file major version 70 (Java 26), then 71 (Java 27) |
+| C16 | live | `docker build --no-cache` of the backend image (linux/amd64), then the guard with `--require-patched` | built (`sha256:d230a4366958…`); `27.0.1.1+4`, `PATCHED` |
+| C17 | live | the same build with `--build-arg TARGETARCH=s390x` | fails: `Unsupported TARGETARCH 's390x'` (an unknown platform no longer skips the fix silently) |
+| C18 | not-run | the CodeQL job with the release flag | runs on the pull request; no local CodeQL CLI |
+

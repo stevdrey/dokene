@@ -107,6 +107,10 @@ A pinned image no longer picks up upstream security patches by itself. Patches a
 4. Read the tag: a major version move never comes from Dependabot.
 5. Merge on green CI.
 
+## Downloaded archives
+
+A Dockerfile that fetches an archive by URL uses `ADD --checksum=sha256:<64 lowercase hex> <https URL>`, so BuildKit refuses content that differs from the recorded hash. The checksum is read from two vendor sources that must agree (for Temurin: the Adoptium API `package.checksum` and the `.sha256.txt` published beside the archive), and the URL names an exact release, never `latest`. Dependabot does not update such a line: it is a hand change with its own evidence row, and it is removed in favour of a pinned image as soon as an official image carries the same content. The only such line is the Java4Shell-fixed x64 JRE of the backend image ([java4shell-cve-2026-114938.md](java4shell-cve-2026-114938.md), issue [#429](https://github.com/stevdrey/dokene/issues/429)). `scripts/check-image-pins.sh` does not read `ADD` lines; review covers them.
+
 ## Deferred
 
 - **Gradle dependency verification** (`gradle/verification-metadata.xml`). Artifacts from Maven Central and the Gradle plugin portal are still trusted on TLS and repository integrity alone. Dependabot does not update the metadata file (dependabot-core issue #1996), so with verification on, each weekly Gradle bump would fail until a person regenerates and reviews a large XML diff, and the likely outcome is regeneration without review. Reopen when Dependabot or another update tool can maintain the file.
