@@ -48,6 +48,7 @@ assert "the override sets the synthetic key" grep -qxF "      DOKENE_AI_OPENAI_A
 assert "the override sets the loopback base URL" grep -qxF '      DOKENE_AI_OPENAI_BASE_URL: "http://127.0.0.1:18080/v1"' "$OV"
 assert "the override keeps the extra environment" grep -qxF '      DOKENE_AI_RETRY_MAX_ATTEMPTS: "3"' "$OV"
 assert "the override sets the key exactly once" test "$(grep -c DOKENE_AI_OPENAI_API_KEY "$OV")" = 1
+assert "the override is readable by its owner only (mode 600, issue 328)" test "$(stat -c '%a' -- "$OV")" = 600
 refute "the caller's key never reaches the override" contains_literal "$OV" "$REAL_LOOKING_KEY"
 
 printf 'previous\n' > "$OV"

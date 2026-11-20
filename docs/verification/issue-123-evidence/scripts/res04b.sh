@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # QA suite #123: RES-04 configured attempt limits (1, 3, invalid 4) and RES-02 offline provider (connection refused). Injected provider (stub) except where labelled.
 # Every destination is a loopback test double with the synthetic key of scripts/lib/provider-test-double.sh (issue 329); the backend is stopped before any request when that does not hold.
-cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh; B1=$(cat /home/stevdrey/qa123/out/baseline.id); ST=/home/stevdrey/qa121/stub; OV=/home/stevdrey/qa123/ov2.yaml; . ./scripts/lib/provider-test-double.sh
+# Since issue 328 the override lives in a private directory (mode 700) that is removed on any exit, including an interrupt.
+. "$(cd "$(dirname "${BASH_SOURCE[0]}")/../../../.." && pwd)/scripts/lib/private-temp.sh" || { echo "scripts/lib/private-temp.sh not found" >&2; exit 1; }
+cd /home/stevdrey/Projects/Java/dokene-qa-run; . /home/stevdrey/qa123/s/base.sh; B1=$(cat /home/stevdrey/qa123/out/baseline.id); ST=/home/stevdrey/qa121/stub; private_temp_dir QA_PRIVATE || exit 2; OV=$QA_PRIVATE/ov2.yaml; . ./scripts/lib/provider-test-double.sh
 . <(sed -n '/^rect()/,/^run()/p' /home/stevdrey/qa123/s/res0234.sh | head -n -1)
 run() { : > $ST/fail; [ -n "$2" ] && echo "$2" > $ST/fail; local n0=$(wc -l < $ST/requests.log) a0=$(ai_rows); sleep 3.3; rect "$4"; local at=$(attempts $n0); echo "$1 -> http=$R_CODE status=$R_STATUS reason=$R_REASON retryable=$R_RETRY latency=${R_MS}ms | provider: $at | audit +$(( $(ai_rows) - a0 ))"; LAST=${at%% *}; : > $ST/fail; }
 waitup() { for i in $(seq 1 60); do case "$(docker compose ps backend --format '{{.Status}}' 2>/dev/null)" in *healthy*) return 0;; esac; sleep 2; done; return 1; }

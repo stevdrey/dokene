@@ -20,6 +20,13 @@
 # 8. Keycloak refuses an authorization request without PKCE or with the plain method.
 # 9. testuser, testoperator and testviewer each log in with their own password from
 #    .env, and one user's password does not log in as another user.
+#
+# And for issue #331:
+# 10. The client secret the leak checks search for is the one Keycloak accepts for
+#     dokene-bff, and no failure message prints a secret, an authorization code,
+#     OAuth state, a CSRF token or a session cookie: failures name what was found
+#     and show at most a URL's origin. Tested offline by
+#     scripts/tests/verify-keycloak-bff-e2e-test.sh.
 # ==============================================================================
 
 set -euo pipefail
@@ -30,11 +37,17 @@ PRE_AUTH_COOKIE_JAR="$(mktemp /tmp/dokene-e2e-preauth.XXXXXX)"
 HEADER_LOG="$(mktemp /tmp/dokene-e2e-headers.XXXXXX)"
 BODY_LOG="$(mktemp /tmp/dokene-e2e-body.XXXXXX)"
 LOGIN_JAR="$(mktemp /tmp/dokene-e2e-login.XXXXXX)"
+REDIRECT_LOG="$(mktemp /tmp/dokene-e2e-redirect.XXXXXX)"
 
 cleanup() {
-    rm -f "$COOKIE_JAR" "$PRE_AUTH_COOKIE_JAR" "$HEADER_LOG" "$BODY_LOG" "$LOGIN_JAR"
+    rm -f "$COOKIE_JAR" "$PRE_AUTH_COOKIE_JAR" "$HEADER_LOG" "$BODY_LOG" "$LOGIN_JAR" "$REDIRECT_LOG"
 }
 trap cleanup EXIT
+
+# docker compose takes a variable from the caller's environment before .env, so the stack runs with an exported client
+# secret rather than the one in .env. Keep the caller's value across the .env load below, or the leak checks would
+# search for a value the stack does not use.
+CALLER_CLIENT_SECRET="${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-}"
 
 # Read configuration from .env if available
 if [ -f "$ROOT_DIR/.env" ]; then
@@ -55,10 +68,12 @@ KEYCLOAK_URL="http://localhost:${KEYCLOAK_PORT}"
 # shellcheck source=lib/curl-protected.sh
 . "$ROOT_DIR/scripts/lib/curl-protected.sh"
 TEST_USER="testuser"
-TOTAL_STEPS=11
-# The BFF's real client secret, as .env holds it (DOKENE_OIDC_CLIENT_SECRET is its name inside the oidc-bridge container).
-# No default: a placeholder would make the leak checks below look for a value the stack never uses.
-TEST_CLIENT_SECRET="${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-${DOKENE_OIDC_CLIENT_SECRET:-}}"
+TOTAL_STEPS=12
+# The BFF's real client secret, resolved the way docker compose resolves it: the caller's environment, then .env
+# (DOKENE_OIDC_CLIENT_SECRET is its name inside the oidc-bridge container). No default: a placeholder would make the
+# leak checks below look for a value the stack never uses. Step 3 proves Keycloak accepts it.
+TEST_CLIENT_SECRET="${CALLER_CLIENT_SECRET:-${SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET:-${DOKENE_OIDC_CLIENT_SECRET:-}}}"
+unset CALLER_CLIENT_SECRET
 : "${TEST_CLIENT_SECRET:?SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET is not set; run ./scripts/dev-env.sh up, which generates it in .env}"
 
 echo "======================================================================"
@@ -78,8 +93,22 @@ submit_credentials() {
         --data-urlencode "username=$3" --data-urlencode "password@-" "$2"
 }
 
-# forbidden_label VALUE: how a failure names VALUE; the client secret itself is never printed.
-forbidden_label() { if [ "$1" = "$TEST_CLIENT_SECRET" ]; then echo "<OIDC client secret>"; else echo "$1"; fi; }
+# Names of OAuth values that must never reach a browser-visible response. The names themselves are not secret, so a
+# failure may print them; the client secret is searched for too, but a failure only ever names it by a fixed label.
+FORBIDDEN_NAMES=(access_token id_token refresh_token client_secret)
+
+# leaked_label FILE: prints the label of the first forbidden value that FILE contains, literally, and fails when it
+# contains none. The label is a fixed string from FORBIDDEN_NAMES or "<OIDC client secret>", never text taken from FILE:
+# grep -o only says which names occur, and the name printed is the list's own copy. Two greps, whatever the list size.
+leaked_label() {
+    local found name
+    found="$(grep -oF -f <(printf '%s\n' "${FORBIDDEN_NAMES[@]}") -- "$1" || true)"
+    for name in "${FORBIDDEN_NAMES[@]}"; do
+        case $'\n'"$found"$'\n' in *$'\n'"$name"$'\n'*) echo "$name"; return 0 ;; esac
+    done
+    if contains_literal "$1" "$TEST_CLIENT_SECRET"; then echo "<OIDC client secret>"; return 0; fi
+    return 1
+}
 
 # redact_url URL: only the origin of URL (scheme, host and port), so a failure shows where the redirect went without
 # printing any part that can carry a token or the client secret (userinfo, path, query, fragment; invariant 35). The
@@ -92,6 +121,9 @@ redact_url() {
     # A second line could hold a second "URL" whose host is a token; such input is not a redirect, so print no origin.
     case "$1" in *$'\n'*) origin="" ;; esac
     case "$origin" in *"$TEST_CLIENT_SECRET"*) origin="" ;; esac
+    # A host label of 32 or more characters is not a real host name but a value put in the host: authorization codes,
+    # OAuth state and nonce, CSRF tokens and session ids are all at least that long. Name the rule, not the host.
+    if [[ "$origin" =~ [A-Za-z0-9_-]{32,} ]]; then origin="<host withheld: it has a label of 32 or more characters>"; fi
     printf '%s (path, query and fragment withheld)' "${origin:-<unparsable URL>}"
 }
 
@@ -114,7 +146,9 @@ expect_pkce_refused() {
     status="$(curl -s -D "$HEADER_LOG" -o "$BODY_LOG" -w "%{http_code}" "$1")"
     location="$(location_header || true)"
     if [ "$status" != "302" ] || [[ "$location" != *"error=invalid_request"* ]] || grep -q 'action="' "$BODY_LOG"; then
-        echo "FAILED ($2 was not refused: HTTP $status, Location ${location:-<none>})"
+        local shown_location="<none>"
+        if [ -n "$location" ]; then shown_location="$(redact_url "$location")"; fi
+        echo "FAILED ($2 was not refused: HTTP $status, Location $shown_location)"
         exit 1
     fi
 }
@@ -147,9 +181,48 @@ fi
 echo "OK (HTTP 401 fail-closed for anonymous /api/session)"
 
 # ------------------------------------------------------------------------------
+# 1b. The configured client secret is the one the stack uses (issue #331)
+# ------------------------------------------------------------------------------
+# A token request with an unusable code: Keycloak authenticates the client before it looks at the code, so the right
+# secret gets 400 invalid_grant and a wrong one 401 (unauthorized_client in Keycloak 26, invalid_client in the OAuth
+# specification, which also allows 400 for it). A 400 unauthorized_client is a client configuration problem (the client
+# may not use this grant), not a wrong secret, and is reported as such. No code is redeemed and no token is issued. The
+# secret reaches curl on stdin; the response body is never printed, and only an error code of plain letters is.
+echo -n "[3/$TOTAL_STEPS] Verifying Keycloak accepts the configured OIDC client secret for dokene-bff... "
+CLIENT_CHECK_STATUS="$(printf '%s' "$TEST_CLIENT_SECRET" | curl -s -o "$BODY_LOG" -w "%{http_code}" \
+    --data-urlencode "grant_type=authorization_code" --data-urlencode "client_id=dokene-bff" \
+    --data-urlencode "code=dokene-e2e-unusable-code" --data-urlencode "redirect_uri=$BFF_URL/login/oauth2/code/dokene" \
+    --data-urlencode "client_secret@-" "$KEYCLOAK_URL/realms/dokene/protocol/openid-connect/token" || true)"
+# Only a registered OAuth token error code (RFC 6749 section 5.2) is printed, as the script's own copy; any other value
+# of the error field, which a faulty response could fill with the secret it was sent, becomes a fixed label.
+CLIENT_CHECK_ERROR_RAW="$(jq -r '.error // empty' "$BODY_LOG" 2>/dev/null || true)"
+CLIENT_CHECK_ERROR="<unrecognized error>"
+[ -n "$CLIENT_CHECK_ERROR_RAW" ] || CLIENT_CHECK_ERROR="<none>"
+for oauth_error in invalid_request invalid_client invalid_grant unauthorized_client unsupported_grant_type invalid_scope; do
+    [ "$CLIENT_CHECK_ERROR_RAW" = "$oauth_error" ] && CLIENT_CHECK_ERROR="$oauth_error"
+done
+unset CLIENT_CHECK_ERROR_RAW oauth_error
+# curl's %{http_code} is three digits; anything else is not printed either.
+[[ "$CLIENT_CHECK_STATUS" =~ ^[0-9]{3}$ ]] || CLIENT_CHECK_STATUS="<none>"
+if [ "$CLIENT_CHECK_STATUS" = "401" ] || [ "$CLIENT_CHECK_ERROR" = "invalid_client" ]; then
+    echo "FAILED (Keycloak refused the configured <OIDC client secret>: HTTP $CLIENT_CHECK_STATUS, error $CLIENT_CHECK_ERROR)"
+    echo "The leak checks would search for a value the stack does not use. Make SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_DOKENE_CLIENT_SECRET in your environment and .env match the running stack."
+    exit 1
+fi
+if [ "$CLIENT_CHECK_ERROR" = "unauthorized_client" ]; then
+    echo "FAILED (Keycloak refused the dokene-bff client for the authorization_code grant: HTTP $CLIENT_CHECK_STATUS, error unauthorized_client; a client configuration problem, not the secret)"
+    exit 1
+fi
+if [ "$CLIENT_CHECK_STATUS" != "400" ] || [ "$CLIENT_CHECK_ERROR" != "invalid_grant" ]; then
+    echo "FAILED (Expected HTTP 400 invalid_grant for an unusable code, got HTTP $CLIENT_CHECK_STATUS, error $CLIENT_CHECK_ERROR)"
+    exit 1
+fi
+echo "OK (client authenticated; the unusable code was refused with invalid_grant)"
+
+# ------------------------------------------------------------------------------
 # 2. Initiate Login Flow (Authorization Code Grant)
 # ------------------------------------------------------------------------------
-echo -n "[3/$TOTAL_STEPS] Initiating Authorization Code flow (/oauth2/authorization/dokene)... "
+echo -n "[4/$TOTAL_STEPS] Initiating Authorization Code flow (/oauth2/authorization/dokene)... "
 AUTH_INIT_STATUS="$(curl -s -c "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" -w "%{http_code}" "$BFF_URL/oauth2/authorization/dokene")"
 
 if [ "$AUTH_INIT_STATUS" != "302" ]; then
@@ -159,13 +232,13 @@ fi
 
 KEYCLOAK_AUTH_URL="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{print $2}')"
 if [[ "$KEYCLOAK_AUTH_URL" != *"/realms/dokene/protocol/openid-connect/auth"* ]]; then
-    echo "FAILED (Unexpected redirect location: $KEYCLOAK_AUTH_URL)"
+    echo "FAILED (Redirect is not the dokene realm authorization endpoint: $(redact_url "$KEYCLOAK_AUTH_URL"))"
     exit 1
 fi
 
 # Assert PKCE RFC 7636 S256 parameters generated by Spring Boot BFF
 if [[ "$KEYCLOAK_AUTH_URL" != *"code_challenge="* || "$KEYCLOAK_AUTH_URL" != *"code_challenge_method=S256"* ]]; then
-    echo "FAILED (PKCE RFC 7636 S256 parameters missing from redirect: $KEYCLOAK_AUTH_URL)"
+    echo "FAILED (PKCE RFC 7636 S256 parameters missing from the redirect to $(redact_url "$KEYCLOAK_AUTH_URL"))"
     exit 1
 fi
 
@@ -181,10 +254,10 @@ echo "OK (Redirected to Keycloak; pre-auth session captured)"
 # ------------------------------------------------------------------------------
 # 2b. Keycloak itself enforces S256 PKCE (issue #314)
 # ------------------------------------------------------------------------------
-echo -n "[4/$TOTAL_STEPS] Verifying Keycloak refuses authorization requests without S256 PKCE... "
+echo -n "[5/$TOTAL_STEPS] Verifying Keycloak refuses authorization requests without S256 PKCE... "
 NO_PKCE_URL="$(without_pkce "$KEYCLOAK_AUTH_URL")"
 if [[ "$NO_PKCE_URL" == *"code_challenge"* ]]; then
-    echo "FAILED (could not strip the PKCE parameters from $KEYCLOAK_AUTH_URL)"
+    echo "FAILED (could not strip the PKCE parameters from the redirect to $(redact_url "$KEYCLOAK_AUTH_URL"))"
     exit 1
 fi
 expect_pkce_refused "$NO_PKCE_URL" "a request with no code_challenge"
@@ -195,7 +268,7 @@ echo "OK (no challenge and plain both get invalid_request, no login form)"
 # ------------------------------------------------------------------------------
 # 3. Authenticate with Keycloak and Obtain Authorization Code
 # ------------------------------------------------------------------------------
-echo -n "[5/$TOTAL_STEPS] Executing browser credentials submit against Keycloak... "
+echo -n "[6/$TOTAL_STEPS] Executing browser credentials submit against Keycloak... "
 # Fetch the Keycloak login HTML page to extract form action URL
 curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" "$KEYCLOAK_AUTH_URL"
 
@@ -211,7 +284,7 @@ submit_credentials "$COOKIE_JAR" "$FORM_ACTION" "$TEST_USER" "$OWNER_PASSWORD" >
 
 CALLBACK_URL="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{print $2}')"
 if [[ "$CALLBACK_URL" != *"/login/oauth2/code/dokene"* ]]; then
-    echo "FAILED (Authentication failed; redirect was not callback: $CALLBACK_URL)"
+    echo "FAILED (Authentication failed; the redirect to $(redact_url "$CALLBACK_URL") is not the BFF callback)"
     exit 1
 fi
 echo "OK (Keycloak issued authorization code)"
@@ -219,21 +292,20 @@ echo "OK (Keycloak issued authorization code)"
 # ------------------------------------------------------------------------------
 # 4. Exchange Authorization Code and Establish BFF Session
 # ------------------------------------------------------------------------------
-echo -n "[6/$TOTAL_STEPS] Completing BFF code exchange and session establishment... "
+echo -n "[7/$TOTAL_STEPS] Completing BFF code exchange and session establishment... "
 curl -s -c "$COOKIE_JAR" -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" "$CALLBACK_URL"
 
 POST_LOGIN_REDIRECT="$(grep -i "^location:" "$HEADER_LOG" | tr -d '\r\n' | awk '{print $2}')"
 # Assert tokens and secrets are NOT present in redirect URL or response headers
-for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
-    if [[ "$POST_LOGIN_REDIRECT" == *"$forbidden_val"* ]]; then
-        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in post-login redirect URL to $(redact_url "$POST_LOGIN_REDIRECT"))"
-        exit 1
-    fi
-    if contains_literal "$HEADER_LOG" "$forbidden_val"; then
-        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in callback response headers!)"
-        exit 1
-    fi
-done
+printf '%s' "$POST_LOGIN_REDIRECT" > "$REDIRECT_LOG"
+if LEAKED="$(leaked_label "$REDIRECT_LOG")"; then
+    echo "FAILED (Forbidden value '$LEAKED' exposed in post-login redirect URL to $(redact_url "$POST_LOGIN_REDIRECT"))"
+    exit 1
+fi
+if LEAKED="$(leaked_label "$HEADER_LOG")"; then
+    echo "FAILED (Forbidden value '$LEAKED' exposed in callback response headers!)"
+    exit 1
+fi
 
 # Check rotated JSESSIONID
 POST_AUTH_SESSION_ID="$(grep "JSESSIONID" "$COOKIE_JAR" | awk '{print $NF}' | tail -n 1)"
@@ -269,36 +341,44 @@ echo "OK (Session rotated, HttpOnly & SameSite enforced, pre-auth session reject
 # ------------------------------------------------------------------------------
 # 5. Verify Session Contract and Token Isolation
 # ------------------------------------------------------------------------------
-echo -n "[7/$TOTAL_STEPS] Verifying application session contract and token isolation... "
+echo -n "[8/$TOTAL_STEPS] Verifying application session contract and token isolation... "
 curl -s -b "$COOKIE_JAR" -D "$HEADER_LOG" -o "$BODY_LOG" "$BFF_URL/api/session"
 
-SESSION_JSON="$(cat "$BODY_LOG")"
-IS_AUTHENTICATED="$(echo "$SESSION_JSON" | jq -r '.authenticated // false')"
-IDENTITY_ID="$(echo "$SESSION_JSON" | jq -r '.identityId // empty')"
-CSRF_TOKEN="$(echo "$SESSION_JSON" | jq -r '.csrfToken // empty')"
-
-if [ "$IS_AUTHENTICATED" != "true" ] || [ -z "$IDENTITY_ID" ] || [ -z "$CSRF_TOKEN" ]; then
-    echo "FAILED (Invalid session contract: $SESSION_JSON)"
+# The body must be exactly one JSON object. jq prints fields it parsed before a syntax error, so a valid object followed
+# by trailing garbage would otherwise pass; this check also keeps a parse error from ending the script without a FAILED line.
+if ! jq -s -e 'length == 1 and (.[0] | type) == "object"' "$BODY_LOG" >/dev/null 2>&1; then
+    echo "FAILED (Invalid session contract: response is not a single JSON object; body withheld)"
     exit 1
 fi
+# Field states only, never values: the body holds the CSRF token (a credential) and the identity id (personal data).
+# authenticated must be the boolean true, identityId and csrfToken non-empty strings.
+read -r AUTHENTICATED_OK IDENTITY_OK CSRF_OK < <(jq -r '[(.authenticated == true),
+    (.identityId | type == "string" and length > 0), (.csrfToken | type == "string" and length > 0)]
+    | map(tostring) | join(" ")' "$BODY_LOG")
+if [ "$AUTHENTICATED_OK" != "true" ] || [ "$IDENTITY_OK" != "true" ] || [ "$CSRF_OK" != "true" ]; then
+    [ "$AUTHENTICATED_OK" = "true" ] && AUTHENTICATED_STATE=true || AUTHENTICATED_STATE="not true"
+    [ "$IDENTITY_OK" = "true" ] && IDENTITY_STATE=present || IDENTITY_STATE=missing
+    [ "$CSRF_OK" = "true" ] && CSRF_STATE=present || CSRF_STATE=missing
+    echo "FAILED (Invalid session contract: authenticated $AUTHENTICATED_STATE, identityId $IDENTITY_STATE, csrfToken $CSRF_STATE; body withheld)"
+    exit 1
+fi
+CSRF_TOKEN="$(jq -r '.csrfToken' "$BODY_LOG")"
 
 # Assert OAuth tokens and secrets are strictly absent from session body and headers
-for forbidden_val in access_token id_token refresh_token client_secret "$TEST_CLIENT_SECRET"; do
-    if printf '%s' "$SESSION_JSON" | contains_literal - "$forbidden_val"; then
-        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response body!)"
-        exit 1
-    fi
-    if contains_literal "$HEADER_LOG" "$forbidden_val"; then
-        echo "FAILED (Forbidden value '$(forbidden_label "$forbidden_val")' exposed in session response headers!)"
-        exit 1
-    fi
-done
+if LEAKED="$(leaked_label "$BODY_LOG")"; then
+    echo "FAILED (Forbidden value '$LEAKED' exposed in session response body!)"
+    exit 1
+fi
+if LEAKED="$(leaked_label "$HEADER_LOG")"; then
+    echo "FAILED (Forbidden value '$LEAKED' exposed in session response headers!)"
+    exit 1
+fi
 echo "OK (Safe session contract verified; tokens strictly isolated)"
 
 # ------------------------------------------------------------------------------
 # 6. Verify CSRF Protection on State-Changing Endpoint
 # ------------------------------------------------------------------------------
-echo -n "[8/$TOTAL_STEPS] Verifying CSRF enforcement on state-changing requests... "
+echo -n "[9/$TOTAL_STEPS] Verifying CSRF enforcement on state-changing requests... "
 # Missing CSRF token -> 403 Forbidden
 CSRF_MISSING_STATUS="$(curl -s -b "$COOKIE_JAR" -X POST -o /dev/null -w "%{http_code}" "$BFF_URL/logout")"
 if [ "$CSRF_MISSING_STATUS" != "403" ]; then
@@ -318,7 +398,7 @@ echo "OK (CSRF enforcement strictly rejected missing and invalid tokens)"
 # ------------------------------------------------------------------------------
 # 7. Verify Logout and Session Invalidation
 # ------------------------------------------------------------------------------
-echo -n "[9/$TOTAL_STEPS] Verifying session logout, invalidation, and replay prevention... "
+echo -n "[10/$TOTAL_STEPS] Verifying session logout, invalidation, and replay prevention... "
 # Valid logout -> 204 No Content
 VALID_CSRF_HEADER="X-CSRF-TOKEN: $CSRF_TOKEN"
 LOGOUT_STATUS="$(curl -s -b "$COOKIE_JAR" -H "$VALID_CSRF_HEADER" -X POST -D "$HEADER_LOG" -o /dev/null -w "%{http_code}" "$BFF_URL/logout")"
@@ -334,7 +414,7 @@ if [[ -z "$LOGOUT_COOKIE_HEADER" ]]; then
     exit 1
 fi
 if [[ "$LOGOUT_COOKIE_HEADER" != *"Max-Age=0"* && "$LOGOUT_COOKIE_HEADER" != *"Expires="* ]]; then
-    echo "FAILED (Logout Set-Cookie header missing Max-Age=0 / expired date: $LOGOUT_COOKIE_HEADER)"
+    echo "FAILED (Logout Set-Cookie header for JSESSIONID has neither Max-Age=0 nor an Expires date; header withheld)"
     exit 1
 fi
 
@@ -349,7 +429,7 @@ echo "OK (Session terminated and subsequent calls fail closed with 401)"
 # ------------------------------------------------------------------------------
 # 8. One password per test user (issue #314)
 # ------------------------------------------------------------------------------
-echo -n "[10/$TOTAL_STEPS] Verifying testuser is refused with the VIEWER password... "
+echo -n "[11/$TOTAL_STEPS] Verifying testuser is refused with the VIEWER password... "
 FORM_ACTION="$(start_login "$LOGIN_JAR" || true)"
 [ -n "$FORM_ACTION" ] || { echo "FAILED (Could not parse login form action from Keycloak HTML)"; exit 1; }
 WRONG_USER_STATUS="$(submit_credentials "$LOGIN_JAR" "$FORM_ACTION" testuser "$VIEWER_PASSWORD")"
@@ -360,7 +440,7 @@ if [ "$WRONG_USER_STATUS" != "200" ] || ! grep -q 'action="' "$BODY_LOG" \
 fi
 echo "OK (login form shown again, no authorization code)"
 
-echo -n "[11/$TOTAL_STEPS] Verifying testoperator and testviewer log in with their own passwords... "
+echo -n "[12/$TOTAL_STEPS] Verifying testoperator and testviewer log in with their own passwords... "
 for login in "testoperator:$OPERATOR_PASSWORD" "testviewer:$VIEWER_PASSWORD"; do
     FORM_ACTION="$(start_login "$LOGIN_JAR" || true)"
     [ -n "$FORM_ACTION" ] || { echo "FAILED (Could not parse login form action for ${login%%:*})"; exit 1; }
