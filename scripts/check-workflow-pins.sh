@@ -4,8 +4,9 @@
 #
 # Usage: ./scripts/check-workflow-pins.sh [dir]     (default dir: .github/workflows)
 # Exit 0 when every reference is pinned, 1 with one `<dir>/<file>:<line>: <reference>` line per violation,
-# 2 when the directory holds no *.yml or *.yaml file, or when `find` fails while collecting the files (issue #370). Local composite actions (action.yml, action.yaml) are scanned
-# too: at any depth under the sibling `actions` directory of dir when it exists, and in any subdirectory of dir.
+# 2 when the directory holds no *.yml or *.yaml file, or when a directory cannot be read or `find` fails while
+# collecting the files (issue #370). Local composite actions (action.yml, action.yaml) are scanned too: at any depth
+# under the sibling `actions` directory of dir when it exists, and in any subdirectory of dir.
 set -euo pipefail
 
 DIR="${1:-.github/workflows}"
@@ -83,44 +84,87 @@ check_file() {
 
 # Each `find` writes to files in a private directory instead of a process substitution, so that its exit status is
 # seen: a directory find cannot read would otherwise leave files unchecked and the run green (issue #370).
-WORK="$(mktemp -d "${TMPDIR:-/tmp}/check-workflow-pins.XXXXXX")" || { echo "check-workflow-pins: cannot create a temporary directory" >&2; exit 2; }
+# scripts/lib/private-temp.sh is not sourced: it needs bash 4 ($BASHPID, negative indexes) and this runs on 3.2.
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/check-workflow-pins.XXXXXX")" \
+    || { echo "check-workflow-pins: cannot create a temporary directory" >&2; exit 2; }
 trap 'rm -rf -- "$WORK"' EXIT
 
-# With -L, a symbolic link loop is an error that hides no file: the target is a directory already read, or nothing.
-# These are the messages for it from GNU find (both wordings) and BSD find under LC_ALL=C; any other line is fatal.
-LINK_ERRORS="^find: .*: Too many levels of symbolic links\$|^find: File system loop detected; (the following directory is part of the cycle: .*|.* is part of the same file system loop as .*\\.)\$|^find: .*: directory causes a cycle\$"
-NEWLINE=$'\n'
+# With -L, find reports a symbolic link loop as an error that hides no file. These are the loop messages of GNU find
+# (both wordings), bfs and BSD find under LC_ALL=C, after the program name as invoked (`find`, `/usr/bin/find`,
+# `bfs: error:`). Any other line is fatal. An unreadable directory never depends on this list: collect tests it.
+FIND_PREFIX='^[^[:space:]:]+: (error: )?'
+DIR_LOOP="${FIND_PREFIX}(File system loop detected; .*|.*: Filesystem loop back to .*|.*: directory causes a cycle)\$"
+# Too many levels of symbolic links (ELOOP) is also what a chain longer than the system limit gives, so it passes only
+# for a link that link_cycles shows returns to itself. GNU quotes the path; BSD and bfs do not.
+ELOOP_QUOTED="${FIND_PREFIX}'([^']*)': Too many levels of symbolic links\\.?\$"
+ELOOP_PLAIN="${FIND_PREFIX}(.*): Too many levels of symbolic links\\.?\$"
 
-# only_link_errors FILE: true when FILE holds at least one line and every line is a link loop error.
-only_link_errors() {
+# link_cycles PATH: true when following PATH link by link with readlink comes back to a link already met within 64
+# hops. False for anything else (not a link, a chain that ends, a directory that cannot be resolved): fail closed.
+link_cycles() {
+    local link="$1" seen=$'\n' hops=0 dir target
+    while [ "$hops" -lt 64 ]; do
+        [ -L "$link" ] || return 1
+        dir="$(cd -P -- "$(dirname -- "$link")" 2>/dev/null && pwd -P)" || return 1
+        link="$dir/${link##*/}"
+        case "$seen" in *$'\n'"$link"$'\n'*) return 0 ;; esac
+        seen="$seen$link"$'\n'
+        target="$(readlink -- "$link")" || return 1
+        case "$target" in /*) link="$target" ;; *) link="$dir/$target" ;; esac
+        hops=$((hops + 1))
+    done
+    return 1
+}
+
+# only_loop_errors FILE: true when FILE holds at least one line and every line is a link loop error.
+only_loop_errors() {
     local line seen=0
     while IFS= read -r line || [ -n "$line" ]; do
-        [[ $line =~ $LINK_ERRORS ]] || return 1
+        if [[ $line =~ $DIR_LOOP ]]; then
+            :
+        elif [[ $line =~ $ELOOP_QUOTED ]] || [[ $line =~ $ELOOP_PLAIN ]]; then
+            link_cycles "${BASH_REMATCH[2]}" || return 1
+        else
+            return 1
+        fi
         seen=1
     done < "$1"
     [ "$seen" -eq 1 ]
 }
 
-# collect ROOT FIND-ARGS...: appends the files `find -L ROOT FIND-ARGS...` prints to `files`, sorted, and exits 2
-# naming ROOT when find fails for any reason other than link loops. The messages are read line by line, so a name
-# holding a line break could pass off another error as a loop one; a failing run under such a tree is fatal too.
+# collect ROOT [GLOBAL-OPTIONS...] -- TESTS...: one `find -L` pass that prints every directory and every file TESTS
+# match. Files are appended to `files`, sorted. Exits 2 naming ROOT when a printed directory cannot be read or
+# searched (whatever find's exit status and wording), or when find fails for any reason other than link loops.
 collect() {
-    local root="$1" status=0 f
+    local root="$1" status=0 entry
+    local opts=()
     shift
-    LC_ALL=C find -L "$root" "$@" >"$WORK/found" 2>"$WORK/errors" || status=$?
+    while [ "$1" != "--" ]; do opts+=("$1"); shift; done
+    shift
+    LC_ALL=C find -L "$root" ${opts[@]+"${opts[@]}"} \( -type d -o \( "$@" \) \) -print0 \
+        >"$WORK/found" 2>"$WORK/errors" || status=$?
     if [ -s "$WORK/errors" ]; then cat "$WORK/errors" >&2; fi
-    if [ "$status" -ne 0 ]; then
-        if ! only_link_errors "$WORK/errors" \
-            || [ -n "$(LC_ALL=C find -L "$root" -name "*$NEWLINE*" 2>/dev/null)" ]; then
-            echo "check-workflow-pins: find failed (exit $status) while reading $root, so not every file under it was checked" >&2
-            exit 2
+    : >"$WORK/files"
+    while IFS= read -r -d '' entry; do
+        if [ -d "$entry" ]; then
+            if ! { [ -r "$entry" ] && [ -x "$entry" ]; }; then
+                echo "check-workflow-pins: cannot read $entry under $root, so not every file under it was checked" >&2
+                exit 2
+            fi
+        else
+            printf '%s\n' "$entry" >>"$WORK/files"
         fi
+    done <"$WORK/found"
+    if [ "$status" -ne 0 ] && ! only_loop_errors "$WORK/errors"; then
+        echo "check-workflow-pins: find failed (exit $status) while reading $root," \
+            "so not every file under it was checked" >&2
+        exit 2
     fi
-    while IFS= read -r f; do files+=("$f"); done < <(LC_ALL=C sort "$WORK/found")
+    while IFS= read -r entry; do files+=("$entry"); done < <(LC_ALL=C sort "$WORK/files")
 }
 
 files=()
-collect "$DIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \)
+collect "$DIR" -maxdepth 1 -- -type f \( -name '*.yml' -o -name '*.yaml' \)
 [ "${#files[@]}" -gt 0 ] || { echo "check-workflow-pins: no *.yml or *.yaml file in $DIR" >&2; exit 2; }
 
 # A `./.github/actions/...` reference runs a composite action from the tree, and that action can itself name outside
@@ -128,10 +172,10 @@ collect "$DIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \)
 # Subdirectories of the workflows directory are read as well, so that whatever a name LOCAL_VALUE accepts turns out
 # to be on disk (a directory called `x.yml` holding an action, for one), its `uses` lines are still checked.
 # -mindepth 2 on the workflows directory only: a file directly in it is already in the list as a workflow.
-collect "$DIR" -mindepth 2 -type f \( -name 'action.yml' -o -name 'action.yaml' \)
+collect "$DIR" -mindepth 2 -- -type f \( -name 'action.yml' -o -name 'action.yaml' \)
 ACTIONS_DIR="$(dirname "$DIR")/actions"
 if [ -d "$ACTIONS_DIR" ]; then
-    collect "$ACTIONS_DIR" -type f \( -name 'action.yml' -o -name 'action.yaml' \)
+    collect "$ACTIONS_DIR" -- -type f \( -name 'action.yml' -o -name 'action.yaml' \)
 fi
 
 for f in "${files[@]}"; do check_file "$f"; done
