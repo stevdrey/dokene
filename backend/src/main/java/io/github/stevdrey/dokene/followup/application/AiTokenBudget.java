@@ -16,6 +16,8 @@ import java.time.ZoneOffset;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.stereotype.Component;
 
@@ -36,6 +38,9 @@ import org.springframework.stereotype.Component;
 @Component
 @EnableConfigurationProperties(AiTokenBudgetProperties.class)
 public class AiTokenBudget {
+    private static final Logger log = LoggerFactory.getLogger(AiTokenBudget.class);
+    private static final Meter UNMETERED = new Meter(null, null, null);
+
     private final AiTokenUsageRepository usage;
     private final long monthlyTokens;
     private final Clock clock;
@@ -58,24 +63,35 @@ public class AiTokenBudget {
         if (usage.usedTokens(tenantId, period) >= monthlyTokens) {
             throw new AiTokenBudgetExhaustedException();
         }
-        return new Meter(tenantId, period);
+        return new Meter(usage, tenantId, period);
+    }
+
+    /**
+     * A meter that counts and writes nothing: for callers without a tenant context or budget, and for a disabled
+     * provider, which bills nothing. {@link Meter#wrap} returns the delegate and {@link Meter#call} just runs it.
+     */
+    public static Meter unmetered() {
+        return UNMETERED;
     }
 
     /** Usage of one invocation, bound to one tenant and one month. Not shared between invocations. */
-    public final class Meter {
+    public static final class Meter {
+        private final AiTokenUsageRepository usage;
         private final TenantId tenantId;
         private final LocalDate period;
         private final AtomicLong inputTokens = new AtomicLong();
         private final AtomicLong outputTokens = new AtomicLong();
 
-        private Meter(TenantId tenantId, LocalDate period) {
+        private Meter(AiTokenUsageRepository usage, TenantId tenantId, LocalDate period) {
+            this.usage = usage;
             this.tenantId = tenantId;
             this.period = period;
         }
 
         /** Wraps the raw provider so that the usage reported by each attempt is counted. */
         public AiProvider wrap(AiProvider delegate) {
-            return new MeteredProvider(Objects.requireNonNull(delegate, "Delegate provider is required"), this);
+            Objects.requireNonNull(delegate, "Delegate provider is required");
+            return usage == null ? delegate : new MeteredProvider(delegate, this);
         }
 
         /**
@@ -85,6 +101,9 @@ public class AiTokenBudget {
          */
         public <R> R call(Supplier<R> invocation) {
             Objects.requireNonNull(invocation, "Invocation is required");
+            if (usage == null) {
+                return invocation.get();
+            }
             RuntimeException primary = null;
             try {
                 return invocation.get();
@@ -92,6 +111,8 @@ public class AiTokenBudget {
                 primary = failure;
                 throw failure;
             } finally {
+                long lostInput = inputTokens.get();
+                long lostOutput = outputTokens.get();
                 try {
                     flush();
                 } catch (RuntimeException writeFailure) {
@@ -99,6 +120,10 @@ public class AiTokenBudget {
                         throw writeFailure;
                     }
                     primary.addSuppressed(writeFailure);
+                    // Billed tokens the budget did not record: counts and the failure type only, never tenant or
+                    // customer data (same rule as AiOutcomeReporter).
+                    log.warn("AI token usage could not be recorded: inputTokens={}, outputTokens={}, failure={}",
+                            lostInput, lostOutput, writeFailure.getClass().getSimpleName());
                 }
             }
         }

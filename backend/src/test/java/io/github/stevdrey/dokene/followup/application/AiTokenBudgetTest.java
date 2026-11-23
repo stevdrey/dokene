@@ -3,6 +3,10 @@ package io.github.stevdrey.dokene.followup.application;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import io.github.stevdrey.dokene.ai.application.AiCompletionStatus;
 import io.github.stevdrey.dokene.ai.application.AiFailureCategory;
 import io.github.stevdrey.dokene.ai.application.AiInvocationMetadata;
@@ -29,6 +33,7 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
+import org.slf4j.LoggerFactory;
 
 class AiTokenBudgetTest {
     // 21:30 on 30 November in Guayaquil is already 1 December in UTC: the budget month follows UTC.
@@ -132,6 +137,41 @@ class AiTokenBudgetTest {
                 .isInstanceOf(AiProviderException.class)
                 .satisfies(failure -> assertThat(failure.getSuppressed())
                         .singleElement().isInstanceOf(IllegalStateException.class));
+    }
+
+    @Test
+    void aSuppressedWriteFailureIsLoggedWithTheLostCountsOnly() {
+        usage.failWrites = true;
+        Logger logger = (Logger) LoggerFactory.getLogger(AiTokenBudget.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            AiTokenBudget.Meter meter = budget.open(tenant);
+            ScriptedProvider broken = new ScriptedProvider().fail(new AiTokenUsage(9, 4));
+            assertThatThrownBy(() -> meter.call(() -> meter.wrap(broken).recommend(null)))
+                    .isInstanceOf(AiProviderException.class);
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(appender.list).singleElement().satisfies(event -> {
+            assertThat(event.getLevel()).isEqualTo(Level.WARN);
+            assertThat(event.getFormattedMessage())
+                    .isEqualTo("AI token usage could not be recorded: inputTokens=9, outputTokens=4, "
+                            + "failure=IllegalStateException")
+                    .doesNotContain(tenant.value().toString());
+        });
+    }
+
+    @Test
+    void theUnmeteredMeterIsTransparentAndWritesNothing() {
+        ScriptedProvider provider = new ScriptedProvider().succeed(new AiTokenUsage(50, 50));
+        AiTokenBudget.Meter meter = AiTokenBudget.unmetered();
+
+        assertThat(meter.wrap(provider)).isSameAs(provider);
+        assertThat(meter.call(() -> meter.wrap(provider).recommend(null))).isNotNull();
+        assertThat(usage.writes).isEmpty();
     }
 
     @Test

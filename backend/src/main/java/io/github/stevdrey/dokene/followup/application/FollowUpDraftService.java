@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.ai.application.AiResilience;
 import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.DraftContext;
 import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
+import io.github.stevdrey.dokene.ai.application.RetryGuard;
 import io.github.stevdrey.dokene.ai.application.TrustedBusinessFacts;
 import io.github.stevdrey.dokene.ai.domain.DraftOutcome;
 import io.github.stevdrey.dokene.ai.domain.MessageDraft;
@@ -44,17 +45,14 @@ public final class FollowUpDraftService {
     private static final Duration MAX_TIMEOUT = Duration.ofSeconds(30);
 
     private final AiProvider provider;
-    private final AiProvider rawProvider;
-    private final AiResilience resilience;
     private final RecommendationContextAssembler assembler;
     private final AiActionGate gate;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final FollowUpService followUps;
     private final TenantRepository tenants;
-    private final FollowUpRecommendationRateLimiter rateLimiter;
     private final AiOutcomeReporter reporter;
-    private final AiTokenBudget budget;
+    private final AiInvocationRunner invocations;
 
     @Autowired
     public FollowUpDraftService(
@@ -70,8 +68,6 @@ public final class FollowUpDraftService {
             AiOutcomeReporter reporter,
             AiTokenBudget budget) {
         Objects.requireNonNull(provider, "AI provider is required");
-        this.rawProvider = provider;
-        this.resilience = resilience;
         this.provider = resilience == null ? provider : resilience.wrap(provider);
         this.reporter = reporter == null ? AiOutcomeReporter.noop() : reporter;
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
@@ -80,8 +76,7 @@ public final class FollowUpDraftService {
         this.contexts = contexts;
         this.followUps = followUps;
         this.tenants = tenants;
-        this.rateLimiter = rateLimiter;
-        this.budget = budget;
+        this.invocations = new AiInvocationRunner(provider, resilience, rateLimiter, budget);
     }
 
     public FollowUpDraftService(
@@ -222,22 +217,13 @@ public final class FollowUpDraftService {
             // Fail closed before customer data crosses the provider boundary
             revalidateAuthorization(customerId);
 
-            // ADR 0035: an exhausted tenant is refused here, before the rate limit and before any provider call.
-            AiTokenBudget.Meter meter = budget != null && tenantContext != null
-                    ? budget.open(tenantContext.tenantId()) : null;
-
-            // Rate limiter quota
-            if (rateLimiter != null && tenantContext != null) {
-                rateLimiter.acquire(tenantContext.tenantId(), tenantContext.identityId());
-            }
-
             AiDraftRequest request = new AiDraftRequest(draftContext, effectiveTimeout);
             AiDraftResponse response;
             AtomicReference<AiInvocationMetadata> lastAttempt = new AtomicReference<>();
             try {
-                AiProvider invocationProvider = invocationProvider(customerId, assembly, lastAttempt, meter);
-                response = meter == null ? invocationProvider.draft(request)
-                        : meter.call(() -> invocationProvider.draft(request));
+                // Rate limit, then the tenant token budget (ADR 0035), then the metered, retried provider call.
+                response = invocations.draft(tenantContext, retryGuard(customerId, assembly, lastAttempt),
+                        request);
             } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
                 reportBoundaryRejection(customerId, ex, lastAttempt.get());
                 throw ex;
@@ -363,29 +349,21 @@ public final class FollowUpDraftService {
     }
 
     /**
-     * The provider for one request. When resilience is configured, authorization is re-validated before every
-     * retry so a retry can never send customer context after the caller's access was revoked or the customer
-     * disappeared. A token meter, when present, wraps the raw provider inside the retry decorator so the usage of
-     * every attempt is counted (ADR 0035).
+     * The retry guard for one request: authorization and the customer-level hard constraints are re-validated before
+     * every retry, so a retry can never send customer context after the caller's access was revoked or the customer
+     * disappeared. The runner composes it with the budget meter and the retry decorator (ADR 0035).
      */
-    private AiProvider invocationProvider(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
-            AtomicReference<AiInvocationMetadata> lastAttempt, AiTokenBudget.Meter meter) {
-        if (meter == null && (resilience == null || gate == null)) {
-            return provider;
-        }
-        AiProvider base = meter == null ? rawProvider : meter.wrap(rawProvider);
-        if (resilience == null) {
-            return base;
-        }
+    private RetryGuard retryGuard(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
+            AtomicReference<AiInvocationMetadata> lastAttempt) {
         if (gate == null) {
-            return resilience.wrap(base);
+            return RetryGuard.none();
         }
-        return resilience.wrap(base, previousAttempt -> {
+        return previousAttempt -> {
             lastAttempt.set(previousAttempt);
             gate.revalidateBeforeRetry(customerId, assembly, AiOperation.MESSAGE_DRAFT).ifPresent(reason -> {
                 throw new RetryNoLongerEligibleException(reason);
             });
-        });
+        };
     }
 
     /**

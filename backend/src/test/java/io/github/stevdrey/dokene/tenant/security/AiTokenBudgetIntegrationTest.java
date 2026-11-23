@@ -43,6 +43,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
@@ -53,6 +54,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
@@ -88,11 +90,12 @@ class AiTokenBudgetIntegrationTest {
     @Autowired TenantContextProvider contexts;
     @Autowired AuditExecutionContext auditExecution;
     @Autowired AuditReader auditReader;
+    @Autowired Clock clock;
+    @Autowired JdbcTemplate jdbc;
 
     private AiInvocationSeed seed;
     private AiInvocationSeed.Seeded tenantA;
     private AiInvocationSeed.Seeded tenantB;
-    private LocalDate period;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -101,7 +104,6 @@ class AiTokenBudgetIntegrationTest {
                 purchases);
         tenantA = seed.dueCustomer("Budget Tenant A");
         tenantB = seed.dueCustomer("Budget Tenant B");
-        period = LocalDate.now(ZoneOffset.UTC).withDayOfMonth(1);
     }
 
     @Test
@@ -131,7 +133,7 @@ class AiTokenBudgetIntegrationTest {
     @Test
     void anExhaustedTenantGetsNoDraftEitherAndNoProviderCall() throws Exception {
         in(tenantA, () -> {
-            usage.add(tenantA.tenantContext().tenantId(), period, 100, 0);
+            usage.add(tenantA.tenantContext().tenantId(), period(), 100, 0);
             return null;
         });
 
@@ -195,7 +197,7 @@ class AiTokenBudgetIntegrationTest {
     @Test
     void theBudgetIsIsolatedPerTenant() throws Exception {
         in(tenantA, () -> {
-            usage.add(tenantA.tenantContext().tenantId(), period, 60, 40);
+            usage.add(tenantA.tenantContext().tenantId(), period(), 60, 40);
             return null;
         });
         reportUsageOnRecommend(new AiTokenUsage(4, 3));
@@ -208,9 +210,9 @@ class AiTokenBudgetIntegrationTest {
         assertThat(used(tenantB)).isEqualTo(7);
         assertThat(used(tenantA)).isEqualTo(100);
         // row-level security: tenant B can neither read nor change tenant A's counter
-        assertThat(in(tenantB, () -> usage.usedTokens(tenantA.tenantContext().tenantId(), period))).isZero();
+        assertThat(in(tenantB, () -> usage.usedTokens(tenantA.tenantContext().tenantId(), period()))).isZero();
         assertThatThrownBy(() -> in(tenantB, () -> {
-            usage.add(tenantA.tenantContext().tenantId(), period, 1, 1);
+            usage.add(tenantA.tenantContext().tenantId(), period(), 1, 1);
             return null;
         })).rootCause().hasMessageContaining("row-level security");
         assertThat(used(tenantA)).isEqualTo(100);
@@ -219,7 +221,7 @@ class AiTokenBudgetIntegrationTest {
     @Test
     void theRuntimeRoleCannotDeleteAUsageCounter() throws Exception {
         in(tenantA, () -> {
-            usage.add(tenantA.tenantContext().tenantId(), period, 1, 1);
+            usage.add(tenantA.tenantContext().tenantId(), period(), 1, 1);
             return null;
         });
         try (Connection connection = TenantSecurityIntegrationFixture.runtimeConnectionWithoutContext();
@@ -228,6 +230,33 @@ class AiTokenBudgetIntegrationTest {
                     .isInstanceOf(SQLException.class);
         }
         assertThat(used(tenantA)).isEqualTo(2);
+    }
+
+    /** The month the service charges, from the same clock bean, so a run across a month boundary cannot disagree. */
+    private LocalDate period() {
+        return LocalDate.ofInstant(clock.instant(), ZoneOffset.UTC).withDayOfMonth(1);
+    }
+
+    @Test
+    void theRuntimeRoleCanOnlyIncreaseACounter() throws Exception {
+        in(tenantA, () -> {
+            usage.add(tenantA.tenantContext().tenantId(), period(), 40, 30);
+            return null;
+        });
+
+        for (String change : List.of("input_tokens = 0", "output_tokens = output_tokens - 1",
+                "period_start = period_start - INTERVAL '1 month'")) {
+            assertThatThrownBy(() -> in(tenantA, () -> jdbc.update(
+                    "UPDATE dokene.ai_token_usage SET " + change + " WHERE tenant_id = ?",
+                    tenantA.tenantContext().tenantId().value())))
+                    .as(change).rootCause().hasMessageContaining("AI token usage can only increase");
+        }
+        assertThat(used(tenantA)).isEqualTo(70);
+        in(tenantA, () -> {
+            usage.add(tenantA.tenantContext().tenantId(), period(), 1, 2);
+            return null;
+        });
+        assertThat(used(tenantA)).isEqualTo(73);
     }
 
     private void reportUsageOnRecommend(AiTokenUsage reported) {
@@ -247,7 +276,7 @@ class AiTokenBudgetIntegrationTest {
     }
 
     private long used(AiInvocationSeed.Seeded tenant) throws Exception {
-        return in(tenant, () -> usage.usedTokens(tenant.tenantContext().tenantId(), period));
+        return in(tenant, () -> usage.usedTokens(tenant.tenantContext().tenantId(), period()));
     }
 
     private List<AuditEvent> aiEvents(AiInvocationSeed.Seeded tenant) throws Exception {

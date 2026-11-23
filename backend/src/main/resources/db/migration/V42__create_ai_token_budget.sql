@@ -35,6 +35,30 @@ CREATE POLICY ai_token_usage_update_policy ON dokene.ai_token_usage FOR UPDATE T
 CREATE POLICY ai_token_usage_migration_policy ON dokene.ai_token_usage FOR ALL TO dokene_migration
     USING (true) WITH CHECK (true);
 
+-- The runtime may only add to a counter: the upsert needs UPDATE, so a trigger rejects any decrease and any change of
+-- tenant or month. The runtime role does not own the table, so it can neither drop nor disable the trigger; the
+-- migration role, which owns it, can still correct a counter.
+CREATE FUNCTION dokene.reject_ai_token_usage_decrease()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = pg_catalog, dokene
+AS $$
+BEGIN
+    IF current_user <> 'dokene_migration' AND (
+            NEW.tenant_id <> OLD.tenant_id OR NEW.period_start <> OLD.period_start
+            OR NEW.input_tokens < OLD.input_tokens OR NEW.output_tokens < OLD.output_tokens) THEN
+        RAISE EXCEPTION 'AI token usage can only increase' USING ERRCODE = 'insufficient_privilege';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+REVOKE ALL ON FUNCTION dokene.reject_ai_token_usage_decrease() FROM PUBLIC;
+
+CREATE TRIGGER ai_token_usage_only_increases
+    BEFORE UPDATE ON dokene.ai_token_usage
+    FOR EACH ROW EXECUTE FUNCTION dokene.reject_ai_token_usage_decrease();
+
 -- The other branches are copied unchanged from V40; only the FAILED detail list gains TOKEN_BUDGET_EXHAUSTED.
 ALTER TABLE dokene.audit_events
     DROP CONSTRAINT ck_audit_shape,
