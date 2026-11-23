@@ -21,7 +21,9 @@ public enum AiUnavailableReason {
     DISALLOWED_TEMPLATE_INTENT(false),
     INVALID_RECOMMENDATION(false),
     CONTEXT_TOO_LARGE(false),
-    CONTEXT_UNSUPPORTED(false);
+    CONTEXT_UNSUPPORTED(false),
+    /** The tenant used its monthly AI token budget (ADR 0035); trying again only helps after the month rolls over. */
+    TOKEN_BUDGET_EXHAUSTED(false);
 
     private final boolean retryable;
 

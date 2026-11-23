@@ -111,11 +111,11 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("41");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("42");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
-        )).containsExactly("audit_events", "customer_consent_history", "customer_contact_consents",
+        )).containsExactly("ai_token_usage", "audit_events", "customer_consent_history", "customer_contact_consents",
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
                 "flyway_schema_history", "follow_up_dismissals", "manual_follow_up_completions", "oidc_identity_mappings",
@@ -129,7 +129,7 @@ class TenantPersistenceIntegrationTest {
         assertThat(jdbcTemplate.queryForList(
                 "SELECT table_name FROM information_schema.tables WHERE table_schema = 'dokene' ORDER BY table_name",
                 String.class
-        )).containsExactly("audit_events", "customer_consent_history", "customer_contact_consents",
+        )).containsExactly("ai_token_usage", "audit_events", "customer_consent_history", "customer_contact_consents",
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
                 // Read-only since V34 (issue 308): the backend validates the schema history at startup.
@@ -163,6 +163,7 @@ class TenantPersistenceIntegrationTest {
         assertThat(tableOwner("tenant_follow_up_policies")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenants")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_memberships")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("ai_token_usage")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("oidc_identity_mappings")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("workspace_provisioning_records")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("tenant_context_signing_keys")).isEqualTo(MIGRATION_ROLE);

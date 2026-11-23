@@ -154,7 +154,8 @@ export type AiUnavailableReason =
   | 'DISALLOWED_TEMPLATE_INTENT'
   | 'INVALID_RECOMMENDATION'
   | 'CONTEXT_TOO_LARGE'
-  | 'CONTEXT_UNSUPPORTED';
+  | 'CONTEXT_UNSUPPORTED'
+  | 'TOKEN_BUDGET_EXHAUSTED';
 
 export interface DraftVariable {
   key: string;

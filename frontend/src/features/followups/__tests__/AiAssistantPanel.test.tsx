@@ -544,6 +544,27 @@ describe('AiAssistantPanel', () => {
     expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument();
   });
 
+  it('explains an exhausted monthly AI budget without offering a retry', async () => {
+    vi.spyOn(followUpApi, 'requestRecommendation').mockResolvedValue({
+      data: {
+        ...baseRec,
+        status: 'AI_UNAVAILABLE',
+        recommendation: null,
+        unavailableReason: 'TOKEN_BUDGET_EXHAUSTED',
+        retryable: false
+      },
+      version: 3
+    });
+    renderPanel();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Obtener recomendación' }));
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('límite mensual de uso del asistente IA');
+    expect(alert).toHaveTextContent('seguimiento manual');
+    expect(screen.queryByRole('button', { name: 'Reintentar' })).not.toBeInTheDocument();
+  });
+
   it.each([
     [403, /Tu rol no permite usar el asistente IA/],
     [429, /demasiadas solicitudes al asistente IA/i],

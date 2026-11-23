@@ -8,6 +8,7 @@ import io.github.stevdrey.dokene.ai.application.AiProviderException;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationResponse;
 import io.github.stevdrey.dokene.ai.application.RecommendationContextException;
+import io.github.stevdrey.dokene.ai.application.RetryGuard;
 import io.github.stevdrey.dokene.ai.domain.ActionRecommendation;
 import io.github.stevdrey.dokene.ai.domain.NoRecommendation;
 import io.github.stevdrey.dokene.ai.domain.RecommendationOutcome;
@@ -34,15 +35,13 @@ public final class FollowUpRecommendationService {
     private static final Duration MAX_TIMEOUT = Duration.ofSeconds(30);
 
     private final AiProvider provider;
-    private final AiProvider rawProvider;
-    private final AiResilience resilience;
     private final RecommendationContextAssembler assembler;
     private final AiActionGate gate;
     private final TenantAuthorizationService authorization;
     private final TenantContextProvider contexts;
     private final FollowUpService followUps;
-    private final FollowUpRecommendationRateLimiter rateLimiter;
     private final AiOutcomeReporter reporter;
+    private final AiInvocationRunner invocations;
 
     @Autowired
     public FollowUpRecommendationService(
@@ -54,10 +53,9 @@ public final class FollowUpRecommendationService {
             FollowUpService followUps,
             FollowUpRecommendationRateLimiter rateLimiter,
             AiResilience resilience,
-            AiOutcomeReporter reporter) {
+            AiOutcomeReporter reporter,
+            AiTokenBudget budget) {
         Objects.requireNonNull(provider, "AI provider is required");
-        this.rawProvider = provider;
-        this.resilience = resilience;
         this.provider = resilience == null ? provider : resilience.wrap(provider);
         this.reporter = reporter == null ? AiOutcomeReporter.noop() : reporter;
         this.assembler = Objects.requireNonNull(assembler, "Context assembler is required");
@@ -65,7 +63,20 @@ public final class FollowUpRecommendationService {
         this.authorization = authorization;
         this.contexts = contexts;
         this.followUps = followUps;
-        this.rateLimiter = rateLimiter;
+        this.invocations = new AiInvocationRunner(provider, resilience, rateLimiter, budget);
+    }
+
+    public FollowUpRecommendationService(
+            AiProvider provider,
+            RecommendationContextAssembler assembler,
+            AiActionGate gate,
+            TenantAuthorizationService authorization,
+            TenantContextProvider contexts,
+            FollowUpService followUps,
+            FollowUpRecommendationRateLimiter rateLimiter,
+            AiResilience resilience,
+            AiOutcomeReporter reporter) {
+        this(provider, assembler, gate, authorization, contexts, followUps, rateLimiter, resilience, reporter, null);
     }
 
     public FollowUpRecommendationService(
@@ -96,6 +107,13 @@ public final class FollowUpRecommendationService {
         this(provider, assembler, gate, null, null, null, null);
     }
 
+    /**
+     * Low-level orchestration without degradation: provider failures ({@link AiProviderException}) and a spent tenant
+     * token budget propagate. HTTP callers use {@link #recommendSafe}, which maps both to {@code AI_UNAVAILABLE}.
+     *
+     * @throws AiTokenBudgetExhaustedException when the tenant used its monthly AI token budget (ADR 0035); no
+     *                                         provider call was made
+     */
     public FollowUpDecision recommend(CustomerId customerId, Duration timeout) {
         Invocation invocation = invoke(customerId, timeout);
         if (invocation.aiInvoked()) {
@@ -128,16 +146,14 @@ public final class FollowUpRecommendationService {
             }
             return new Invocation(FollowUpDecision.ineligible(evaluation, assembly.policyVersion()), false, null);
         }
-        if (rateLimiter != null && contexts != null) {
-            var tenantContext = contexts.requireCurrent();
-            rateLimiter.acquire(tenantContext.tenantId(), tenantContext.identityId());
-        }
         AiRecommendationRequest request = new AiRecommendationRequest(AiOperation.NEXT_BEST_ACTION,
                 assembly.context(), timeout);
         AiRecommendationResponse response;
         AtomicReference<AiInvocationMetadata> lastAttempt = new AtomicReference<>();
         try {
-            response = invocationProvider(customerId, assembly, lastAttempt).recommend(request);
+            // Rate limit, then the tenant token budget (ADR 0035), then the metered, retried provider call.
+            response = invocations.recommend(contexts == null ? null : contexts.requireCurrent(),
+                    retryGuard(customerId, assembly, lastAttempt), request);
         } catch (TenantAccessDeniedException | CustomerNotFoundException ex) {
             reportBoundaryRejection(customerId, ex, lastAttempt.get());
             throw ex;
@@ -166,6 +182,13 @@ public final class FollowUpRecommendationService {
         return new Invocation(FollowUpDecision.rejected(effectiveEvaluation, gateDecision), true, response.metadata());
     }
 
+    /**
+     * Low-level orchestration without degradation: provider failures ({@link AiProviderException}) and a spent tenant
+     * token budget propagate. HTTP callers use {@link #recommendSafe}, which maps both to {@code AI_UNAVAILABLE}.
+     *
+     * @throws AiTokenBudgetExhaustedException when the tenant used its monthly AI token budget (ADR 0035); no
+     *                                         provider call was made
+     */
     public FollowUpDecision recommend(FollowUpEvaluation evaluation, Duration timeout) {
         Objects.requireNonNull(evaluation, "Evaluation is required");
         Objects.requireNonNull(timeout, "Timeout is required");
@@ -269,6 +292,10 @@ public final class FollowUpRecommendationService {
         } catch (RecommendationContextException ex) {
             // context assembly failed before any provider was reached: provider/model are reported as "none"
             return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.from(ex.reason()), null);
+        } catch (AiTokenBudgetExhaustedException ex) {
+            // refused before any provider call: provider/model are reported as "none"
+            return unavailable(customerId, policyVersion, expectedVersion, AiUnavailableReason.TOKEN_BUDGET_EXHAUSTED,
+                    null);
         }
     }
 
@@ -301,21 +328,21 @@ public final class FollowUpRecommendationService {
     }
 
     /**
-     * The provider for one request. When resilience is configured, authorization is re-validated before every
-     * retry so a retry can never send customer context after the caller's access was revoked or the customer
-     * disappeared.
+     * The retry guard for one request: authorization and the customer-level hard constraints are re-validated before
+     * every retry, so a retry can never send customer context after the caller's access was revoked or the customer
+     * disappeared. The runner composes it with the budget meter and the retry decorator (ADR 0035).
      */
-    private AiProvider invocationProvider(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
+    private RetryGuard retryGuard(CustomerId customerId, RecommendationContextAssembler.Assembly assembly,
             AtomicReference<AiInvocationMetadata> lastAttempt) {
-        if (resilience == null || gate == null) {
-            return provider;
+        if (gate == null) {
+            return RetryGuard.none();
         }
-        return resilience.wrap(rawProvider, previousAttempt -> {
+        return previousAttempt -> {
             lastAttempt.set(previousAttempt);
             gate.revalidateBeforeRetry(customerId, assembly, AiOperation.NEXT_BEST_ACTION).ifPresent(reason -> {
                 throw new RetryNoLongerEligibleException(reason);
             });
-        });
+        };
     }
 
     /**
