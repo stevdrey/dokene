@@ -95,16 +95,21 @@ trap 'rm -rf -- "$WORK"' EXIT
 FIND_PREFIX='^[^[:space:]:]+: (error: )?'
 DIR_LOOP="${FIND_PREFIX}(File system loop detected; .*|.*: Filesystem loop back to .*|.*: directory causes a cycle)\$"
 # Too many levels of symbolic links (ELOOP) is also what a chain longer than the system limit gives, so it passes only
-# for a link that link_cycles shows returns to itself. GNU quotes the path; BSD and bfs do not.
+# for a link that link_hides_nothing accepts. GNU quotes the path; BSD and bfs do not.
 ELOOP_QUOTED="${FIND_PREFIX}'([^']*)': Too many levels of symbolic links\\.?\$"
 ELOOP_PLAIN="${FIND_PREFIX}(.*): Too many levels of symbolic links\\.?\$"
 
-# link_cycles PATH: true when following PATH link by link with readlink comes back to a link already met within 64
-# hops. False for anything else (not a link, a chain that ends, a directory that cannot be resolved): fail closed.
-link_cycles() {
+# link_hides_nothing PATH: follows the link PATH one hop at a time with readlink, up to 64 hops. True when the chain
+# comes back to a link already met (a loop) or ends at nothing (a dangling link): no file is behind it. False when it
+# ends at something that exists, which the system refused to reach only because the chain is too long, and for
+# anything else (not a link, a directory that cannot be resolved, more hops): fail closed.
+link_hides_nothing() {
     local link="$1" seen=$'\n' hops=0 dir target
     while [ "$hops" -lt 64 ]; do
-        [ -L "$link" ] || return 1
+        if [ ! -L "$link" ]; then
+            [ "$hops" -gt 0 ] && [ ! -e "$link" ]
+            return
+        fi
         # CDPATH is cleared: with it, cd could pick another tree's directory of the same relative name and print it.
         dir="$(CDPATH='' cd -P -- "$(dirname -- "$link")" 2>/dev/null && pwd -P)" || return 1
         link="$dir/${link##*/}"
@@ -124,7 +129,7 @@ only_loop_errors() {
         if [[ $line =~ $DIR_LOOP ]]; then
             :
         elif [[ $line =~ $ELOOP_QUOTED ]] || [[ $line =~ $ELOOP_PLAIN ]]; then
-            link_cycles "${BASH_REMATCH[2]}" || return 1
+            link_hides_nothing "${BASH_REMATCH[2]}" || return 1
         else
             return 1
         fi
@@ -133,16 +138,18 @@ only_loop_errors() {
     [ "$seen" -eq 1 ]
 }
 
-# collect ROOT [GLOBAL-OPTIONS...] -- TESTS...: one `find -L` pass that prints every directory and every file TESTS
-# match. Files are appended to `files`, sorted. Exits 2 naming ROOT when a printed directory cannot be read or
-# searched (whatever find's exit status and wording), or when find fails for any reason other than link loops.
+# collect ROOT [GLOBAL-OPTIONS...] -- TESTS...: one `find -L` pass that prints every directory, every link it cannot
+# follow and every file TESTS match. Files are appended to `files`, sorted. Exits 2 naming ROOT when a printed
+# directory cannot be read or searched, or a link it cannot follow hides something (both whatever find's exit status
+# and wording: BSD find reports a link chain that is too long as a broken link, silently), or when find fails for any
+# reason other than link loops.
 collect() {
     local root="$1" status=0 entry
     local opts=()
     shift
     while [ "$1" != "--" ]; do opts+=("$1"); shift; done
     shift
-    LC_ALL=C find -L "$root" ${opts[@]+"${opts[@]}"} \( -type d -o \( "$@" \) \) -print0 \
+    LC_ALL=C find -L "$root" ${opts[@]+"${opts[@]}"} \( -type d -o -type l -o \( "$@" \) \) -print0 \
         >"$WORK/found" 2>"$WORK/errors" || status=$?
     if [ -s "$WORK/errors" ]; then cat "$WORK/errors" >&2; fi
     : >"$WORK/files"
@@ -152,8 +159,12 @@ collect() {
                 echo "check-workflow-pins: cannot read $entry under $root, so not every file under it was checked" >&2
                 exit 2
             fi
-        else
+        elif [ -f "$entry" ]; then
             printf '%s\n' "$entry" >>"$WORK/files"
+        elif ! link_hides_nothing "$entry"; then
+            # With -L, only a link find cannot follow matches -type l.
+            echo "check-workflow-pins: cannot follow $entry under $root, so not every file under it was checked" >&2
+            exit 2
         fi
     done <"$WORK/found"
     if [ "$status" -ne 0 ] && ! only_loop_errors "$WORK/errors"; then
