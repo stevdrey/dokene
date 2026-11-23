@@ -167,8 +167,13 @@ Recommendation and draft requests do not fail with an error status when the AI s
 | `REFUSED`, `INVALID_STRUCTURED_RESPONSE`, `REJECTED_REQUEST`, `CANCELLED` | `false` | The provider could not produce a usable result. Fall back to the manual workflow. |
 | `DISALLOWED_ACTION`, `DISALLOWED_TEMPLATE_INTENT`, `INVALID_RECOMMENDATION` | `false` | The deterministic Action Gate rejected model output. Never shown as advice. |
 | `CONTEXT_TOO_LARGE`, `CONTEXT_UNSUPPORTED` | `false` | The customer context cannot be sent to the model safely. |
+| `TOKEN_BUDGET_EXHAUSTED` | `false` | The workspace used its monthly AI token budget; no provider call was made. AI returns next UTC month; continue the manual workflow. |
 
 Other statuses keep their meaning: `403` (not authorized), `404` (customer not in tenant), `409` (stale `If-Match`), `429` + `Retry-After` (per-tenant/actor AI rate limit). An unexpected server error returns an empty `500`/`503` body: provider and exception text never reaches the client. A database outage answers an empty `503` with `Retry-After` within the bounded pool wait (ADR 0029).
+
+### Monthly token budget
+
+Governed by [ADR 0035](../adr/0035-per-tenant-monthly-ai-token-budget.md). `dokene.ai.token-budget.monthly-tokens` (default `2000000`, must be positive; `DOKENE_AI_TOKEN_BUDGET_MONTHLY_TOKENS`, forwarded by `compose.yaml`) is a per-tenant threshold on the provider-reported input plus output tokens recorded per UTC calendar month. Every provider attempt that reports usage counts: successes, failures, incomplete responses and retries. An attempt that reports no usage (for example a client timeout, after which the provider may still generate) adds nothing. The counter is stored in PostgreSQL (`dokene.ai_token_usage`, one row per tenant and month, row-level security; a trigger lets the runtime only increase it), so it is shared by every instance and survives restarts. After the AI rate limit and before any provider call, a tenant at or over the limit gets `AI_UNAVAILABLE` / `TOKEN_BUDGET_EXHAUSTED`; the deterministic workflow is unaffected, and the refusal is audited as a `FAILED` outcome with that detail. The budget is an **admission threshold on recorded usage**, not a ceiling: an invocation admitted below it runs to completion and is counted, so admitted requests (including concurrent ones, and several per instance because the rate limit is held per instance) can push the total over it; `max_output_tokens` caps only the output of one attempt while the meter also counts input; and attempts that report no usage are not counted. It therefore does not guarantee a ceiling on total tokens or spend; set it with headroom and reconcile with the provider's usage reports. Only the deployment operator sets the limit; tenant members cannot see or change it.
 
 ### Retry
 
@@ -180,7 +185,7 @@ Under `dokene.ai.*`: `attempts` and `attempt.duration` (per provider attempt, re
 
 ### Audit and logs
 
-Each terminal invocation records one `AI_INVOCATION_OUTCOME` audit event (`GENERATED`, `MODEL_REFUSED`, `GATE_REJECTED` with the exact reason (except authorization/not-found rejections, which are counted and logged but not audited because the customer id is unverified at that point), or `FAILED` with the category), readable with `AUDIT_READ`. Raw prompts, customer notes, phone numbers, API keys and generated message bodies are never logged or audited. The server-generated correlation id appears in logs, the `X-Request-Id` response header and the provider `X-Client-Request-Id` header, which lets support correlate a user report with a log line and an audit row.
+Each terminal invocation records one `AI_INVOCATION_OUTCOME` audit event (`GENERATED`, `MODEL_REFUSED`, `GATE_REJECTED` with the exact reason (except authorization/not-found rejections, which are counted and logged but not audited because the customer id is unverified at that point), or `FAILED` with the category or `TOKEN_BUDGET_EXHAUSTED`), readable with `AUDIT_READ`. Raw prompts, customer notes, phone numbers, API keys and generated message bodies are never logged or audited. The server-generated correlation id appears in logs, the `X-Request-Id` response header and the provider `X-Client-Request-Id` header, which lets support correlate a user report with a log line and an audit row.
 
 ## Operator UI: AI assistance panel
 

@@ -496,7 +496,7 @@ print_summary() {
     info "  PostgreSQL:  localhost:${db_port:-5432}"
     info "  Keycloak:    http://localhost:$kc_port  (admin console; realm: dokene)"
     info "  Backend and frontend were NOT started (--infra-only); run them from the host:"
-    info "    set -a; . ./.env; set +a; (cd backend && ./gradlew migrateDb bootRun)    # JDK 26"
+    info "    set -a; . ./.env; set +a; (cd backend && ./gradlew migrateDb bootRun)    # JDK 27 (27.0.1.1+)"
     info "    (cd frontend && npm ci && npm run dev)                         # Node 24"
   else
     info "  Application: http://localhost:$FRONTEND_PORT"

@@ -181,8 +181,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # -XX:-UseBASE64Intrinsics: Java4Shell (CVE-2026-114938) interim mitigation, as in the backend entrypoint (issue 429).
     entrypoint:
       - java
+      - -XX:-UseBASE64Intrinsics
       - -Dloader.main=io.github.stevdrey.dokene.migration.DokeneMigrationApplication
       - -cp
       - /app/dokene.jar
@@ -275,6 +277,8 @@ services:
       DOKENE_AI_RETRY_INITIAL_BACKOFF: ${DOKENE_AI_RETRY_INITIAL_BACKOFF:-250ms}
       DOKENE_AI_RETRY_MAX_BACKOFF: ${DOKENE_AI_RETRY_MAX_BACKOFF:-2s}
       DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET: ${DOKENE_AI_RETRY_MIN_ATTEMPT_BUDGET:-1s}
+      # Per-tenant monthly AI token admission threshold (issue 346, ADR 0035); must be positive.
+      DOKENE_AI_TOKEN_BUDGET_MONTHLY_TOKENS: ${DOKENE_AI_TOKEN_BUDGET_MONTHLY_TOKENS:-2000000}
       # Blank keeps the secret resolver disabled (fail closed). Only this variable is forwarded: `local` with no
       # entries boots a resolver that refuses everything as MISSING. To give the container entries, add the indexed
       # variables (or a volume plus SPRING_CONFIG_ADDITIONAL_LOCATION) in a compose override file (spec 0006).

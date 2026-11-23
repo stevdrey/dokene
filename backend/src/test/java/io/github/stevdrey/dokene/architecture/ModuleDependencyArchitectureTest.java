@@ -15,6 +15,11 @@ import com.tngtech.archunit.core.domain.properties.HasOwner;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
+import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
+import io.github.stevdrey.dokene.ai.application.AiProvider;
+import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
+import io.github.stevdrey.dokene.followup.application.AiTokenBudget;
+import io.github.stevdrey.dokene.followup.archfixture.DirectAiProviderCallFixture;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnMessagingFixture;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretFailureFixture;
 import io.github.stevdrey.dokene.followup.archfixture.UpstreamDependsOnSecretPortFixture;
@@ -62,6 +67,15 @@ class ModuleDependencyArchitectureTest {
             .should().callMethod(TenantMembershipRepository.class, "save", TenantMembership.class)
             .because("ADR 0031 §6: a membership mutation runs through MembershipChangeAuthorizer.change, so a new "
                     + "writer must be reviewed against it");
+
+    private static final ArchRule FOLLOW_UP_REACHES_THE_AI_PROVIDER_ONLY_THROUGH_THE_RUNNER = noClasses().that()
+            .resideInAPackage(ROOT + ".followup..")
+            .and().doNotHaveFullyQualifiedName(ROOT + ".followup.application.AiInvocationRunner")
+            .and(DescribedPredicate.not(JavaClass.Predicates.belongToAnyOf(AiTokenBudget.class)))
+            .should().callMethod(AiProvider.class, "recommend", AiRecommendationRequest.class)
+            .orShould().callMethod(AiProvider.class, "draft", AiDraftRequest.class)
+            .because("ADR 0035: every follow-up AI call goes through AiInvocationRunner, which applies the rate limit "
+                    + "and the tenant token budget and meters each attempt");
 
     private static final ArchRule UPSTREAM_NEVER_DEPENDS_ON_MESSAGING = noClasses().that().resideInAnyPackage(
                     ROOT + ".followup..", ROOT + ".customer..", ROOT + ".purchase..", ROOT + ".ai..",
@@ -160,6 +174,20 @@ class ModuleDependencyArchitectureTest {
             .should().dependOnClassesThat().resideInAnyPackage("com.fasterxml.jackson..",
                     "org.springframework.security..", "..api..")
             .because("spec 0007 AC-9 and AC-11: verification runs on raw bytes, adds no filter chain and touches no API");
+
+    @Test
+    void followUpReachesTheAiProviderOnlyThroughTheBudgetedRunner() {
+        FOLLOW_UP_REACHES_THE_AI_PROVIDER_ONLY_THROUGH_THE_RUNNER.check(production);
+    }
+
+    /** Negative proof (ADR 0035): a follow-up class calling the provider directly is reported. */
+    @Test
+    void aDirectFollowUpProviderCallFailsTheRunnerRule() {
+        JavaClasses fixture = new ClassFileImporter()
+                .importClasses(DirectAiProviderCallFixture.class, AiProvider.class);
+
+        assertThat(FOLLOW_UP_REACHES_THE_AI_PROVIDER_ONLY_THROUGH_THE_RUNNER.evaluate(fixture).hasViolation()).isTrue();
+    }
 
     @Test
     void membershipsAreWrittenOnlyByKnownUseCases() {

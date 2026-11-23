@@ -81,6 +81,7 @@ public class DurableAiOutcomeAuditAdapter implements AiOutcomeAuditPort {
             case REFUSED -> AiAuditDetail.REFUSED;
             case CONTEXT_TOO_LARGE -> AiAuditDetail.CONTEXT_TOO_LARGE;
             case CONTEXT_UNSUPPORTED -> AiAuditDetail.CONTEXT_UNSUPPORTED;
+            case TOKEN_BUDGET_EXHAUSTED -> AiAuditDetail.TOKEN_BUDGET_EXHAUSTED;
             case DISALLOWED_ACTION, DISALLOWED_TEMPLATE_INTENT, INVALID_RECOMMENDATION ->
                     throw new IllegalArgumentException("Gate rejections are not failed AI invocations");
         };

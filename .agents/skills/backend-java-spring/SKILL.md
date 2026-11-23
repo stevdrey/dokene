@@ -1,6 +1,6 @@
 ---
 name: backend-java-spring
-description: Use when implementing or reviewing Java 26 and Spring Boot backend code, APIs, persistence, security, integrations, concurrency, or tests.
+description: Use when implementing or reviewing Java 27 and Spring Boot backend code, APIs, persistence, security, integrations, concurrency, or tests.
 ---
 
 # Java and Spring Backend
@@ -11,7 +11,7 @@ Read `AGENTS.md`, `.agents/README.md`, the backend build files, affected source/
 
 ## Baseline
 
-- Java 26 is the implementation baseline.
+- Java 27 is the implementation baseline ([ADR 0034](../../../docs/adr/0034-java-27-runtime-baseline-and-java4shell-response.md)); use a Java4Shell-fixed build (27.0.1.1 or later).
 - Spring Boot is the application framework.
 - Gradle is the build system.
 - PostgreSQL is the primary relational database unless an ADR states otherwise.
@@ -133,7 +133,7 @@ Before completion, run the relevant Gradle tests/build and document any intentio
 
 Verify:
 
-- Java 26 usage is intentional and idiomatic;
+- Java 27 usage is intentional and idiomatic;
 - `static` usage has class-level semantics;
 - simple imported type names are used where unambiguous;
 - controllers remain thin;

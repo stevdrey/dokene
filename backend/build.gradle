@@ -17,7 +17,16 @@ ext['kotlin.version'] = '2.4.20'
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(26)
+        languageVersion = JavaLanguageVersion.of(27)
+    }
+}
+
+// CodeQL analyzes Java 7 to 26 only (CLI 2.27.5). The CodeQL workflow passes -PcodeqlJavaRelease=26 so the JDK 27
+// toolchain compiles the main sources (compileJava only; CodeQL builds `classes`) with --release 26 there; the code
+// uses no Java 27 language feature. Remove once CodeQL supports Java 27 (issues 429 and 432).
+if (project.hasProperty('codeqlJavaRelease')) {
+    tasks.named('compileJava') {
+        options.release = Integer.parseInt(project.property('codeqlJavaRelease').toString())
     }
 }
 
@@ -35,7 +44,7 @@ dependencies {
     // Provides Micrometer MeterRegistry only; every actuator endpoint stays disabled and unexposed (see application.yml).
     implementation 'org.springframework.boot:spring-boot-starter-actuator'
     implementation 'com.googlecode.libphonenumber:libphonenumber:9.0.43'
-    implementation 'com.openai:openai-java:4.101.0'
+    implementation 'com.openai:openai-java:4.109.0'
     runtimeOnly 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
 

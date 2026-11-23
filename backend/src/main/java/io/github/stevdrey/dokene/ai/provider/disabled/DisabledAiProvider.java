@@ -36,4 +36,9 @@ public final class DisabledAiProvider implements AiProvider {
     public io.github.stevdrey.dokene.ai.application.AiDraftResponse draft(io.github.stevdrey.dokene.ai.application.AiDraftRequest request) {
         throw new AiProviderException(AiFailureCategory.NOT_AVAILABLE, METADATA);
     }
+
+    @Override
+    public boolean enabled() {
+        return false;
+    }
 }

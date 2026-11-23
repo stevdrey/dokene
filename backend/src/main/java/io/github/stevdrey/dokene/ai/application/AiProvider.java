@@ -24,4 +24,12 @@ public interface AiProvider {
     default Duration maxTimeout() {
         return Duration.ofSeconds(30);
     }
+
+    /**
+     * False only for the provider used when AI is switched off. A disabled provider bills nothing, so callers skip the
+     * per-tenant token budget (ADR 0035) and keep reporting {@code NOT_AVAILABLE}.
+     */
+    default boolean enabled() {
+        return true;
+    }
 }
