@@ -23,8 +23,8 @@ import java.util.Locale;
  * so are port {@code 0} and ports above {@code 65535}. Anything else, malformed input included, fails closed with an
  * {@link IllegalArgumentException} before a client is built.
  *
- * <p>The accepted URL is rebuilt from its validated components (lower-case scheme and host, dot segments removed,
- * default port dropped), so the HTTP client never parses anything this policy did not check. Messages name the
+ * <p>The accepted URL is rebuilt from its validated components (lower-case scheme and host, dot segments removed and
+ * repeated slashes in the path collapsed by {@link URI#normalize()}, default port dropped), so the HTTP client never parses anything this policy did not check. Messages name the
  * configuration properties and never echo the configured value, which could carry credentials.
  *
  * @param providerHost the provider's own host, accepted over HTTPS

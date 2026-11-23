@@ -34,6 +34,8 @@ class OpenAiEndpointPolicyTest {
             "http://[::1]:9000/v1, http://[::1]:9000/v1",
             "https://api.openai.com:443/v1, https://api.openai.com/v1",
             "https://api.openai.com:443/v1/./x/../, https://api.openai.com/v1/",
+            "https://api.openai.com//v1, https://api.openai.com/v1",
+            "https://api.openai.com/v1//x, https://api.openai.com/v1/x",
             "http://localhost:80/v1, http://localhost/v1",
             "https://localhost:80/v1, https://localhost:80/v1",
             "http://localhost:65535/v1, http://localhost:65535/v1",

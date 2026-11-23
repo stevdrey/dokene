@@ -36,13 +36,16 @@ class GraphApiPropertiesTest {
     }
 
     // Issue 440: the shared endpoint policy binds the canonical URL, rebuilt from the validated components, as the
-    // OpenAI policy already did: lower-case scheme and host, dot segments removed and a default port dropped.
+    // OpenAI policy already did: lower-case scheme and host, dot segments removed, repeated slashes in the path
+    // collapsed by URI.normalize() and a default port dropped.
     @ParameterizedTest
     @CsvSource({
             "https://GRAPH.FACEBOOK.COM/v23.0, https://graph.facebook.com/v23.0",
             "HTTPS://graph.facebook.com/v23.0, https://graph.facebook.com/v23.0",
             "https://graph.facebook.com:443/v23.0, https://graph.facebook.com/v23.0",
             "https://graph.facebook.com/v23.0/./x/../, https://graph.facebook.com/v23.0/",
+            "https://graph.facebook.com//v23.0, https://graph.facebook.com/v23.0",
+            "https://graph.facebook.com/v23.0//x, https://graph.facebook.com/v23.0/x",
             "http://localhost:80/v23.0, http://localhost/v23.0",
             "https://localhost:80/v23.0, https://localhost:80/v23.0"})
     void bindsTheCanonicalUrl(String configured, String canonical) {
