@@ -22,7 +22,7 @@ final class OpenAiEndpointPolicy {
     static final String OPENAI_HOST = "api.openai.com";
     static final String DEFAULT_BASE_URL = "https://" + OPENAI_HOST + "/v1";
     private static final String REJECTED = "dokene.ai.openai.base-url must be https on " + OPENAI_HOST
-            + ", a loopback test server (localhost, 127.0.0.1 or [::1]) or an https host listed in "
+            + ", a loopback test server (" + LoopbackHosts.EXACT_SPELLINGS_TEXT + ") or an https host listed in "
             + "dokene.ai.openai.additional-trusted-hosts, without credentials, query or fragment";
 
     private OpenAiEndpointPolicy() {

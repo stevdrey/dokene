@@ -42,7 +42,8 @@ public record GraphApiProperties(URI baseUrl, Duration timeout, List<String> add
         if (!(loopback || trusted) || baseUrl.getUserInfo() != null || baseUrl.getQuery() != null
                 || baseUrl.getFragment() != null) {
             throw new IllegalArgumentException("Graph API base URL must be https on " + META_GRAPH_HOST
-                    + ", a loopback test server or an explicitly trusted host, without credentials, query or fragment");
+                    + ", an exact loopback test server (" + LoopbackHosts.EXACT_SPELLINGS_TEXT
+                    + ") or an explicitly trusted host, without credentials, query or fragment");
         }
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Graph API timeout must be positive");

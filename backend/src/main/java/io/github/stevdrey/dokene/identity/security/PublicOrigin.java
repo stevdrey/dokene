@@ -60,13 +60,13 @@ public record PublicOrigin(String value) {
         }
         int separator = value.indexOf("://");
         if (separator <= 0) {
-            throw refused("must start with a scheme: https://, or http:// on localhost, 127.0.0.1 or [::1]");
+            throw refused("must start with a scheme: https://, or http:// on " + LoopbackHosts.EXACT_SPELLINGS_TEXT);
         }
         String scheme = value.substring(0, separator);
         if (!scheme.equals("https") && !scheme.equals("http")) {
             throw refused(scheme.equalsIgnoreCase("https") || scheme.equalsIgnoreCase("http")
                     ? "scheme must be lower case"
-                    : "scheme must be https, or http on localhost, 127.0.0.1 or [::1]");
+                    : "scheme must be https, or http on " + LoopbackHosts.EXACT_SPELLINGS_TEXT);
         }
         String authority = value.substring(separator + 3);
         if (authority.chars().anyMatch(character -> character == '/' || character == '?' || character == '#')) {
@@ -112,7 +112,7 @@ public record PublicOrigin(String value) {
         }
         // The exact rule on purpose: the value is sent as written, so only the spelling a browser writes (issue 428).
         if (scheme.equals("http") && !LoopbackHosts.isExactSpelling(host)) {
-            throw refused("allows plain http only on localhost, 127.0.0.1 or [::1]; use https for any other host");
+            throw refused("allows plain http only on " + LoopbackHosts.EXACT_SPELLINGS_TEXT + "; use https for any other host");
         }
     }
 
