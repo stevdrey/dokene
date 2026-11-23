@@ -2,10 +2,10 @@
 // ABOUTME: its one accepted form; the login callback and logout return address are built from it alone.
 package io.github.stevdrey.dokene.identity.security;
 
+import io.github.stevdrey.dokene.http.LoopbackHosts;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
@@ -20,7 +20,6 @@ public record PublicOrigin(String value) {
     static final String SETTING = "DOKENE_PUBLIC_ORIGIN (dokene.security.public-origin)";
     static final String CALLBACK_PATH = "/login/oauth2/code/";
 
-    static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "[::1]");
     private static final Pattern DNS_HOST =
             Pattern.compile("[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)*");
     private static final Pattern IPV6_GROUP = Pattern.compile("[0-9a-f]{1,4}");
@@ -111,7 +110,8 @@ public record PublicOrigin(String value) {
                 throw refused("must not write out the default port (:443 for https, :80 for http)");
             }
         }
-        if (scheme.equals("http") && !LOOPBACK_HOSTS.contains(host)) {
+        // The exact rule on purpose: the value is sent as written, so only the spelling a browser writes (issue 428).
+        if (scheme.equals("http") && !LoopbackHosts.isExactSpelling(host)) {
             throw refused("allows plain http only on localhost, 127.0.0.1 or [::1]; use https for any other host");
         }
     }

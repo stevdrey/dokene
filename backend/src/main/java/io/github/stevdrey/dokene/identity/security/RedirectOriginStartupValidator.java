@@ -2,9 +2,8 @@
 // ABOUTME: leftover redirect URI, a second registration, an unfixed replay URI, a context path, the native strategy.
 package io.github.stevdrey.dokene.identity.security;
 
-import java.net.InetAddress;
+import io.github.stevdrey.dokene.http.LoopbackHosts;
 import java.net.URI;
-import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -118,7 +117,8 @@ public final class RedirectOriginStartupValidator {
                     + "with a host name the listener's certificate carries, or the replay fails the TLS handshake");
         }
         int replayPort = target.port() >= 0 ? target.port() : https ? 443 : 80;
-        if (isLoopback(target.host()) && replayPort != serverPort) {
+        // The wide rule on purpose: it only decides whether the port must match, so any loopback spelling counts.
+        if (LoopbackHosts.reachesLoopback(target.host()) && replayPort != serverPort) {
             throw new IllegalStateException(BACK_CHANNEL_LOGOUT_SETTING + " points at loopback port " + replayPort
                     + " while server.port (SERVER_PORT) is " + serverPort + ": no listener answers that replay; "
                     + "write the replay URI with the port the server listens on, or unset it to use the default");
@@ -155,28 +155,6 @@ public final class RedirectOriginStartupValidator {
         }
         return new ReplayTarget(scheme, authority.group(1),
                 authority.group(2) == null ? -1 : Integer.parseInt(authority.group(2)));
-    }
-
-    /**
-     * Decided from the spelling alone, never by a lookup: {@code localhost} and any name under it, with or without
-     * the root dot, and every literal address in 127.0.0.0/8 or equal to ::1 however it is written. A name that
-     * only a hosts file maps to loopback is not recognized.
-     */
-    private static boolean isLoopback(String host) {
-        String name = host.toLowerCase(Locale.ROOT);
-        if (name.endsWith(".")) {
-            name = name.substring(0, name.length() - 1);
-        }
-        if (name.equals("localhost") || name.endsWith(".localhost")) {
-            return true;
-        }
-        boolean bracketed = name.startsWith("[") && name.endsWith("]");
-        try {
-            return InetAddress.ofLiteral(bracketed ? name.substring(1, name.length() - 1) : name)
-                    .isLoopbackAddress();
-        } catch (IllegalArgumentException notALiteralAddress) {
-            return false;
-        }
     }
 
     /** The callback path is fixed at {@code /login/oauth2/code/}, so under a context path it would miss the app. */

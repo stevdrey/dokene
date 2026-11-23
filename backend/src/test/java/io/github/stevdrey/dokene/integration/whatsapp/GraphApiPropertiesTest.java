@@ -30,7 +30,7 @@ class GraphApiPropertiesTest {
     @ParameterizedTest
     @ValueSource(strings = {"https://graph.facebook.com/v23.0", "https://GRAPH.FACEBOOK.COM/v23.0",
             "http://127.0.0.1:8080/v23.0", "http://localhost:9000", "https://localhost:9443",
-            "http://[::1]:9000", "http://stub.localhost/v23.0"})
+            "http://[::1]:9000"})
     void acceptsMetaOverHttpsAndLoopbackTestServers(String url) {
         assertThat(of(url).baseUrl()).isEqualTo(URI.create(url));
     }
@@ -42,7 +42,10 @@ class GraphApiPropertiesTest {
             "http://graph.facebook.com/v23.0", "http://10.0.0.5", "http://example.com:8080",
             "ftp://graph.facebook.com", "https://user:secret@graph.facebook.com", "https://graph.facebook.com?x=1",
             "https://graph.facebook.com#frag", "https:///path", "http://localhost.evil.com",
-            "https://graph.facebook.com.", "https://10.0.0.5"})
+            "https://graph.facebook.com.", "https://10.0.0.5",
+            // Issue 428 (audit I3): a name under localhost reaches loopback only if the resolver says so, and other
+            // spellings of a loopback address are not the exact rule either.
+            "http://stub.localhost/v23.0", "http://localhost./v23.0", "http://127.0.0.2", "http://[0:0:0:0:0:0:0:1]"})
     void rejectsEveryOtherHostSoTenantCredentialsCannotLeak(String url) {
         assertThatThrownBy(() -> of(url)).isInstanceOf(IllegalArgumentException.class);
     }

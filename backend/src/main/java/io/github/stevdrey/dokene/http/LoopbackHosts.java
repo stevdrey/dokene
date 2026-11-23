@@ -1,0 +1,58 @@
+// ABOUTME: The one place the backend decides whether a host is loopback (issue 428). Two named rules: the exact
+// ABOUTME: spelling a browser writes, and any spelling that reaches loopback; each caller picks one on purpose.
+package io.github.stevdrey.dokene.http;
+
+import java.net.InetAddress;
+import java.util.Locale;
+import java.util.Set;
+
+/**
+ * Loopback host rules, decided from the spelling alone and never by a DNS lookup.
+ *
+ * <ul>
+ *   <li>{@link #isExactSpelling(String)}: exactly {@code localhost}, {@code 127.0.0.1} or {@code [::1]}, compared
+ *       as written (callers pass the lower-case host). The public origin uses it because the value is sent to the
+ *       browser as written, and both provider endpoint policies use it because they are allow-lists for credentials
+ *       and customer data (security invariant 29): a name under {@code localhost} reaches loopback only when the
+ *       resolver honours RFC 6761, and another spelling of an address is not what a reviewer reads.</li>
+ *   <li>{@link #reachesLoopback(String)}: {@code localhost} and any name under it, with or without the root dot,
+ *       and every literal address in 127.0.0.0/8 or equal to ::1 however it is written. It only says whether a host
+ *       may be loopback, so it suits a check that narrows a value, such as the back-channel replay port check, and
+ *       must never widen an allow-list.</li>
+ * </ul>
+ *
+ * A name that only a hosts file maps to loopback is recognized by neither rule.
+ */
+public final class LoopbackHosts {
+
+    private static final Set<String> EXACT_SPELLINGS = Set.of("localhost", "127.0.0.1", "[::1]");
+
+    private LoopbackHosts() {
+    }
+
+    /** True when {@code host} is exactly {@code localhost}, {@code 127.0.0.1} or {@code [::1]}. */
+    public static boolean isExactSpelling(String host) {
+        return host != null && EXACT_SPELLINGS.contains(host);
+    }
+
+    /** True when {@code host}, in any case and with or without brackets or the root dot, may only reach loopback. */
+    public static boolean reachesLoopback(String host) {
+        if (host == null) {
+            return false;
+        }
+        String name = host.toLowerCase(Locale.ROOT);
+        if (name.endsWith(".")) {
+            name = name.substring(0, name.length() - 1);
+        }
+        if (name.equals("localhost") || name.endsWith(".localhost")) {
+            return true;
+        }
+        boolean bracketed = name.startsWith("[") && name.endsWith("]");
+        try {
+            return InetAddress.ofLiteral(bracketed ? name.substring(1, name.length() - 1) : name)
+                    .isLoopbackAddress();
+        } catch (IllegalArgumentException notALiteralAddress) {
+            return false;
+        }
+    }
+}

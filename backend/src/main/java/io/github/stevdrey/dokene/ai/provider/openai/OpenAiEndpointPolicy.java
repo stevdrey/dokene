@@ -1,11 +1,11 @@
 package io.github.stevdrey.dokene.ai.provider.openai;
 
+import io.github.stevdrey.dokene.http.LoopbackHosts;
 import io.github.stevdrey.dokene.http.TrustedHostNames;
 import java.net.URI;
 import java.net.URISyntaxException;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 
 /**
  * Endpoint policy for the OpenAI base URL. The API key and customer data are sent to this endpoint, so it must be
@@ -21,7 +21,6 @@ final class OpenAiEndpointPolicy {
 
     static final String OPENAI_HOST = "api.openai.com";
     static final String DEFAULT_BASE_URL = "https://" + OPENAI_HOST + "/v1";
-    private static final Set<String> LOOPBACK_HOSTS = Set.of("localhost", "127.0.0.1", "[::1]");
     private static final String REJECTED = "dokene.ai.openai.base-url must be https on " + OPENAI_HOST
             + ", a loopback test server (localhost, 127.0.0.1 or [::1]) or an https host listed in "
             + "dokene.ai.openai.additional-trusted-hosts, without credentials, query or fragment";
@@ -67,7 +66,8 @@ final class OpenAiEndpointPolicy {
             throw new IllegalArgumentException(REJECTED);
         }
         boolean https = "https".equals(scheme);
-        boolean loopback = LOOPBACK_HOSTS.contains(host) && (https || "http".equals(scheme));
+        // The exact rule on purpose: an allow-list for credentials never accepts a name under localhost (issue 428).
+        boolean loopback = LoopbackHosts.isExactSpelling(host) && (https || "http".equals(scheme));
         boolean trusted = https && (host.equals(OPENAI_HOST) || trustedHosts.contains(host));
         if (!(loopback || trusted)) {
             throw new IllegalArgumentException(REJECTED);
