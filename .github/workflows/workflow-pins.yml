@@ -20,6 +20,29 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: ./scripts/tests/check-workflow-pins-test.sh
 
+  # The same test on macOS, where find is BSD find and /bin/bash is bash 3.2 (issue #370): the check tolerates BSD
+  # find's link loop messages by their wording, which the Linux job cannot exercise.
+  check-workflow-pins-macos:
+    name: Workflow pins (macOS)
+    runs-on: macos-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # The check starts with `#!/usr/bin/env bash`, and the runner puts a newer bash first on PATH; a link to
+      # /bin/bash in front makes the check itself run on 3.2, not only the test.
+      - name: Put the system bash and find first on PATH
+        run: |
+          mkdir -p "$RUNNER_TEMP/system-tools"
+          ln -s /bin/bash "$RUNNER_TEMP/system-tools/bash"
+          ln -s /usr/bin/find "$RUNNER_TEMP/system-tools/find"
+          echo "$RUNNER_TEMP/system-tools" >> "$GITHUB_PATH"
+      - name: Show the toolchain
+        run: |
+          sw_vers
+          env bash --version | head -n 1
+          command -v find
+      - run: bash scripts/tests/check-workflow-pins-test.sh
+
   image-pins:
     name: image-pins
     runs-on: ubuntu-latest
