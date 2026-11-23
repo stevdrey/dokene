@@ -7,6 +7,8 @@ import io.github.stevdrey.dokene.identity.security.PreLoginSessionExpiryFilter;
 import io.github.stevdrey.dokene.identity.security.BffSessionProperties;
 import io.github.stevdrey.dokene.identity.security.InternalOidcUserService;
 import io.github.stevdrey.dokene.identity.security.PreLoginAuthorizationRequestRepository;
+import io.github.stevdrey.dokene.identity.security.PublicOriginSettings;
+import io.github.stevdrey.dokene.identity.security.RedirectOriginStartupValidator;
 import io.github.stevdrey.dokene.identity.security.SessionBoundCsrfTokenRepository;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.application.TenantContextResolver;
@@ -200,9 +202,6 @@ class TenantSecurityConfiguration {
     /** BFF responses are JSON, redirects or plain errors: they never need to load or embed anything. */
     static final String API_CONTENT_SECURITY_POLICY =
             "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
-    /** Loopback on the port the provider called: never a host taken from the request. */
-    static final String DEFAULT_BACK_CHANNEL_LOGOUT_URI =
-            "{baseScheme}://localhost{basePort}/logout/connect/back-channel/{registrationId}";
     /** The servlet container's name for the session cookie when {@code server.servlet.session.cookie.name} is unset. */
     static final String DEFAULT_SESSION_COOKIE_NAME = "JSESSIONID";
     static final String PERMISSIONS_POLICY =
@@ -219,13 +218,13 @@ class TenantSecurityConfiguration {
             Clock clock,
             @Value("${dokene.security.post-login-redirect-url:/}") String postLoginRedirectUrl,
             @Value("${dokene.security.post-login-failure-redirect-url:}") String postLoginFailureRedirectUrl,
-            @Value("${dokene.security.oidc.back-channel-logout-uri:" + DEFAULT_BACK_CHANNEL_LOGOUT_URI + "}")
-            String backChannelLogoutUri,
+            PublicOriginSettings publicOrigin,
+            RedirectOriginStartupValidator redirectOrigin,
             @Value("${server.servlet.session.cookie.name:" + DEFAULT_SESSION_COOKIE_NAME + "}")
             String sessionCookieName
     )
             throws Exception {
-        LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations);
+        LogoutSuccessHandler logoutSuccessHandler = createLogoutSuccessHandler(clientRegistrations, redirectOrigin);
 
         http.authorizeHttpRequests(authorize -> authorize
                         .requestMatchers("/", "/oauth2/**", "/login/**", "/error").permitAll()
@@ -239,10 +238,12 @@ class TenantSecurityConfiguration {
                 .requestCache(cache -> cache.requestCache(new NullRequestCache()))
                 .csrf(csrf -> csrf.csrfTokenRepository(new SessionBoundCsrfTokenRepository()))
                 .cors(Customizer.withDefaults())
-                .headers(headers -> headers
-                        .contentSecurityPolicy(csp -> csp.policyDirectives(API_CONTENT_SECURITY_POLICY))
-                        .permissionsPolicyHeader(policy -> policy.policy(PERMISSIONS_POLICY))
-                        .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN)))
+                .headers(headers -> {
+                    publicOrigin.applyHsts(headers);
+                    headers.contentSecurityPolicy(csp -> csp.policyDirectives(API_CONTENT_SECURITY_POLICY))
+                            .permissionsPolicyHeader(policy -> policy.policy(PERMISSIONS_POLICY))
+                            .referrerPolicy(referrer -> referrer.policy(ReferrerPolicy.STRICT_ORIGIN_WHEN_CROSS_ORIGIN));
+                })
                 .exceptionHandling(exceptions -> exceptions
                         .defaultAuthenticationEntryPointFor(
                                 new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
@@ -270,7 +271,8 @@ class TenantSecurityConfiguration {
                     .failureHandler(createAuthenticationFailureHandler(failureRedirectUrl, sessionCookieName)));
             // The provider's logout token ends the matching sessions: the handler replays the logout token to this
             // endpoint once per session, with that session's cookie, so the URI must reach this instance directly.
-            http.oidcLogout(logout -> logout.backChannel(backChannel -> backChannel.logoutUri(backChannelLogoutUri)));
+            http.oidcLogout(logout -> logout.backChannel(
+                    backChannel -> backChannel.logoutUri(redirectOrigin.backChannelLogoutUri())));
         }
         return http.build();
     }
@@ -335,7 +337,8 @@ class TenantSecurityConfiguration {
     }
 
     private LogoutSuccessHandler createLogoutSuccessHandler(
-            ObjectProvider<ClientRegistrationRepository> clientRegistrations
+            ObjectProvider<ClientRegistrationRepository> clientRegistrations,
+            RedirectOriginStartupValidator redirectOrigin
     ) {
         HttpStatusReturningLogoutSuccessHandler apiLogoutSuccessHandler =
                 new HttpStatusReturningLogoutSuccessHandler(HttpStatus.NO_CONTENT);
@@ -346,7 +349,8 @@ class TenantSecurityConfiguration {
 
         OidcClientInitiatedLogoutSuccessHandler oidcLogoutSuccessHandler =
                 new OidcClientInitiatedLogoutSuccessHandler(repository);
-        oidcLogoutSuccessHandler.setPostLogoutRedirectUri("{baseUrl}/");
+        // From the configured origin, never {baseUrl}: Host and forwarded headers cannot move the logout return.
+        oidcLogoutSuccessHandler.setPostLogoutRedirectUri(redirectOrigin.registrationOrigin().logoutReturn());
 
         return (request, response, authentication) -> {
             boolean providerRequested = "true".equalsIgnoreCase(request.getParameter("provider"));
