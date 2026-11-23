@@ -55,5 +55,6 @@ This record is sanitized: it gives limits, outcomes and test names only. It cont
 
 ## Limitations
 
-- The limit is soft by the requests in flight when it is reached (ADR 0035 §6); no test drives concurrent requests across the boundary.
+- The budget is an admission threshold on recorded usage, not a ceiling on total tokens or spend (ADR 0035 §6); no test drives concurrent requests across the threshold.
+- `compose.yaml` forwards `DOKENE_AI_TOKEN_BUDGET_MONTHLY_TOKENS` to the backend: `docker compose config backend` renders `"2000000"` when unset and `"12345"` when set to 12345 (read only, no container started).
 - No live provider was called; usage was injected through the fake provider. The OpenAI adapter already maps reported usage into the metadata on success and failure (#316).

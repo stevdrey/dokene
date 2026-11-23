@@ -31,9 +31,9 @@ import org.springframework.stereotype.Component;
  * them all. Usage is accumulated in memory during the invocation and written once afterwards, so the retry loop never
  * waits on the database and a database error can never be mistaken for a retryable provider failure.
  *
- * <p>The check and the write are not one transaction: requests already in flight when the limit is reached may
- * still complete. The overshoot is bounded by the AI rate limit, the retry attempts and the per-request
- * {@code max_output_tokens} cap.
+ * <p>The limit is an admission threshold on recorded usage, not a ceiling (ADR 0035 §6): the check and the write
+ * are not one transaction, so invocations admitted below the threshold run to completion and can push the recorded
+ * total past it, and attempts that report no usage are not counted.
  */
 @Component
 @EnableConfigurationProperties(AiTokenBudgetProperties.class)
