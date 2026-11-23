@@ -1,9 +1,9 @@
 package io.github.stevdrey.dokene.integration.whatsapp;
 
+import io.github.stevdrey.dokene.http.ProviderEndpointPolicy;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
-import io.github.stevdrey.dokene.http.ProviderEndpointPolicy;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
