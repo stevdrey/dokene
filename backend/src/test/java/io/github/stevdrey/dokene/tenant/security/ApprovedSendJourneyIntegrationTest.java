@@ -80,6 +80,7 @@ class ApprovedSendJourneyIntegrationTest {
     /** Tenant secrets are keyed by tenant id at startup, so every test draws a pre-registered tenant id. */
     private static final List<TenantId> TENANT_IDS = IntStream.range(0, 12).mapToObj(i -> TenantId.random()).toList();
     private static final AtomicInteger NEXT_TENANT = new AtomicInteger();
+    private static final AtomicInteger NEXT_CUSTOMER = new AtomicInteger();
     private static final GraphStub GRAPH = GraphStub.start();
 
     @DynamicPropertySource
@@ -327,7 +328,10 @@ class ApprovedSendJourneyIntegrationTest {
         assertThat(next).as("pre-registered tenant ids").isLessThan(TENANT_IDS.size());
         Instant now = Instant.now();
         Tenant tenant = TenantTestSupport.saveTenant(tenants, contexts,
-                Tenant.create(TENANT_IDS.get(next), "Journey " + UUID.randomUUID(), now));
+                // The fake AI writes the business name into the draft body, where a random UUID such as "…-cad070…"
+                // reads as an ungrounded amount (CAD) about once in 360 drafts and the draft is refused. The tenant id
+                // already keeps each workspace apart, so the name carries no digits.
+                Tenant.create(TENANT_IDS.get(next), "Journey", now));
         IdentityId owner = member(tenant, TenantRole.OWNER, now);
         IdentityId operator = member(tenant, TenantRole.OPERATOR, now);
         IdentityId viewer = member(tenant, TenantRole.VIEWER, now);
@@ -358,7 +362,8 @@ class ApprovedSendJourneyIntegrationTest {
 
     /** A customer with WhatsApp consent, a recorded purchase and an explicit next follow-up date of today. */
     private Customer dueCustomer(String name) throws Exception {
-        String local = "8888" + String.format("%04d", ThreadLocalRandom.current().nextInt(10_000));
+        // A counter, not a random suffix: phones are unique per tenant and a test may seed two customers.
+        String local = "8888" + String.format("%04d", NEXT_CUSTOMER.incrementAndGet());
         MockHttpServletResponse created = perform(post("/api/customers").contentType(MediaType.APPLICATION_JSON)
                 .content("{\"displayName\":\"" + name + "\",\"phones\":[{\"number\":\"" + local
                         + "\",\"region\":\"CR\",\"primary\":true}]}"), workspace.operator);
