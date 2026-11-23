@@ -26,14 +26,18 @@ class LoopbackHostsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"LOCALHOST", "localhost.", "stub.localhost", "127.0.0.2", "127.1", "::1",
-            "[0:0:0:0:0:0:0:1]", "[::ffff:127.0.0.1]", "localhost.evil.example", "example.com", "10.0.0.5"})
+            "[0:0:0:0:0:0:0:1]", "[::ffff:127.0.0.1]", "localhost.evil.example", "example.com", "10.0.0.5", "0.0.0.0",
+            "[::]"})
     void theExactRuleRefusesEveryOtherSpelling(String host) {
         assertThat(LoopbackHosts.isExactSpelling(host)).isFalse();
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"LOCALHOST", "localhost.", "stub.localhost", "Backend.Localhost.", "127.0.0.2",
-            "127.255.255.255", "::1", "[::1]", "[0:0:0:0:0:0:0:1]", "[0000::0001]"})
+            "127.255.255.255", "::1", "[::1]", "[0:0:0:0:0:0:0:1]", "[0000::0001]", "127.1", "2130706433",
+            "[::ffff:127.0.0.1]",
+            // The unspecified address: on Linux a connection to it reaches the local host.
+            "0.0.0.0", "[::]", "::"})
     void theWideRuleAcceptsAnySpellingThatReachesLoopback(String host) {
         assertThat(LoopbackHosts.reachesLoopback(host)).isTrue();
     }
@@ -41,12 +45,19 @@ class LoopbackHostsTest {
     @ParameterizedTest
     @NullAndEmptySource
     @ValueSource(strings = {".", "localhost.evil.example", "evillocalhost", "example.com", "128.0.0.1", "10.0.0.5",
-            "[::2]", "[::1", "dokene_backend", "0.0.0.0",
+            "[::2]", "[::1", "dokene_backend",
             // Not recognized, as documented: 0177.0.0.1 is read as decimal 177.0.0.1 and hex is refused.
             "0177.0.0.1", "0x7f.0.0.1"})
     void theWideRuleRefusesHostsThatAreNotLoopback(String host) {
         assertThat(LoopbackHosts.reachesLoopback(host)).isFalse();
         assertThat(LoopbackHosts.isExactSpelling(host)).isFalse();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"localhost", "127.0.0.1", "[::1]"})
+    void theRefusalTextNamesEveryExactSpelling(String host) {
+        assertThat(LoopbackHosts.EXACT_SPELLINGS_TEXT).contains(host);
+        assertThat(LoopbackHosts.EXACT_SPELLINGS_TEXT).isEqualTo("localhost, 127.0.0.1 or [::1]");
     }
 
     /**
@@ -56,10 +67,13 @@ class LoopbackHostsTest {
      */
     @Test
     void noOtherMainClassDeclaresItsOwnLoopbackRule() throws IOException {
-        Pattern ownRule = Pattern.compile("isLoopbackAddress|LOOPBACK_HOSTS|boolean\\s+isLoopback\\w*\\s*\\("
-                + "|Set\\.of\\(\\s*\"(localhost|127\\.0\\.0\\.1|\\[::1\\])\""
-                + "|\\.(equals|endsWith|startsWith|contains)\\(\\s*"
-                + "\"(localhost|\\.localhost|127\\.|127\\.0\\.0\\.1|\\[::1\\]|::1)\"");
+        String spelling = "\"(localhost|\\.localhost|127\\.|127\\.0\\.0\\.1|\\[::1\\]|::1)\"";
+        Pattern ownRule = Pattern.compile("isLoopbackAddress|isAnyLocalAddress|LOOPBACK_HOSTS"
+                + "|boolean\\s+isLoopback\\w*\\s*\\("
+                + "|(Set|List)\\.of\\([^)]*" + spelling
+                + "|\\.(equals|equalsIgnoreCase|endsWith|startsWith|contains)\\(\\s*" + spelling
+                + "|" + spelling + "\\s*\\.(equals|equalsIgnoreCase)\\("
+                + "|case\\s+" + spelling);
         Path helper = Path.of("io/github/stevdrey/dokene/http/LoopbackHosts.java");
         // Gradle runs tests in backend/, an IDE may run them in the repository root; any other place fails here.
         Path main = Stream.of(Path.of("src/main/java"), Path.of("backend/src/main/java"))

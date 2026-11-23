@@ -1,11 +1,11 @@
 package io.github.stevdrey.dokene.integration.whatsapp;
 
+import io.github.stevdrey.dokene.http.LoopbackHosts;
+import io.github.stevdrey.dokene.http.TrustedHostNames;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
-import io.github.stevdrey.dokene.http.LoopbackHosts;
-import io.github.stevdrey.dokene.http.TrustedHostNames;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**

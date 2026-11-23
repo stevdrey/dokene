@@ -112,7 +112,8 @@ public record PublicOrigin(String value) {
         }
         // The exact rule on purpose: the value is sent as written, so only the spelling a browser writes (issue 428).
         if (scheme.equals("http") && !LoopbackHosts.isExactSpelling(host)) {
-            throw refused("allows plain http only on " + LoopbackHosts.EXACT_SPELLINGS_TEXT + "; use https for any other host");
+            throw refused("allows plain http only on " + LoopbackHosts.EXACT_SPELLINGS_TEXT
+                    + "; use https for any other host");
         }
     }
 
