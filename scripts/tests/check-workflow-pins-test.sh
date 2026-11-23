@@ -13,7 +13,7 @@ failures=0
 cd "$ROOT_DIR" || exit 1
 
 WORK="$(mktemp -d)"
-trap '[ -n "$WORK" ] && rm -rf -- "$WORK"' EXIT
+trap '[ -n "$WORK" ] && { chmod -R u+rwx -- "$WORK" 2>/dev/null; rm -rf -- "$WORK"; }' EXIT
 
 # expect "description" <expected exit> <dir> [expected output lines...]
 expect() {
@@ -108,6 +108,65 @@ ln -s "$WORK/named/elsewhere/reusable.yml" "$WORK/named/workflows/linked.yml"
 expect "an action in a directory named like a workflow file and a symlinked workflow file are both read" 1 "$WORK/named/workflows" \
     "$WORK/named/workflows/act.yml/action.yml:4: some/action@v1" \
     "$WORK/named/workflows/linked.yml:4: other/action@v2"
+
+# Dangling links and link loops under both read trees are not find failures: the check reads what is there.
+mkdir -p "$WORK/links/workflows/sub" "$WORK/links/actions/setup"
+printf 'jobs:\n  build:\n    steps:\n      - run: true\n' >"$WORK/links/workflows/workflow.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: some/action@v1\n' >"$WORK/links/actions/setup/action.yml"
+for d in "$WORK/links/workflows" "$WORK/links/workflows/sub" "$WORK/links/actions" "$WORK/links/actions/setup"; do
+    ln -s nowhere "$d/dangling"
+    ln -s self "$d/self"
+    ln -s . "$d/here"
+done
+# A link to the parent from a subdirectory only: one in a top directory would leave the tree being read.
+ln -s .. "$WORK/links/workflows/sub/up"
+ln -s .. "$WORK/links/actions/setup/up"
+expect "dangling links and link loops are read past, not reported as failures" 1 "$WORK/links/workflows" \
+    "$WORK/links/actions/setup/action.yml:4: some/action@v1"
+
+# expect_find_failure "description" <dir> <directory the message must name>: exit 2, no stdout, the message on stderr.
+expect_find_failure() {
+    local description="$1" dir="$2" named="$3" got_exit=0
+    "$CHECK" "$dir" >"$WORK/out" 2>"$WORK/err" || got_exit=$?
+    if [ "$got_exit" -eq 2 ] && [ ! -s "$WORK/out" ] \
+        && grep -qF "check-workflow-pins: find failed (exit " "$WORK/err" \
+        && grep -qF ") while reading $named, so not every file under it was checked" "$WORK/err"; then
+        printf '[pass] %s\n' "$description"
+    else
+        printf '[FAIL] %s (exit %s, wanted 2)\n' "$description" "$got_exit" >&2
+        sed 's/^/       stdout: /' "$WORK/out" >&2
+        sed 's/^/       stderr: /' "$WORK/err" >&2
+        failures=$((failures + 1))
+    fi
+}
+
+# A directory find cannot read hides the floating tag in it; the check must not call that tree clean (issue #370).
+# Git stores no mode 000 directory, so the trees are built here. root reads every directory, so the cases are skipped.
+# Each tree is clean apart from the floating tag behind the unreadable directory, so a fail open run would exit 0.
+mkdir -p "$WORK/locked-actions/workflows" "$WORK/locked-actions/actions/hidden" "$WORK/locked-workflows/workflows/nested/inner"
+printf 'jobs:\n  build:\n    steps:\n      - run: true\n' >"$WORK/locked-actions/workflows/workflow.yml"
+printf 'jobs:\n  build:\n    steps:\n      - run: true\n' >"$WORK/locked-workflows/workflows/workflow.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: some/action@v1\n' >"$WORK/locked-actions/actions/hidden/action.yml"
+printf 'runs:\n  using: composite\n  steps:\n    - uses: some/action@v1\n' >"$WORK/locked-workflows/workflows/nested/inner/action.yml"
+# A loop error next to a real one, and a line break in a name next to a loop, must not make the run pass.
+mkdir -p "$WORK/newline/workflows" "$WORK/newline/actions/a
+b"
+printf 'jobs:\n  build:\n    steps:\n      - run: true\n' >"$WORK/newline/workflows/workflow.yml"
+ln -s self "$WORK/newline/actions/self"
+if [ "$(id -u)" -eq 0 ]; then
+    printf '[skip] %s\n' "unreadable directory cases (running as root)"
+else
+    chmod 000 "$WORK/locked-actions/actions/hidden"
+    ln -s self "$WORK/locked-actions/actions/self"
+    expect_find_failure "an unreadable directory under the actions directory exits 2 naming it" \
+        "$WORK/locked-actions/workflows" "$WORK/locked-actions/actions"
+    chmod 000 "$WORK/locked-workflows/workflows/nested"
+    expect_find_failure "an unreadable subdirectory of the workflows directory exits 2 naming it" \
+        "$WORK/locked-workflows/workflows" "$WORK/locked-workflows/workflows"
+fi
+expect_find_failure "a link loop in a tree with a line break in a name exits 2" \
+    "$WORK/newline/workflows" "$WORK/newline/actions"
+
 expect "a docker:// reference without a digest fails" 1 "$FIXTURES/docker-no-digest" \
     "$FIXTURES/docker-no-digest/workflow.yml:6: docker://alpine:3.20"
 expect "an empty directory exits 2" 2 "$FIXTURES/empty-dir"

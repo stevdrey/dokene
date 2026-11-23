@@ -4,7 +4,7 @@
 #
 # Usage: ./scripts/check-workflow-pins.sh [dir]     (default dir: .github/workflows)
 # Exit 0 when every reference is pinned, 1 with one `<dir>/<file>:<line>: <reference>` line per violation,
-# 2 when the directory holds no *.yml or *.yaml file. Local composite actions (action.yml, action.yaml) are scanned
+# 2 when the directory holds no *.yml or *.yaml file, or when `find` fails while collecting the files (issue #370). Local composite actions (action.yml, action.yaml) are scanned
 # too: at any depth under the sibling `actions` directory of dir when it exists, and in any subdirectory of dir.
 set -euo pipefail
 
@@ -81,8 +81,46 @@ check_file() {
 
 [ -d "$DIR" ] || { echo "check-workflow-pins: $DIR is not a directory" >&2; exit 2; }
 
+# Each `find` writes to files in a private directory instead of a process substitution, so that its exit status is
+# seen: a directory find cannot read would otherwise leave files unchecked and the run green (issue #370).
+WORK="$(mktemp -d "${TMPDIR:-/tmp}/check-workflow-pins.XXXXXX")" || { echo "check-workflow-pins: cannot create a temporary directory" >&2; exit 2; }
+trap 'rm -rf -- "$WORK"' EXIT
+
+# With -L, a symbolic link loop is an error that hides no file: the target is a directory already read, or nothing.
+# These are the messages for it from GNU find (both wordings) and BSD find under LC_ALL=C; any other line is fatal.
+LINK_ERRORS="^find: .*: Too many levels of symbolic links\$|^find: File system loop detected; (the following directory is part of the cycle: .*|.* is part of the same file system loop as .*\\.)\$|^find: .*: directory causes a cycle\$"
+NEWLINE=$'\n'
+
+# only_link_errors FILE: true when FILE holds at least one line and every line is a link loop error.
+only_link_errors() {
+    local line seen=0
+    while IFS= read -r line || [ -n "$line" ]; do
+        [[ $line =~ $LINK_ERRORS ]] || return 1
+        seen=1
+    done < "$1"
+    [ "$seen" -eq 1 ]
+}
+
+# collect ROOT FIND-ARGS...: appends the files `find -L ROOT FIND-ARGS...` prints to `files`, sorted, and exits 2
+# naming ROOT when find fails for any reason other than link loops. The messages are read line by line, so a name
+# holding a line break could pass off another error as a loop one; a failing run under such a tree is fatal too.
+collect() {
+    local root="$1" status=0 f
+    shift
+    LC_ALL=C find -L "$root" "$@" >"$WORK/found" 2>"$WORK/errors" || status=$?
+    if [ -s "$WORK/errors" ]; then cat "$WORK/errors" >&2; fi
+    if [ "$status" -ne 0 ]; then
+        if ! only_link_errors "$WORK/errors" \
+            || [ -n "$(LC_ALL=C find -L "$root" -name "*$NEWLINE*" 2>/dev/null)" ]; then
+            echo "check-workflow-pins: find failed (exit $status) while reading $root, so not every file under it was checked" >&2
+            exit 2
+        fi
+    fi
+    while IFS= read -r f; do files+=("$f"); done < <(LC_ALL=C sort "$WORK/found")
+}
+
 files=()
-while IFS= read -r f; do files+=("$f"); done < <(find -L "$DIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \) | LC_ALL=C sort)
+collect "$DIR" -maxdepth 1 -type f \( -name '*.yml' -o -name '*.yaml' \)
 [ "${#files[@]}" -gt 0 ] || { echo "check-workflow-pins: no *.yml or *.yaml file in $DIR" >&2; exit 2; }
 
 # A `./.github/actions/...` reference runs a composite action from the tree, and that action can itself name outside
@@ -90,10 +128,10 @@ while IFS= read -r f; do files+=("$f"); done < <(find -L "$DIR" -maxdepth 1 -typ
 # Subdirectories of the workflows directory are read as well, so that whatever a name LOCAL_VALUE accepts turns out
 # to be on disk (a directory called `x.yml` holding an action, for one), its `uses` lines are still checked.
 # -mindepth 2 on the workflows directory only: a file directly in it is already in the list as a workflow.
-while IFS= read -r f; do files+=("$f"); done < <(find -L "$DIR" -mindepth 2 -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
+collect "$DIR" -mindepth 2 -type f \( -name 'action.yml' -o -name 'action.yaml' \)
 ACTIONS_DIR="$(dirname "$DIR")/actions"
 if [ -d "$ACTIONS_DIR" ]; then
-    while IFS= read -r f; do files+=("$f"); done < <(find -L "$ACTIONS_DIR" -type f \( -name 'action.yml' -o -name 'action.yaml' \) | LC_ALL=C sort)
+    collect "$ACTIONS_DIR" -type f \( -name 'action.yml' -o -name 'action.yaml' \)
 fi
 
 for f in "${files[@]}"; do check_file "$f"; done
