@@ -164,6 +164,21 @@ ln -s ../links/l1 "$WORK/chain/actions/l0"
 expect_find_failure "a link chain longer than the system limit is not taken for a loop" \
     "$WORK/chain/workflows" "$WORK/chain/actions"
 
+# A self link under a relative path is still taken for a loop when CDPATH names a tree with the same directory names.
+# The default `.github/workflows` gives the relative path `.github/actions/self`, the one cd looks up in CDPATH.
+mkdir -p "$WORK/cdpath/.github/workflows" "$WORK/cdpath/.github/actions" "$WORK/decoy/.github/actions"
+printf 'jobs:\n  build:\n    steps:\n      - run: true\n' >"$WORK/cdpath/.github/workflows/workflow.yml"
+ln -s self "$WORK/cdpath/.github/actions/self"
+cdpath_exit=0
+(cd "$WORK/cdpath" && CDPATH="$WORK/decoy" "$CHECK") >"$WORK/out" 2>"$WORK/err" || cdpath_exit=$?
+if [ "$cdpath_exit" -eq 0 ] && [ ! -s "$WORK/out" ]; then
+    printf '[pass] %s\n' "a self link is a loop whatever CDPATH holds"
+else
+    printf '[FAIL] %s (exit %s, wanted 0)\n' "a self link is a loop whatever CDPATH holds" "$cdpath_exit" >&2
+    sed 's/^/       stderr: /' "$WORK/err" >&2
+    failures=$((failures + 1))
+fi
+
 # A directory find cannot read hides the floating tag in it; the check must not call that tree clean (issue #370).
 # Git stores no mode 000 directory, so the trees are built here. root reads every directory, so the cases are skipped;
 # the stub and chain cases above still cover the failure path then.

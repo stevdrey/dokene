@@ -105,7 +105,8 @@ link_cycles() {
     local link="$1" seen=$'\n' hops=0 dir target
     while [ "$hops" -lt 64 ]; do
         [ -L "$link" ] || return 1
-        dir="$(cd -P -- "$(dirname -- "$link")" 2>/dev/null && pwd -P)" || return 1
+        # CDPATH is cleared: with it, cd could pick another tree's directory of the same relative name and print it.
+        dir="$(CDPATH='' cd -P -- "$(dirname -- "$link")" 2>/dev/null && pwd -P)" || return 1
         link="$dir/${link##*/}"
         case "$seen" in *$'\n'"$link"$'\n'*) return 0 ;; esac
         seen="$seen$link"$'\n'
