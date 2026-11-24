@@ -110,7 +110,7 @@ assert "a refused export changes nothing" test "$?" = 0
 export PROVIDER_TEST_COMPOSE_FILE="$ROOT_DIR/compose.yaml" PROVIDER_TEST_DOCKERFILE="$ROOT_DIR/infra/docker/backend/Dockerfile"
 assert "the Dockerfile baseline is the backend image's final stage" test "$(_provider_test_dockerfile_baseline "$PROVIDER_TEST_DOCKERFILE")" \
     = "$(printf '%s\n' 'ENTRYPOINT ["/app/entrypoint.sh"]' 'CMD null' 'WORKDIR "/app"' \
-        'ENV JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:-UseBASE64Intrinsics')"
+        'ENV JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError')"
 COMPOSE_NAMES="$(_provider_test_compose_names "$PROVIDER_TEST_COMPOSE_FILE")"
 assert "the compose file's backend environment is read" test "$(printf '%s\n' "$COMPOSE_NAMES" | grep -c .)" -gt 30
 assert "the compose baseline includes the provider key" grep -qx DOKENE_AI_OPENAI_API_KEY <<< "$COMPOSE_NAMES"
@@ -144,8 +144,8 @@ chmod +x "$BIN/docker"
 export DOCKER_LOG="$TMP/docker.log" DOCKER_STATE="$TMP/state"
 mkdir -p "$DOCKER_STATE"
 IMAGE_ENV=('PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin' 'JAVA_HOME=/opt/java/openjdk'
-    'LANG=en_US.UTF-8' 'LANGUAGE=en_US:en' 'LC_ALL=en_US.UTF-8' 'JAVA_VERSION=jdk-27.0.1.0.2+1'
-    'JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -XX:-UseBASE64Intrinsics')
+    'LANG=en_US.UTF-8' 'LANGUAGE=en_US:en' 'LC_ALL=en_US.UTF-8' 'JAVA_VERSION=jdk-27.0.1.1+4'
+    'JAVA_TOOL_OPTIONS=-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError')
 printf '%s\0' "${IMAGE_ENV[@]}" > "$DOCKER_STATE/image_env"
 
 # backend_env URL KEY [ENTRY...]: a backend like the real one. Every compose name holds a placeholder, the image's

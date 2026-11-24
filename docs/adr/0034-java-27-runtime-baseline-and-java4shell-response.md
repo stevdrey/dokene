@@ -22,8 +22,17 @@ Two supported targets had a fixed build: Java 27 (27.0.1.1) and Java 25 LTS (25.
 
 ## Consequences
 
-- On amd64 the backend image ships the vendor-fixed JRE. The arm64 image and the build stage JDK are unfixed builds with the vulnerable intrinsic off. The pinned x64 archive is a build input Dependabot does not update; it is replaced by the official image digest bump once both platforms are rebuilt (tracked in the security page).
-- Base64 decoding in the mitigated JVM runs in plain Java code: slower, but the backend decodes only short cursors.
+- On amd64 the backend image ships the vendor-fixed JRE. The arm64 image and the build stage JDK are unfixed builds with the vulnerable intrinsic off. The pinned x64 archive is a build input Dependabot does not update; it is replaced by the official image digest bump once both platforms are rebuilt (tracked in the security page). Superseded by the amendment below.
+- Base64 decoding in the mitigated JVM runs in plain Java code: slower, but the backend decodes only short cursors. Superseded by the amendment below.
 - CodeQL supports Java up to 26, so its job compiles with `--release 26` (`-PcodeqlJavaRelease=26`) on the fixed JDK 27 until CodeQL supports 27; the code cannot use a Java 27 language feature before then.
 - Java 27 is not LTS. Its support ends when Java 28 ships; the baseline after that is a new decision.
 - A version table of fixed builds lives in the script. A future advisory for the same bug means editing that table.
+
+## Amendment: official fixed images (issue 432)
+
+Issue [#432](https://github.com/stevdrey/dokene/issues/432) carried out the follow-up of decision 3 once the official `eclipse-temurin:27-jdk` and `27-jre` images held `27.0.1.1+4` for linux/amd64 and linux/arm64:
+
+- Both digests point at those official images. The `jre-fixed-x64` stage, the per-platform JRE swap and the pinned archive are removed; the image pins are official digests only.
+- Each stage of the backend image runs `scripts/check-java4shell-runtime.sh --require-patched` at build time (decision 5's script, bound from the build context `java4shell`), so an image with an unfixed JDK or JRE cannot be built on any platform.
+- Because a fixed build is now guaranteed at build time, the interim `-XX:-UseBASE64Intrinsics` flag is dropped from the backend image, its entrypoint and the compose `migrate` service. Invariant 42 is met by the fixed build, and the Base64 intrinsic runs again. Decision 4 (the flag for a third-party image with no fix) is unchanged.
+- CodeQL still analyzes Java up to 26 only, so `-PcodeqlJavaRelease=26` stays until it supports Java 27.

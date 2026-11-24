@@ -5,6 +5,7 @@ on:
     paths:
       - 'backend/**'
       - 'compose.yaml'
+      - 'infra/docker/backend/**'
       - 'scripts/check-java4shell-runtime.sh'
       - '.github/workflows/backend.yml'
   push:
@@ -12,6 +13,7 @@ on:
     paths:
       - 'backend/**'
       - 'compose.yaml'
+      - 'infra/docker/backend/**'
       - 'scripts/check-java4shell-runtime.sh'
       - '.github/workflows/backend.yml'
 
@@ -36,3 +38,33 @@ jobs:
         run: ../scripts/check-java4shell-runtime.sh --require-patched
       - uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - run: ./gradlew test
+
+  # Builds the backend image natively on each platform it ships for, and fails unless the image's JRE is a
+  # Java4Shell-fixed build there (CVE-2026-114938, issues 429 and 432). The Dockerfile runs the same check in each
+  # stage; running it again inside the finished image proves what `backend` and `migrate` actually start.
+  image:
+    name: Backend image (${{ matrix.platform }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the backend image
+        run: >-
+          docker build --platform "${{ matrix.platform }}"
+          -f infra/docker/backend/Dockerfile
+          --build-context entrypoint=infra/docker/backend
+          --build-context java4shell=scripts
+          -t dokene-backend:ci backend
+      - name: Require a Java4Shell-fixed JRE inside the image
+        run: >-
+          docker run --rm --platform "${{ matrix.platform }}" --entrypoint bash
+          -v "$PWD/scripts/check-java4shell-runtime.sh:/tmp/check-java4shell-runtime.sh:ro"
+          dokene-backend:ci /tmp/check-java4shell-runtime.sh --require-patched

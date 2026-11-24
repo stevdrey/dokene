@@ -177,14 +177,13 @@ services:
       dockerfile: ../infra/docker/backend/Dockerfile
       additional_contexts:
         entrypoint: ./infra/docker/backend
+        java4shell: ./scripts
     image: dokene-backend:local
     depends_on:
       postgres:
         condition: service_healthy
-    # -XX:-UseBASE64Intrinsics: Java4Shell (CVE-2026-114938) interim mitigation, as in the backend entrypoint (issue 429).
     entrypoint:
       - java
-      - -XX:-UseBASE64Intrinsics
       - -Dloader.main=io.github.stevdrey.dokene.migration.DokeneMigrationApplication
       - -cp
       - /app/dokene.jar
@@ -214,6 +213,7 @@ services:
       dockerfile: ../infra/docker/backend/Dockerfile
       additional_contexts:
         entrypoint: ./infra/docker/backend
+        java4shell: ./scripts
     image: dokene-backend:local
     network_mode: "service:oidc-bridge"
     depends_on:

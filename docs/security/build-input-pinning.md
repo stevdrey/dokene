@@ -93,7 +93,7 @@ When Dependabot bumps `distributionUrl`, check whether it also changed `distribu
 
 ## How Dependabot keeps the pins current
 
-`.github/dependabot.yml` has a `docker` entry for the three Dockerfile directories and a `docker-compose` entry for `/`. Each opens at most one grouped pull request per week, only after a release has been public for seven days, and never proposes a major version: a move to a new Java, PostgreSQL (which breaks an existing data volume) or Keycloak major is a hand change with its own issue, because no workflow builds the backend or Keycloak image and such a bump could arrive on green CI.
+`.github/dependabot.yml` has a `docker` entry for the three Dockerfile directories and a `docker-compose` entry for `/`. Each opens at most one grouped pull request per week, only after a release has been public for seven days, and never proposes a major version: a move to a new Java, PostgreSQL (which breaks an existing data volume) or Keycloak major is a hand change with its own issue, because no workflow builds the Keycloak image and such a bump could arrive on green CI. The `image` job of `backend.yml` builds the backend image on linux/amd64 and linux/arm64 and fails unless its JRE is a Java4Shell-fixed build, but it does not run the application.
 
 How Dependabot treats a line with both a tag and a digest, and whether the group and the major version rule hold for these two ecosystems, was not confirmed before the change. What its first run did is recorded as a comment on issue #323. Where Dependabot does not update a line the rule covers, the manual pin steps are the update path for that line.
 
@@ -102,14 +102,14 @@ A pinned image no longer picks up upstream security patches by itself. Patches a
 ## What a reviewer checks on a bump
 
 1. For each changed line, run manual pin steps 1 and 2 against the tag on the line and confirm the digest matches and both platforms are listed.
-2. Build each changed image with no cache (`docker compose build --no-cache <service>`), since CI builds only the frontend image.
+2. Build each changed image with no cache (`docker compose build --no-cache <service>`), since CI builds only the frontend image and, without starting it, the backend image.
 3. For a PostgreSQL bump, confirm `backend.yml` ran. For a PostgreSQL or Keycloak bump, start the local stack once on its existing volumes.
 4. Read the tag: a major version move never comes from Dependabot.
 5. Merge on green CI.
 
 ## Downloaded archives
 
-A Dockerfile that fetches an archive by URL uses `ADD --checksum=sha256:<64 lowercase hex> <https URL>`, so BuildKit refuses content that differs from the recorded hash. The checksum is read from two vendor sources that must agree (for Temurin: the Adoptium API `package.checksum` and the `.sha256.txt` published beside the archive), and the URL names an exact release, never `latest`. Dependabot does not update such a line: it is a hand change with its own evidence row, and it is removed in favour of a pinned image as soon as an official image carries the same content. The only such line is the Java4Shell-fixed x64 JRE of the backend image ([java4shell-cve-2026-114938.md](java4shell-cve-2026-114938.md), issue [#429](https://github.com/stevdrey/dokene/issues/429)). `scripts/check-image-pins.sh` does not read `ADD` lines; review covers them.
+A Dockerfile that fetches an archive by URL uses `ADD --checksum=sha256:<64 lowercase hex> <https URL>`, so BuildKit refuses content that differs from the recorded hash. The checksum is read from two vendor sources that must agree (for Temurin: the Adoptium API `package.checksum` and the `.sha256.txt` published beside the archive), and the URL names an exact release, never `latest`. Dependabot does not update such a line: it is a hand change with its own evidence row, and it is removed in favour of a pinned image as soon as an official image carries the same content. No such line exists today. The last one, the Java4Shell-fixed x64 JRE of the backend image (issue [#429](https://github.com/stevdrey/dokene/issues/429)), was removed when the official images carried the fix (issue [#432](https://github.com/stevdrey/dokene/issues/432), [java4shell-cve-2026-114938.md](java4shell-cve-2026-114938.md)). `scripts/check-image-pins.sh` does not read `ADD` lines; review covers them.
 
 ## Deferred
 
