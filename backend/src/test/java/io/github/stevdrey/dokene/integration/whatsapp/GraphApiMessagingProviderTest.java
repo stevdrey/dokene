@@ -41,6 +41,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
@@ -526,6 +527,9 @@ class GraphApiMessagingProviderTest {
                 }
                 assertThat(result).as("after %s", elapsed)
                         .isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
+                // The call waited on the connect: a NotSent returned before connecting (an expired deadline, a request
+                // that could not be built) comes back at once, while the 250 ms connect timeout never fires early.
+                assertThat(elapsed).isGreaterThanOrEqualTo(Duration.ofMillis(200));
                 // Bounded by the 500 ms budget, not by the kernel's SYN retries; the slack absorbs a cold, loaded JVM.
                 // This no longer pins the half-budget connect timeout of GraphApiHttp, on purpose: correctness does not
                 // need it, since the JDK reports either timer firing before a connection as a connect timeout.
@@ -539,7 +543,7 @@ class GraphApiMessagingProviderTest {
     }
 
     /**
-     * Connects fillers until one is not accepted and returns how many were queued. A filler that times out is taken
+     * Connects fillers until one times out and returns how many were queued. A filler that times out is taken
      * for a dropped SYN, so the wait is far longer than any loopback handshake, even on a loaded machine; a dropped
      * SYN is first retransmitted after a second, so it cannot complete within the wait.
      */
@@ -549,8 +553,11 @@ class GraphApiMessagingProviderTest {
             fillers.add(filler);
             try {
                 filler.connect(full.getLocalAddress(), (int) FILLER_CONNECT_WAIT.toMillis());
-            } catch (IOException queueAlreadyFull) {
+            } catch (SocketTimeoutException queueAlreadyFull) {
                 return queued > 0 ? queued : noHang("The listener accepted no connection at all");
+            } catch (IOException notAFullQueue) {
+                // A refusal or a local failure says nothing about the queue, so it cannot stand for a dropped SYN.
+                return noHang("Filler %d failed without timing out: %s".formatted(queued, notAFullQueue));
             }
         }
         return noHang("The accept queue never filled, so no connect can be made to hang");
