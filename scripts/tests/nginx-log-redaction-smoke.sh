@@ -14,8 +14,8 @@
 # backend name with nothing listening (connection refused), a webhook body over the 4 MiB cap (413), and a stub backend
 # that answers 200, or closes the connection on one route. After each state the edge's whole output, stdout and stderr,
 # must hold none of the markers, and the access log must still show each request's path, status and upstream status.
-# Every case that sends something nginx would show in a raw request line also carries a marker there, so each case
-# fails against a configuration that logs `$request`. The stub and the stand-in backend run from the same image, so the
+# Every case has at least one request with a marker in its request line, so each case fails against a configuration
+# that logs `$request`. The stub and the stand-in backend run from the same image, so the
 # script names no image of its own. Needs bash, curl and a running Docker daemon; it never touches the Compose stack.
 #
 # Usage: ./scripts/tests/nginx-log-redaction-smoke.sh
@@ -176,6 +176,8 @@ raw_request() {
   printf '%s\n' "${reply%% *}"
 }
 CRLF=$'\r\n'
+# raw_get <target>: a plain GET of the target through raw_request, closing the connection after the answer.
+raw_get() { raw_request "GET $1 HTTP/1.1${CRLF}Host: localhost${CRLF}Connection: close${CRLF}${CRLF}"; }
 
 # edge_output: everything the edge wrote so far, stdout (access log) and stderr (error log) together.
 edge_output() { docker logs "$NAME" >"$WORK/out" 2>&1; cat "$WORK/out"; }
@@ -228,24 +230,28 @@ check "no backend: no request scoped error line is written" no_error_lines
 
 # Issue 431, still without a backend: requests refused before nginx picks a location. A request line nginx cannot parse
 # (an invalid protocol), and a header over the 8 KiB buffer, each with a marker in its query string; both answer 400.
+lines_400="$(logged_count '" 400 ')"
 bad_line_status="$(raw_request "GET /webhooks/whatsapp?hub.verify_token=${BAD_LINE_MARKERS[0]} XTTP/1.1${CRLF}Host: localhost${CRLF}${CRLF}")"
 check "malformed request line: refused with 400 (got $bad_line_status)" test "$bad_line_status" = "400"
 check "malformed request line: no marker reaches the edge's output" no_marker_of "${BAD_LINE_MARKERS[@]}"
+check "malformed request line: leaves one access log line" test "$(logged_count '" 400 ')" -eq $((lines_400 + 1))
+lines_400="$(logged_count '" 400 ')"
 padding="$(printf '%09000d' 0)"
 big_header_status="$(raw_request "GET /webhooks/whatsapp?hub.verify_token=${BIG_HEADER_MARKERS[0]} HTTP/1.1${CRLF}Host: localhost${CRLF}X-Pad: ${BIG_HEADER_MARKERS[1]}$padding${CRLF}${CRLF}")"
 check "header over the buffer size: refused with 400 (got $big_header_status)" test "$big_header_status" = "400"
 check "header over the buffer size: no marker reaches the edge's output" no_marker_of "${BIG_HEADER_MARKERS[@]}"
 check "header over the buffer size: logged by path with its status" logged "GET /webhooks/whatsapp" 400 "-/-"
-check "requests refused with 400: each still leaves one access log line" test "$(logged_count '" 400 ')" -eq 2
+check "header over the buffer size: leaves one access log line" test "$(logged_count '" 400 ')" -eq $((lines_400 + 1))
 check "requests refused with 400: no request scoped error line is written" no_error_lines
 
-# A burst of login starts with a marker in the query string, sent at the same moment: the rate limit passes 1 + burst
-# (11) on and refuses the rest with 429 (nginx-login-rate-limit-smoke.sh checks the exact counts).
+# A burst of 30 login starts with a marker in the query string, sent at the same moment: the rate limit passes 1 + burst
+# (11) on, plus one per 2 seconds the burst takes to arrive, and refuses others with 429. 30 leave room for a slow
+# runner (nginx-login-rate-limit-smoke.sh checks the exact counts).
 rate_args=()
-for _ in $(seq 1 15); do
+for _ in $(seq 1 30); do
   rate_args+=(-o /dev/null "$BASE/oauth2/authorization/dokene?redirect=${RATE_LIMIT_MARKERS[0]}")
 done
-rate_statuses="$(curl -s -m 20 --parallel --parallel-immediate --parallel-max 15 -w '%{http_code} ' "${rate_args[@]}")"
+rate_statuses="$(curl -s -m 20 --parallel --parallel-immediate --parallel-max 30 -w '%{http_code} ' "${rate_args[@]}")"
 check "login start burst: the rate limit refuses some with 429 (got $rate_statuses)" \
   test "$(printf '%s' "$rate_statuses" | grep -o 429 | wc -l)" -ge 1
 check "login start burst: no marker reaches the edge's output" no_marker_of "${RATE_LIMIT_MARKERS[@]}"
@@ -254,15 +260,15 @@ check "login start burst: a refused one is logged by path with its 429" \
 check "login start burst: no request scoped error line is written" no_error_lines
 
 # An absolute form request target (`GET http://host/path?query`): the logged path is the plain path.
-absolute_status="$(raw_request "GET http://localhost:5173/api/absolute-form?term=${ABSOLUTE_FORM_MARKERS[0]} HTTP/1.1${CRLF}Host: localhost${CRLF}Connection: close${CRLF}${CRLF}")"
+absolute_status="$(raw_get "http://localhost:5173/api/absolute-form?term=${ABSOLUTE_FORM_MARKERS[0]}")"
 check "absolute form target: proxied and failed with 502 (got $absolute_status)" test "$absolute_status" = "502"
 check "absolute form target: no marker reaches the edge's output" no_marker_of "${ABSOLUTE_FORM_MARKERS[@]}"
 check "absolute form target: logged by its plain path, without scheme or host" logged "GET /api/absolute-form" 502 "-/-"
 
 # A fragment in the path, raw and encoded. Browsers never send one, but a client can: the path is cut at `#` and %23,
 # as the Referer is (issue 431, optional item).
-fragment_status="$(raw_request "GET /fragment-probe#token=${FRAGMENT_MARKERS[0]} HTTP/1.1${CRLF}Host: localhost${CRLF}Connection: close${CRLF}${CRLF}")"
-fragment_status+=" $(raw_request "GET /fragment-probe-encoded%23token=${FRAGMENT_MARKERS[1]} HTTP/1.1${CRLF}Host: localhost${CRLF}Connection: close${CRLF}${CRLF}")"
+fragment_status="$(raw_get "/fragment-probe#token=${FRAGMENT_MARKERS[0]}")"
+fragment_status+=" $(raw_get "/fragment-probe-encoded%23token=${FRAGMENT_MARKERS[1]}")"
 check "fragment in the path: the SPA routes answer 200 (got $fragment_status)" test "$fragment_status" = "200 200"
 check "fragment in the path: no marker reaches the edge's output" no_marker_of "${FRAGMENT_MARKERS[@]}"
 check "fragment in the path: a raw # cuts the logged path" logged "GET /fragment-probe" 200 "-/-"
