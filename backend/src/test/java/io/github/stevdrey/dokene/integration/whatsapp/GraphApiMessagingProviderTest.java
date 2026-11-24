@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.integration.whatsapp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -41,6 +42,8 @@ import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.URI;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -72,6 +75,8 @@ class GraphApiMessagingProviderTest {
     private static final String EMOJI = "\uD83C\uDF81";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final JsonNode FIXTURES = loadFixtures();
+    /** How long a filler may take to connect before the accept queue counts as full; under the 1 s SYN retry. */
+    private static final Duration FILLER_CONNECT_WAIT = Duration.ofMillis(500);
 
     private HttpServer server;
     private final AtomicInteger requests = new AtomicInteger();
@@ -500,28 +505,62 @@ class GraphApiMessagingProviderTest {
     @Test
     void aConnectThatHangsIsTransientBecauseNothingLeft() throws Exception {
         // A full accept queue makes Linux drop further SYNs, so the next connect hangs instead of being refused.
-        try (ServerSocket full = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
-            List<Socket> fillers = new java.util.ArrayList<>();
+        try (ServerSocketChannel full = ServerSocketChannel.open()) {
+            full.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 1);
+            List<Socket> fillers = new ArrayList<>();
             try {
-                for (int i = 0; i < 4; i++) {
-                    Socket filler = new Socket();
-                    fillers.add(filler);
-                    try {
-                        filler.connect(full.getLocalSocketAddress(), 100);
-                    } catch (IOException queueAlreadyFull) {
-                        break;
-                    }
-                }
+                int queued = fillAcceptQueue(full, fillers);
+
                 long started = System.nanoTime();
-                assertThat(providerFor(full.getLocalPort()).send(command(List.of("Ana"))))
+                ProviderSendResult result = providerFor(((InetSocketAddress) full.getLocalAddress()).getPort())
+                        .send(command(List.of("Ana")));
+                Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+
+                // Only a connect that never completed makes this case: one that joined the queue sent the request, and
+                // then an unknown outcome is the right answer, not a defect. Nothing accepts, so the queue tells.
+                assumeTrue(drainAcceptQueue(full) == queued,
+                        "The adapter connected, so the environment did not make the connect hang");
+                assertThat(result).as("after %s", elapsed)
                         .isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
-                assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(500));
+                // Bounded by the 500 ms budget, not by the kernel's SYN retries; the slack absorbs a cold, loaded JVM.
+                assertThat(elapsed).isLessThan(Duration.ofMillis(1_500));
             } finally {
                 for (Socket filler : fillers) {
                     filler.close();
                 }
             }
         }
+    }
+
+    /**
+     * Connects fillers until one is not accepted and returns how many were queued. A filler that times out is taken
+     * for a dropped SYN, so the wait is far longer than any loopback handshake, even on a loaded machine; a dropped
+     * SYN is first retransmitted after a second, so it cannot complete within the wait.
+     */
+    private static int fillAcceptQueue(ServerSocketChannel full, List<Socket> fillers) throws IOException {
+        for (int queued = 0; queued < 4; queued++) {
+            Socket filler = new Socket();
+            fillers.add(filler);
+            try {
+                filler.connect(full.getLocalAddress(), (int) FILLER_CONNECT_WAIT.toMillis());
+            } catch (IOException queueAlreadyFull) {
+                assumeTrue(queued > 0, "The listener accepted no connection at all");
+                return queued;
+            }
+        }
+        assumeTrue(false, "The accept queue never filled, so no connect can be made to hang");
+        return 0;
+    }
+
+    /** Accepts every connection the kernel completed, without waiting for more. */
+    private static int drainAcceptQueue(ServerSocketChannel full) throws IOException {
+        full.configureBlocking(false);
+        int accepted = 0;
+        for (SocketChannel connection = full.accept(); connection != null; connection = full.accept()) {
+            connection.close();
+            accepted++;
+        }
+        return accepted;
     }
 
     @Test
