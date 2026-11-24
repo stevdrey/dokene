@@ -70,6 +70,7 @@ class OpenAiEndpointPolicyTest {
             "api.openai.com/v1", "//api.openai.com/v1", "/v1", "https:///v1", "https://", "mailto:a@api.openai.com",
             "https://api.openai.com:0/v1", "https://api.openai.com:70000/v1", "https://api.openai.com:x/v1",
             "http://localhost:0/v1", "http://localhost:65536/v1", "https://@api.openai.com/v1",
+            "https://api.openai.com/../v1", "https://api.openai.com/..",
             "https://[::1/v1", "not a url"})
     void rejectsEveryOtherEndpointBeforeAnyClientIsBuilt(String baseUrl) {
         assertThatThrownBy(() -> of(baseUrl))

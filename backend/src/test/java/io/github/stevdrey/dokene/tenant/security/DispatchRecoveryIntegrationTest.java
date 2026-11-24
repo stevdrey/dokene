@@ -143,7 +143,9 @@ class DispatchRecoveryIntegrationTest {
         safety.blockedWith = null;
         provider.reset();
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, contexts, "Recovery A " + UUID.randomUUID(), now);
+        // No random digits in the business name: hex such as "cad0" reads as an ungrounded amount (see eligibleCustomer
+        // and issue 443).
+        tenantA = seedTenant(tenants, contexts, "Recovery A", now);
         ownerA = context(seedMembership(memberships, contexts, tenantA.id(), new IdentityId(UUID.randomUUID()),
                 TenantRole.OWNER, now));
         inContext(ownerA, () -> followUps.configureTenant(30, ZoneId.of("UTC"), 0));

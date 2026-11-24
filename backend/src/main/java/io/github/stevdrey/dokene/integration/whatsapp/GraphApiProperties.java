@@ -11,7 +11,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * the shared {@link ProviderEndpointPolicy} with {@code graph.facebook.com} as the provider host and
  * {@code additionalTrustedHosts} as the trusted-host list; the bound value is the canonical URL the policy returns.
  * Listing a host is a trust decision: it will receive tenant credentials, so it must be an internal HTTPS proxy or
- * mock the deployment controls, never a public third party.
+ * mock the deployment controls, never a public third party. An unset or empty {@code baseUrl} means
+ * {@link #DEFAULT_BASE_URL}.
  */
 @ConfigurationProperties(prefix = "dokene.integration.whatsapp.graph")
 public record GraphApiProperties(URI baseUrl, Duration timeout, List<String> additionalTrustedHosts) {
@@ -25,7 +26,8 @@ public record GraphApiProperties(URI baseUrl, Duration timeout, List<String> add
     public GraphApiProperties {
         timeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
         additionalTrustedHosts = POLICY.trustedHosts(additionalTrustedHosts);
-        baseUrl = baseUrl == null ? DEFAULT_BASE_URL
+        // An unset or empty value means the default endpoint, as for the OpenAI base URL.
+        baseUrl = baseUrl == null || baseUrl.toString().isBlank() ? DEFAULT_BASE_URL
                 : URI.create(POLICY.canonicalBaseUrl(baseUrl.toString(), additionalTrustedHosts));
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Graph API timeout must be positive");

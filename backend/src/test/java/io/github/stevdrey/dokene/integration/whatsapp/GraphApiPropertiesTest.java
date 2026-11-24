@@ -20,6 +20,11 @@ class GraphApiPropertiesTest {
     }
 
     @Test
+    void anEmptyBaseUrlMeansTheDefaultEndpointAsForOpenAi() {
+        assertThat(of("").baseUrl()).isEqualTo(GraphApiProperties.DEFAULT_BASE_URL);
+    }
+
+    @Test
     void defaultsAreTheMetaGraphHostOverHttpsWithAShortTimeout() {
         var properties = new GraphApiProperties(null, null, null);
         assertThat(properties.baseUrl().getHost()).isEqualTo("graph.facebook.com");
@@ -69,7 +74,10 @@ class GraphApiPropertiesTest {
             "https://graph.facebook.com:70000/v23.0", "https://graph.facebook.com/v23.0?",
             "https://graph.facebook.com/v23.0#", "https://@graph.facebook.com/v23.0",
             "https://evil.example#@graph.facebook.com/v23.0", "https://graph%2efacebook%2ecom/v23.0",
-            "mailto:a@graph.facebook.com", "graph.facebook.com/v23.0", "/v23.0"})
+            "mailto:a@graph.facebook.com", "graph.facebook.com/v23.0", "/v23.0",
+            // A path that still climbs above the root after normalization has no canonical form.
+            "https://graph.facebook.com/../v23.0", "https://graph.facebook.com/..",
+            "http://localhost:9000/a/../../v23.0"})
     void rejectsEveryOtherHostSoTenantCredentialsCannotLeak(String url) {
         assertThatThrownBy(() -> of(url)).isInstanceOf(IllegalArgumentException.class)
                 .hasMessageStartingWith("dokene.integration.whatsapp.graph.base-url must be https on graph.facebook.com");
@@ -125,6 +133,9 @@ class GraphApiPropertiesTest {
                 .run(context -> assertThat(context).hasFailed());
         runner.withPropertyValues("dokene.integration.whatsapp.graph.base-url=https://graph.facebook.com/v23.0")
                 .run(context -> assertThat(context).hasNotFailed());
+        runner.withPropertyValues("dokene.integration.whatsapp.graph.base-url=")
+                .run(context -> assertThat(context.getBean(GraphApiProperties.class).baseUrl())
+                        .isEqualTo(GraphApiProperties.DEFAULT_BASE_URL));
         runner.withPropertyValues("dokene.integration.whatsapp.graph.base-url=https://proxy.internal.example",
                 "dokene.integration.whatsapp.graph.additional-trusted-hosts=proxy.internal.example")
                 .run(context -> assertThat(context).hasNotFailed());
