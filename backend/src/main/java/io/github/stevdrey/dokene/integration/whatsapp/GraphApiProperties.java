@@ -1,15 +1,17 @@
 package io.github.stevdrey.dokene.integration.whatsapp;
 
+import io.github.stevdrey.dokene.http.LoopbackHosts;
+import io.github.stevdrey.dokene.http.TrustedHostNames;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
 import java.util.Locale;
-import io.github.stevdrey.dokene.http.TrustedHostNames;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
  * Meta Graph API endpoint and per-call timeout. Every tenant bearer token is sent to {@code baseUrl}, so the host is
- * restricted: {@code graph.facebook.com} over HTTPS, loopback test servers, or a host explicitly listed in
+ * restricted: {@code graph.facebook.com} over HTTPS, an exact loopback test server ({@code localhost},
+ * {@code 127.0.0.1} or {@code [::1]}, over HTTP or HTTPS), or a host explicitly listed in
  * {@code additionalTrustedHosts}. Listing a host is a trust decision: it will receive tenant credentials, so it must
  * be an internal HTTPS proxy or mock the deployment controls, never a public third party.
  */
@@ -32,21 +34,19 @@ public record GraphApiProperties(URI baseUrl, Duration timeout, List<String> add
         String host = baseUrl.getHost() == null ? null : baseUrl.getHost().toLowerCase(Locale.ROOT);
         String scheme = baseUrl.getScheme();
         boolean https = "https".equals(scheme);
-        boolean loopback = host != null && isLoopback(host) && ("http".equals(scheme) || https);
+        // The exact rule on purpose: a name under localhost reaches loopback only if the resolver says so, and this
+        // host receives tenant tokens (audit I3, issue 428).
+        boolean loopback = LoopbackHosts.isExactSpelling(host) && ("http".equals(scheme) || https);
         boolean trusted = https && host != null
                 && (host.equals(META_GRAPH_HOST) || additionalTrustedHosts.contains(host));
         if (!(loopback || trusted) || baseUrl.getUserInfo() != null || baseUrl.getQuery() != null
                 || baseUrl.getFragment() != null) {
             throw new IllegalArgumentException("Graph API base URL must be https on " + META_GRAPH_HOST
-                    + ", a loopback test server or an explicitly trusted host, without credentials, query or fragment");
+                    + ", an exact loopback test server (" + LoopbackHosts.EXACT_SPELLINGS_TEXT
+                    + ") or an explicitly trusted host, without credentials, query or fragment");
         }
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Graph API timeout must be positive");
         }
-    }
-
-    private static boolean isLoopback(String host) {
-        return host.equals("localhost") || host.endsWith(".localhost") || host.equals("127.0.0.1")
-                || host.equals("[::1]");
     }
 }

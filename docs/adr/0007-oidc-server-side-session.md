@@ -125,8 +125,9 @@ logs, or audit events.
     a registration, the replay URI uses port 0 (the default under `server.port=0`), is not `https` while `server.ssl`
     is enabled, or names a loopback host on a port other than `server.port` (a port left out counts as 80 or 443;
     loopback is decided from the spelling, without a lookup: `localhost` and any name under it, with or without the
-    root dot, and every literal address in `127.0.0.0/8` or equal to `::1` however it is written, so a name that only
-    a hosts file maps to loopback is not recognized), since the default follows the configured port over plain http and a replay
+    root dot, every literal address in `127.0.0.0/8` or equal to `::1` however it is written, and the unspecified
+    address (`0.0.0.0`, `[::]`), which on Linux reaches the local host, so a name that only a hosts file maps to
+    loopback is not recognized; the rule is `LoopbackHosts.reachesLoopback`, issue 428), since the default follows the configured port over plain http and a replay
     that reaches no listener would leave sessions alive after a provider logout without an error; and when
     `server.forward-headers-strategy` is anything but `none` or `framework`. That refuses `native` and also an unset
     or blank strategy, which Spring Boot turns into `native` on a detected cloud platform. Every refusal happens
