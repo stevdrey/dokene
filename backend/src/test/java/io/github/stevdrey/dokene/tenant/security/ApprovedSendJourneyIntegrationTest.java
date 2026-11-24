@@ -53,6 +53,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
@@ -72,6 +73,8 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.outbound.enabled=true",
         "dokene.messaging.send-timeout=3s", "dokene.integration.whatsapp.graph.timeout=2s",
         "dokene.integration.whatsapp.webhook.inbox.enabled=false"})
+// Its Graph stub stops after the class: close the context too, so nothing cached keeps pointing at a dead stub.
+@DirtiesContext
 class ApprovedSendJourneyIntegrationTest {
     /** The synthetic key of contracts/whatsapp/graph-webhook-events.json; never a real Meta app secret. */
     private static final char[] APP_SECRET = "SYNTHETIC-APP-SECRET-NOT-REAL-0001".toCharArray();
