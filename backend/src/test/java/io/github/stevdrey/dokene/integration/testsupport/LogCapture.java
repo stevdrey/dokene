@@ -9,6 +9,7 @@ import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -41,8 +42,24 @@ public final class LogCapture implements AutoCloseable {
 
     /** Every formatted message plus every message in every attached cause chain, joined for a boolean search. */
     public String text() {
+        return text(event -> true);
+    }
+
+    /**
+     * Like {@link #text()}, but only for events logged on {@code thread}: background threads of other cached
+     * contexts (pool housekeeping, scheduled sweeps) log into the same root logger.
+     */
+    public String textFrom(Thread thread) {
+        String name = thread.getName();
+        return text(event -> name.equals(event.getThreadName()));
+    }
+
+    private String text(Predicate<ILoggingEvent> included) {
         StringBuilder text = new StringBuilder();
         for (ILoggingEvent event : appender.list) {
+            if (!included.test(event)) {
+                continue;
+            }
             text.append(event.getFormattedMessage()).append('\n');
             for (IThrowableProxy proxy = event.getThrowableProxy(); proxy != null; proxy = proxy.getCause()) {
                 text.append(proxy.getClassName()).append(": ").append(proxy.getMessage()).append('\n');

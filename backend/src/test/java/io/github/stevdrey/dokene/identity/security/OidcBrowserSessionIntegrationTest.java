@@ -56,6 +56,7 @@ import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -66,6 +67,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// Its OIDC stub stops after the class: close the context too, so nothing cached keeps pointing at a dead issuer.
+@DirtiesContext
 @ExtendWith(OutputCaptureExtension.class)
 @Import(OidcBrowserSessionIntegrationTest.SessionExpirationController.class)
 class OidcBrowserSessionIntegrationTest {
