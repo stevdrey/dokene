@@ -13,6 +13,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
+import io.github.stevdrey.dokene.integration.testsupport.ComposeImages;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
@@ -24,7 +25,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,27 +38,26 @@ import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilde
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
+import org.testcontainers.junit.jupiter.Container;
+import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 @SpringBootTest(properties = "dokene.datasource.unavailable-retry-after=7s")
+@Testcontainers
+// A static @Container stops when JUnit closes the class's extension store, after every afterAll callback, so Spring
+// closes this context first. An @AfterAll stop would run before that and shut the pool down against a dead server.
 @DirtiesContext
 class DatabaseBlackholeIntegrationTest {
-    private static PostgreSQLContainer database;
+    @Container
+    private static final PostgreSQLContainer DATABASE = new PostgreSQLContainer(ComposeImages.postgres());
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws SQLException {
-        database = TenantSecurityIntegrationFixture.startDedicatedWithDatabaseRoles();
-        TenantSecurityIntegrationFixture.configure(registry, database);
+        TenantSecurityIntegrationFixture.createDedicatedDatabaseRoles(DATABASE);
+        TenantSecurityIntegrationFixture.configure(registry, DATABASE);
         // One idle pooled connection and a 1000 ms pool wait, so validation is capped at 500 ms.
         registry.add("spring.datasource.hikari.maximum-pool-size", () -> "1");
         registry.add("spring.datasource.hikari.connection-timeout", () -> "1000");
-    }
-
-    @AfterAll
-    static void stopDatabase() {
-        if (database != null) {
-            database.stop();
-        }
     }
 
     @Autowired WebApplicationContext webApplicationContext;
@@ -83,11 +82,11 @@ class DatabaseBlackholeIntegrationTest {
 
     @Test
     void aStaleIdleConnectionAfterABlackholedOutageStillFailsWithinThePoolWait() throws Exception {
-        var docker = database.getDockerClient();
+        var docker = DATABASE.getDockerClient();
         // Past Hikari's 500 ms alive-bypass window, so the next borrow validates the idle pooled connection.
         Thread.sleep(700);
         // A paused container accepts nothing and answers nothing, like a blackholed route: no TCP reset arrives.
-        docker.pauseContainerCmd(database.getContainerId()).exec();
+        docker.pauseContainerCmd(DATABASE.getContainerId()).exec();
         try {
             long started = System.nanoTime();
             mvc.perform(asOwner(get("/api/customers")))
@@ -97,7 +96,7 @@ class DatabaseBlackholeIntegrationTest {
             // Validation (500 ms) plus the rest of the pool wait, never the 30 s socket ceiling.
             assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(2_500));
         } finally {
-            docker.unpauseContainerCmd(database.getContainerId()).exec();
+            docker.unpauseContainerCmd(DATABASE.getContainerId()).exec();
         }
         awaitRecovery();
     }

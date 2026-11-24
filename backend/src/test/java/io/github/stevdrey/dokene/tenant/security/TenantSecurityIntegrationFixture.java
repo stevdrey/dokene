@@ -63,14 +63,11 @@ public final class TenantSecurityIntegrationFixture {
     }
 
     /**
-     * A started PostgreSQL of its own, with the same roles as the shared one, for tests that disrupt the server
-     * (pause, stop) and must not take every other integration class down with it. The caller stops it.
+     * Gives a started PostgreSQL of a test's own the same roles as the shared one, for tests that disrupt the server
+     * (pause, stop) and must not take every other integration class down with it.
      */
-    public static PostgreSQLContainer startDedicatedWithDatabaseRoles() throws SQLException {
-        PostgreSQLContainer database = new PostgreSQLContainer(ComposeImages.postgres());
-        database.start();
+    public static void createDedicatedDatabaseRoles(PostgreSQLContainer database) throws SQLException {
         createDatabaseRoles(database);
-        return database;
     }
 
     private static void startWithDatabaseRoles() throws SQLException {

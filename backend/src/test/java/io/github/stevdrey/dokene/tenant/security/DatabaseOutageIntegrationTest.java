@@ -20,6 +20,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.database.DatabaseUnavailability;
+import io.github.stevdrey.dokene.integration.testsupport.LogCapture;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
@@ -35,11 +36,8 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.system.CapturedOutput;
-import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -54,7 +52,6 @@ import org.springframework.web.context.WebApplicationContext;
 @SpringBootTest(properties = {"dokene.datasource.unavailable-retry-after=7s",
         "dokene.datasource.statement-timeout=300ms",
         "dokene.security.cors.allowed-origins=" + DatabaseOutageIntegrationTest.SPA_ORIGIN})
-@ExtendWith(OutputCaptureExtension.class)
 class DatabaseOutageIntegrationTest {
     static final String SPA_ORIGIN = "http://localhost:5173";
     private static final String CREATE_BODY = """
@@ -94,11 +91,12 @@ class DatabaseOutageIntegrationTest {
     }
 
     @Test
-    void dataEndpointsFailFastWithAnEmptyRetryableUnavailableAndRecoverWithoutRestart(CapturedOutput output)
-            throws Exception {
-        // Startup logs legitimately name the container host; only what the outage writes is under test.
-        int outputBeforeOutage = output.length();
-        try (Connection held = runtimePool.getConnection()) {
+    void dataEndpointsFailFastWithAnEmptyRetryableUnavailableAndRecoverWithoutRestart() throws Exception {
+        // Only what the outage writes is under test: the capture opens after startup, whose logs legitimately name the
+        // container host, and reads only this thread, where MockMvc runs each request. Other cached contexts log
+        // from their own background threads (pool housekeeping, scheduled sweeps) into the same root logger.
+        String outageLogs;
+        try (LogCapture logs = new LogCapture(); Connection held = runtimePool.getConnection()) {
             assertThat(held.isValid(1)).isTrue();
             assertFailsFastWithRetryableUnavailable(get("/api/customers"));
             assertFailsFastWithRetryableUnavailable(post("/api/customers").with(csrf())
@@ -109,9 +107,10 @@ class DatabaseOutageIntegrationTest {
                     .andExpect(header().string("Access-Control-Allow-Origin", SPA_ORIGIN))
                     // Retry-After is not CORS-safelisted: without this the SPA could not read the advertised delay.
                     .andExpect(header().string("Access-Control-Expose-Headers", containsString("Retry-After")));
+            outageLogs = logs.textFrom(Thread.currentThread());
         }
 
-        assertThat(output.toString().substring(outputBeforeOutage))
+        assertThat(outageLogs)
                 .contains("Database unavailable at the HTTP boundary")
                 .contains("exceptionClass=java.sql.SQLTransientConnectionException")
                 // Hikari's message names the pool and the timeout; driver text can name hosts and users.

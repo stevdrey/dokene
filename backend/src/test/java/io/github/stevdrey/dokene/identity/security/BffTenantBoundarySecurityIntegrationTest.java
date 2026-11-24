@@ -54,6 +54,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import tools.jackson.databind.JsonNode;
@@ -64,6 +65,8 @@ import tools.jackson.databind.ObjectMapper;
  * and multi-tenant boundary isolation against real PostgreSQL Row Level Security.
  */
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+// Its OIDC stub stops after the class: close the context too, so nothing cached keeps pointing at a dead issuer.
+@DirtiesContext
 class BffTenantBoundarySecurityIntegrationTest {
 
     private static final String CLIENT_ID = "dokene-boundary-test";

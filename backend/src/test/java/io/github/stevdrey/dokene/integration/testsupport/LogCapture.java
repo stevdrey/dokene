@@ -9,6 +9,7 @@ import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.core.read.ListAppender;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
 import org.slf4j.LoggerFactory;
 
 /**
@@ -17,21 +18,36 @@ import org.slf4j.LoggerFactory;
  * does not reset Logback, so a capture opened before {@code run} sees that context's startup lines.
  */
 public final class LogCapture implements AutoCloseable {
-    private final Logger root = (Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME);
-    private final ListAppender<ILoggingEvent> appender = new ListAppender<>();
+    private final Logger logger;
+    private final ListAppender<ILoggingEvent> appender = new ListAppender<>() {
+        @Override
+        protected void append(ILoggingEvent event) {
+            // Thread name and message resolve lazily; fix them on the logging thread, not on the reading one.
+            event.prepareForDeferredProcessing();
+            super.append(event);
+        }
+    };
 
     public LogCapture() {
-        appender.start();
-        root.addAppender(appender);
+        this((Logger) LoggerFactory.getLogger(Logger.ROOT_LOGGER_NAME));
     }
 
+    LogCapture(Logger logger) {
+        this.logger = logger;
+        appender.start();
+        logger.addAppender(appender);
+    }
+
+    /** A snapshot taken under the appender's lock, so background threads may keep logging while a test reads. */
     public List<ILoggingEvent> events() {
-        return List.copyOf(appender.list);
+        synchronized (appender) {
+            return List.copyOf(appender.list);
+        }
     }
 
     public List<ILoggingEvent> warningsFrom(Class<?> logger) {
         List<ILoggingEvent> matched = new ArrayList<>();
-        for (ILoggingEvent event : appender.list) {
+        for (ILoggingEvent event : events()) {
             if (event.getLevel() == Level.WARN && event.getLoggerName().equals(logger.getName())) {
                 matched.add(event);
             }
@@ -41,8 +57,24 @@ public final class LogCapture implements AutoCloseable {
 
     /** Every formatted message plus every message in every attached cause chain, joined for a boolean search. */
     public String text() {
+        return text(event -> true);
+    }
+
+    /**
+     * Like {@link #text()}, but only for events logged on {@code thread}: background threads of other cached
+     * contexts (pool housekeeping, scheduled sweeps) log into the same root logger.
+     */
+    public String textFrom(Thread thread) {
+        String name = thread.getName();
+        return text(event -> name.equals(event.getThreadName()));
+    }
+
+    private String text(Predicate<ILoggingEvent> included) {
         StringBuilder text = new StringBuilder();
-        for (ILoggingEvent event : appender.list) {
+        for (ILoggingEvent event : events()) {
+            if (!included.test(event)) {
+                continue;
+            }
             text.append(event.getFormattedMessage()).append('\n');
             for (IThrowableProxy proxy = event.getThrowableProxy(); proxy != null; proxy = proxy.getCause()) {
                 text.append(proxy.getClassName()).append(": ").append(proxy.getMessage()).append('\n');
@@ -53,7 +85,7 @@ public final class LogCapture implements AutoCloseable {
 
     @Override
     public void close() {
-        root.detachAppender(appender);
+        logger.detachAppender(appender);
         appender.stop();
     }
 }
