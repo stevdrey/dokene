@@ -34,8 +34,12 @@ class OpenAiEndpointPolicyTest {
             "http://[::1]:9000/v1, http://[::1]:9000/v1",
             "https://api.openai.com:443/v1, https://api.openai.com/v1",
             "https://api.openai.com:443/v1/./x/../, https://api.openai.com/v1/",
+            "https://api.openai.com//v1, https://api.openai.com/v1",
+            "https://api.openai.com/v1//x, https://api.openai.com/v1/x",
             "http://localhost:80/v1, http://localhost/v1",
-            "https://localhost:80/v1, https://localhost:80/v1"})
+            "https://localhost:80/v1, https://localhost:80/v1",
+            "http://localhost:65535/v1, http://localhost:65535/v1",
+            "HTTP://LOCALHOST:9000/v1, http://localhost:9000/v1"})
     void acceptsOpenAiOverHttpsAndExactLoopbackTestServers(String configured, String canonical) {
         assertThat(of(configured).baseUrl()).isEqualTo(canonical);
     }
@@ -65,6 +69,8 @@ class OpenAiEndpointPolicyTest {
             // malformed, relative, opaque or host-less values and bad ports
             "api.openai.com/v1", "//api.openai.com/v1", "/v1", "https:///v1", "https://", "mailto:a@api.openai.com",
             "https://api.openai.com:0/v1", "https://api.openai.com:70000/v1", "https://api.openai.com:x/v1",
+            "http://localhost:0/v1", "http://localhost:65536/v1", "https://@api.openai.com/v1",
+            "https://api.openai.com/../v1", "https://api.openai.com/..",
             "https://[::1/v1", "not a url"})
     void rejectsEveryOtherEndpointBeforeAnyClientIsBuilt(String baseUrl) {
         assertThatThrownBy(() -> of(baseUrl))

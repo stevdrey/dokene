@@ -81,6 +81,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -134,6 +135,7 @@ class DispatchRecoveryIntegrationTest {
 
     private Tenant tenantA;
     private TenantContext ownerA;
+    private final AtomicInteger customerSequence = new AtomicInteger();
 
     @BeforeEach
     void setUp() throws Exception {
@@ -141,7 +143,9 @@ class DispatchRecoveryIntegrationTest {
         safety.blockedWith = null;
         provider.reset();
         Instant now = Instant.now();
-        tenantA = seedTenant(tenants, contexts, "Recovery A " + UUID.randomUUID(), now);
+        // No random digits in the business name: hex such as "cad0" reads as an ungrounded amount (see eligibleCustomer
+        // and issue 443).
+        tenantA = seedTenant(tenants, contexts, "Recovery A", now);
         ownerA = context(seedMembership(memberships, contexts, tenantA.id(), new IdentityId(UUID.randomUUID()),
                 TenantRole.OWNER, now));
         inContext(ownerA, () -> followUps.configureTenant(30, ZoneId.of("UTC"), 0));
@@ -504,9 +508,13 @@ class DispatchRecoveryIntegrationTest {
 
     private Customer eligibleCustomer() throws Exception {
         Instant now = Instant.now();
-        Customer created = inContext(ownerA, () -> customers.create("Recovery customer " + UUID.randomUUID(), null,
-                List.of(new PhoneInput("8888" + String.format("%04d", Math.abs(UUID.randomUUID().hashCode()) % 10000),
-                        "CR", true))));
+        // The name is rendered as the template's customer_name parameter and checked as an identity value, so it must
+        // carry no digits: a random UUID such as "55cad2a1-…" reads as an ungrounded amount (CAD) about once in 340
+        // names and fails the send with BODY_REJECTED. Each test has its own tenant, so neither value needs a UUID; the
+        // counter keeps phones unique within the tenant (uq_customer_phones_tenant_phone).
+        String phoneNumber = "8888" + String.format("%04d", customerSequence.incrementAndGet());
+        Customer created = inContext(ownerA, () -> customers.create("Recovery customer", null,
+                List.of(new PhoneInput(phoneNumber, "CR", true))));
         UUID phone = created.phones().getFirst().id();
         inContext(ownerA, () -> contacts.changeConsent(created.id(), phone, ContactChannel.WHATSAPP,
                 ConsentStatus.GRANTED, ContactIntentSource.CUSTOMER_WRITTEN, contacts.get(created.id()).version()));

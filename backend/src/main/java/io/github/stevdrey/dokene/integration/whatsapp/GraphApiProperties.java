@@ -1,50 +1,34 @@
 package io.github.stevdrey.dokene.integration.whatsapp;
 
-import io.github.stevdrey.dokene.http.LoopbackHosts;
-import io.github.stevdrey.dokene.http.TrustedHostNames;
+import io.github.stevdrey.dokene.http.ProviderEndpointPolicy;
 import java.net.URI;
 import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
 /**
- * Meta Graph API endpoint and per-call timeout. Every tenant bearer token is sent to {@code baseUrl}, so the host is
- * restricted: {@code graph.facebook.com} over HTTPS, an exact loopback test server ({@code localhost},
- * {@code 127.0.0.1} or {@code [::1]}, over HTTP or HTTPS), or a host explicitly listed in
- * {@code additionalTrustedHosts}. Listing a host is a trust decision: it will receive tenant credentials, so it must
- * be an internal HTTPS proxy or mock the deployment controls, never a public third party.
+ * Meta Graph API endpoint and per-call timeout. Every tenant bearer token is sent to {@code baseUrl}, so it must pass
+ * the shared {@link ProviderEndpointPolicy} with {@code graph.facebook.com} as the provider host and
+ * {@code additionalTrustedHosts} as the trusted-host list; the bound value is the canonical URL the policy returns.
+ * Listing a host is a trust decision: it will receive tenant credentials, so it must be an internal HTTPS proxy or
+ * mock the deployment controls, never a public third party. An unset or empty {@code baseUrl} means
+ * {@link #DEFAULT_BASE_URL}.
  */
 @ConfigurationProperties(prefix = "dokene.integration.whatsapp.graph")
 public record GraphApiProperties(URI baseUrl, Duration timeout, List<String> additionalTrustedHosts) {
     public static final URI DEFAULT_BASE_URL = URI.create("https://graph.facebook.com/v23.0");
     public static final Duration DEFAULT_TIMEOUT = Duration.ofSeconds(5);
     public static final String META_GRAPH_HOST = "graph.facebook.com";
+    private static final ProviderEndpointPolicy POLICY = new ProviderEndpointPolicy(META_GRAPH_HOST,
+            "dokene.integration.whatsapp.graph.base-url",
+            "dokene.integration.whatsapp.graph.additional-trusted-hosts");
 
     public GraphApiProperties {
-        baseUrl = baseUrl == null ? DEFAULT_BASE_URL : baseUrl;
         timeout = timeout == null ? DEFAULT_TIMEOUT : timeout;
-        additionalTrustedHosts = additionalTrustedHosts == null ? List.of() : List.copyOf(additionalTrustedHosts);
-        for (String trusted : additionalTrustedHosts) {
-            // Exact, lower-case hostnames only: no scheme, port, path, wildcard or IP literal.
-            if (!TrustedHostNames.isExactHostName(trusted)) {
-                throw new IllegalArgumentException("Trusted Graph API hosts must be exact lower-case host names");
-            }
-        }
-        String host = baseUrl.getHost() == null ? null : baseUrl.getHost().toLowerCase(Locale.ROOT);
-        String scheme = baseUrl.getScheme();
-        boolean https = "https".equals(scheme);
-        // The exact rule on purpose: a name under localhost reaches loopback only if the resolver says so, and this
-        // host receives tenant tokens (audit I3, issue 428).
-        boolean loopback = LoopbackHosts.isExactSpelling(host) && ("http".equals(scheme) || https);
-        boolean trusted = https && host != null
-                && (host.equals(META_GRAPH_HOST) || additionalTrustedHosts.contains(host));
-        if (!(loopback || trusted) || baseUrl.getUserInfo() != null || baseUrl.getQuery() != null
-                || baseUrl.getFragment() != null) {
-            throw new IllegalArgumentException("Graph API base URL must be https on " + META_GRAPH_HOST
-                    + ", an exact loopback test server (" + LoopbackHosts.EXACT_SPELLINGS_TEXT
-                    + ") or an explicitly trusted host, without credentials, query or fragment");
-        }
+        additionalTrustedHosts = POLICY.trustedHosts(additionalTrustedHosts);
+        // An unset or empty value means the default endpoint, as for the OpenAI base URL.
+        baseUrl = baseUrl == null || baseUrl.toString().isBlank() ? DEFAULT_BASE_URL
+                : URI.create(POLICY.canonicalBaseUrl(baseUrl.toString(), additionalTrustedHosts));
         if (timeout.isZero() || timeout.isNegative()) {
             throw new IllegalArgumentException("Graph API timeout must be positive");
         }
