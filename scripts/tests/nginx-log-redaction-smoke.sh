@@ -5,13 +5,18 @@
 # Sends requests whose query strings and Referer carry synthetic values of the sensitive kinds the edge sees: the Meta
 # webhook verify token and challenge (also after an encoded `?`), an OAuth callback code and state, customer search terms
 # (a phone number and a name), a session id in a `;jsessionid=` path parameter of the request and of its Referer, and
-# userinfo in a Referer. Every value is a fresh random marker made by this run; none is a real credential. The requests
-# go through the edge in four states: no backend at all (the name does not resolve), a backend name with nothing
-# listening (connection refused), a webhook body over the 4 MiB cap (413), and a stub backend that answers 200. After
-# each state the edge's
-# whole output, stdout and stderr, must hold none of the markers, and the access log must still show each request's
-# path, status and upstream status. The stub and the stand-in backend run from the same image, so the script names no
-# image of its own. Needs bash, curl and a running Docker daemon; it never touches the Compose stack.
+# userinfo in a Referer. Issue 431 adds the edge cases: requests nginx refuses with 400 before it picks a location (a
+# malformed request line, a header over the buffer size), login starts refused with 429, an absolute form request
+# target, a fragment (`#`, `%23`) in the path, markers in the Cookie, Authorization, X-Forwarded-For and User-Agent
+# headers and in a body, a quote and a backslash in a Referer (escaped, one line), and an upstream that closes the
+# connection without an answer (502). Every value is a fresh random marker made by this run; none is a real
+# credential. The requests go through the edge in four states: no backend at all (the name does not resolve), a
+# backend name with nothing listening (connection refused), a webhook body over the 4 MiB cap (413), and a stub backend
+# that answers 200, or closes the connection on one route. After each state the edge's whole output, stdout and stderr,
+# must hold none of the markers, and the access log must still show each request's path, status and upstream status.
+# Every case that sends something nginx would show in a raw request line also carries a marker there, so each case
+# fails against a configuration that logs `$request`. The stub and the stand-in backend run from the same image, so the
+# script names no image of its own. Needs bash, curl and a running Docker daemon; it never touches the Compose stack.
 #
 # Usage: ./scripts/tests/nginx-log-redaction-smoke.sh
 set -uo pipefail
@@ -63,8 +68,21 @@ SPA_TERM="$(marker spa)"
 SESSION_ID="$(marker sid)"
 ENCODED_TOKEN="$(marker enc)"
 USERINFO="$(marker ui)"
+# Issue 431, one set per case, so a failing check names the case that leaked.
+BAD_LINE_MARKERS=("$(marker badline)")
+BIG_HEADER_MARKERS=("$(marker bigq)" "$(marker bigh)")
+RATE_LIMIT_MARKERS=("$(marker rl)")
+ABSOLUTE_FORM_MARKERS=("$(marker abs)")
+FRAGMENT_MARKERS=("$(marker frag)" "$(marker frag23)")
+# Query string, cookie, bearer token, Basic user name ($remote_user), X-Forwarded-For, User-Agent and body.
+HEADER_MARKERS=("$(marker hq)" "$(marker cookie)" "$(marker bearer)" "$(marker basic)" "$(marker xff)" "$(marker ua)"
+  "$(marker body)")
+ESCAPE_MARKERS=("$(marker escq)" "$(marker escref)")
+UPSTREAM_CLOSE_MARKERS=("$(marker close)")
 MARKERS=("$VERIFY_TOKEN" "$CHALLENGE" "$AUTH_CODE" "$AUTH_STATE" "$PHONE" "$CUSTOMER_NAME" "$REFERER_TERM" "$REFERER_SID" "$SPA_TERM"
-  "$SESSION_ID" "$ENCODED_TOKEN" "$USERINFO")
+  "$SESSION_ID" "$ENCODED_TOKEN" "$USERINFO" "${BAD_LINE_MARKERS[@]}" "${BIG_HEADER_MARKERS[@]}" "${RATE_LIMIT_MARKERS[@]}"
+  "${ABSOLUTE_FORM_MARKERS[@]}" "${FRAGMENT_MARKERS[@]}" "${HEADER_MARKERS[@]}" "${ESCAPE_MARKERS[@]}"
+  "${UPSTREAM_CLOSE_MARKERS[@]}")
 
 # Static checks, no Docker, over nginx.conf and its snippets. The base image's nginx.conf logs "$request" (the request
 # line, query string included) at http level. An access_log at that same level would add a second log rather than
@@ -93,9 +111,19 @@ format_is_safe() {
 }
 check "the redacted format names only allowlisted variables (got: $(format_variables | tr '\n' ' '))" format_is_safe
 
-# The stub backend answers 200 to every request.
-printf 'server {\n    listen 8080;\n    location / {\n        default_type text/plain;\n        return 200 "ok\\n";\n    }\n}\n' \
-  >"$WORK/stub.conf"
+# The stub backend answers 200 to every request but one route, where it closes the connection without an answer (444).
+cat >"$WORK/stub.conf" <<'STUB'
+server {
+    listen 8080;
+    location / {
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+    location /api/upstream-close {
+        return 444;
+    }
+}
+STUB
 chmod 644 "$WORK/stub.conf"
 
 docker build -q --build-context "nginx=$ROOT_DIR/infra/docker/frontend" \
@@ -111,6 +139,10 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
+# The client headers request's body and Basic credentials (base64 reads the marker on stdin, never as an argument).
+printf 'note=%s' "${HEADER_MARKERS[6]}" >"$WORK/header-body"
+BASIC_CREDENTIALS="$(printf '%s:pw' "${HEADER_MARKERS[3]}" | base64 -w0)"
+
 # send_sensitive: one request of each sensitive kind, each printing "<status>" on its own line.
 send_sensitive() {
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' \
@@ -122,16 +154,40 @@ send_sensitive() {
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' -H "Referer: http://qa:$USERINFO@localhost:5173/x%3Bjsessionid=$REFERER_SID?y=1" \
     "$BASE/api/session;jsessionid=$SESSION_ID"
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' "$BASE/webhooks/whatsapp%3Fhub.verify_token=$ENCODED_TOKEN"
+  # Client supplied headers and a body (issue 431): none of them is in the format, and this checks it at run time.
+  curl -s -m 20 -o /dev/null -w '%{http_code}\n' -X POST --data-binary "@$WORK/header-body" \
+    -H "Cookie: JSESSIONID=${HEADER_MARKERS[1]}" -H "Authorization: Bearer ${HEADER_MARKERS[2]}" \
+    -H "X-Forwarded-For: ${HEADER_MARKERS[4]}" -H "User-Agent: ${HEADER_MARKERS[5]}" \
+    "$BASE/api/notes?draft=${HEADER_MARKERS[0]}"
+  curl -s -m 20 -o /dev/null -w '%{http_code}\n' -H "Authorization: Basic $BASIC_CREDENTIALS" "$BASE/api/notes"
   curl -s -m 20 -o /dev/null -w '%{http_code}\n' "$BASE/customers?search=$SPA_TERM"
 }
 
+# raw_request <request>: sends the request exactly as given over a new connection and prints the answer's status code
+# (empty when there is none). It goes through bash's /dev/tcp, a builtin, so the markers in it reach no argument list,
+# and curl cannot send most of these requests (a malformed request line, an absolute form target, a raw `#`).
+raw_request() {
+  local fd reply=""
+  exec {fd}<>"/dev/tcp/127.0.0.1/$PORT" || return 1
+  printf '%s' "$1" >&"$fd"
+  IFS= read -r -t 20 reply <&"$fd"
+  exec {fd}<&-
+  reply="${reply#HTTP/* }"
+  printf '%s\n' "${reply%% *}"
+}
+CRLF=$'\r\n'
+
 # edge_output: everything the edge wrote so far, stdout (access log) and stderr (error log) together.
 edge_output() { docker logs "$NAME" >"$WORK/out" 2>&1; cat "$WORK/out"; }
-no_marker_in_output() { edge_output >/dev/null; ! contains_literal "$WORK/out" "${MARKERS[@]}"; }
+no_marker_in_output() { no_marker_of "${MARKERS[@]}"; }
+# no_marker_of <marker...>: none of these markers is in the edge's output.
+no_marker_of() { edge_output >/dev/null; ! contains_literal "$WORK/out" "$@"; }
 # logged "<method> <path>" "<status>" "<upstream status>": an access log line for that request with those statuses.
 logged() { edge_output >/dev/null; grep -F "\"$1 HTTP/1.1\" $2 " "$WORK/out" | grep -qF " upstream=$3 "; }
 # logged_matching "<method> <path>" "<status>" "<extended regex>": such a line that also matches the regex.
 logged_matching() { edge_output >/dev/null; grep -F "\"$1 HTTP/1.1\" $2 " "$WORK/out" | grep -qE "$3"; }
+# logged_count "<fixed text>": how many lines of the edge's output hold the text.
+logged_count() { edge_output >/dev/null; grep -cF -- "$1" "$WORK/out"; }
 # wait_until <command...>: retries the command once a second for up to 30 seconds; false when it never succeeds.
 wait_until() {
   local _
@@ -152,7 +208,7 @@ no_error_lines() { edge_output >/dev/null; ! grep -qE '\[(error|crit|alert|emerg
 # State 1: no backend on the network, so the name does not resolve and every proxied request fails with 502.
 statuses="$(send_sensitive | tr '\n' ' ')"
 check "no backend: the proxied requests fail with 502 and the SPA route answers 200 (got $statuses)" \
-  test "$statuses" = "502 502 502 502 502 200 "
+  test "$statuses" = "502 502 502 502 502 502 502 200 "
 check "no backend: no marker reaches the edge's output" no_marker_in_output
 check "no backend: the webhook verification is logged by path with its status" \
   logged "GET /webhooks/whatsapp" 502 "-/-"
@@ -165,7 +221,66 @@ check "no backend: a Referer is logged without its userinfo, encoded path parame
   logged_matching "GET /api/session" 502 '"http://localhost:5173/x"$'
 check "no backend: a request whose path holds an encoded ? is logged up to it" \
   test "$(grep -cF '"GET /webhooks/whatsapp HTTP/1.1" 502 ' "$WORK/out")" -eq 2
+check "no backend: client headers and a body reach no log (Cookie, Authorization, X-Forwarded-For, User-Agent, body)" \
+  no_marker_of "${HEADER_MARKERS[@]}"
+check "no backend: the client headers request is logged by path with its status" logged "POST /api/notes" 502 "-/-"
 check "no backend: no request scoped error line is written" no_error_lines
+
+# Issue 431, still without a backend: requests refused before nginx picks a location. A request line nginx cannot parse
+# (an invalid protocol), and a header over the 8 KiB buffer, each with a marker in its query string; both answer 400.
+bad_line_status="$(raw_request "GET /webhooks/whatsapp?hub.verify_token=${BAD_LINE_MARKERS[0]} XTTP/1.1${CRLF}Host: localhost${CRLF}${CRLF}")"
+check "malformed request line: refused with 400 (got $bad_line_status)" test "$bad_line_status" = "400"
+check "malformed request line: no marker reaches the edge's output" no_marker_of "${BAD_LINE_MARKERS[@]}"
+padding="$(printf '%09000d' 0)"
+big_header_status="$(raw_request "GET /webhooks/whatsapp?hub.verify_token=${BIG_HEADER_MARKERS[0]} HTTP/1.1${CRLF}Host: localhost${CRLF}X-Pad: ${BIG_HEADER_MARKERS[1]}$padding${CRLF}${CRLF}")"
+check "header over the buffer size: refused with 400 (got $big_header_status)" test "$big_header_status" = "400"
+check "header over the buffer size: no marker reaches the edge's output" no_marker_of "${BIG_HEADER_MARKERS[@]}"
+check "header over the buffer size: logged by path with its status" logged "GET /webhooks/whatsapp" 400 "-/-"
+check "requests refused with 400: each still leaves one access log line" test "$(logged_count '" 400 ')" -eq 2
+check "requests refused with 400: no request scoped error line is written" no_error_lines
+
+# A burst of login starts with a marker in the query string, sent at the same moment: the rate limit passes 1 + burst
+# (11) on and refuses the rest with 429 (nginx-login-rate-limit-smoke.sh checks the exact counts).
+rate_args=()
+for _ in $(seq 1 15); do
+  rate_args+=(-o /dev/null "$BASE/oauth2/authorization/dokene?redirect=${RATE_LIMIT_MARKERS[0]}")
+done
+rate_statuses="$(curl -s -m 20 --parallel --parallel-immediate --parallel-max 15 -w '%{http_code} ' "${rate_args[@]}")"
+check "login start burst: the rate limit refuses some with 429 (got $rate_statuses)" \
+  test "$(printf '%s' "$rate_statuses" | grep -o 429 | wc -l)" -ge 1
+check "login start burst: no marker reaches the edge's output" no_marker_of "${RATE_LIMIT_MARKERS[@]}"
+check "login start burst: a refused one is logged by path with its 429" \
+  logged "GET /oauth2/authorization/dokene" 429 "-/-"
+check "login start burst: no request scoped error line is written" no_error_lines
+
+# An absolute form request target (`GET http://host/path?query`): the logged path is the plain path.
+absolute_status="$(raw_request "GET http://localhost:5173/api/absolute-form?term=${ABSOLUTE_FORM_MARKERS[0]} HTTP/1.1${CRLF}Host: localhost${CRLF}Connection: close${CRLF}${CRLF}")"
+check "absolute form target: proxied and failed with 502 (got $absolute_status)" test "$absolute_status" = "502"
+check "absolute form target: no marker reaches the edge's output" no_marker_of "${ABSOLUTE_FORM_MARKERS[@]}"
+check "absolute form target: logged by its plain path, without scheme or host" logged "GET /api/absolute-form" 502 "-/-"
+
+# A fragment in the path, raw and encoded. Browsers never send one, but a client can: the path is cut at `#` and %23,
+# as the Referer is (issue 431, optional item).
+fragment_status="$(raw_request "GET /fragment-probe#token=${FRAGMENT_MARKERS[0]} HTTP/1.1${CRLF}Host: localhost${CRLF}Connection: close${CRLF}${CRLF}")"
+fragment_status+=" $(raw_request "GET /fragment-probe-encoded%23token=${FRAGMENT_MARKERS[1]} HTTP/1.1${CRLF}Host: localhost${CRLF}Connection: close${CRLF}${CRLF}")"
+check "fragment in the path: the SPA routes answer 200 (got $fragment_status)" test "$fragment_status" = "200 200"
+check "fragment in the path: no marker reaches the edge's output" no_marker_of "${FRAGMENT_MARKERS[@]}"
+check "fragment in the path: a raw # cuts the logged path" logged "GET /fragment-probe" 200 "-/-"
+check "fragment in the path: an encoded %23 cuts the logged path" logged "GET /fragment-probe-encoded" 200 "-/-"
+
+# A quote and a backslash in the Referer's path: the logged value is escaped (\x22, \x5C), so a client cannot end the
+# field early and forge the rest of the line, and the request still leaves exactly one line.
+escape_status="$(curl -s -m 20 -o /dev/null -w '%{http_code}' \
+  -H "Referer: http://localhost:5173/esc\" 200 0 0.000 upstream=-/- - \"forged\\x?term=${ESCAPE_MARKERS[1]}" \
+  "$BASE/api/referer-escape?term=${ESCAPE_MARKERS[0]}")"
+check "quote and backslash in the Referer: proxied and failed with 502 (got $escape_status)" test "$escape_status" = "502"
+check "quote and backslash in the Referer: no marker reaches the edge's output" no_marker_of "${ESCAPE_MARKERS[@]}"
+check "quote and backslash in the Referer: the logged value is escaped" \
+  logged_matching "GET /api/referer-escape" 502 \
+  '"http://localhost:5173/esc\\x22 200 0 0\.000 upstream=-/- - \\x22forged\\x5Cx"$'
+check "quote and backslash in the Referer: the request leaves one line and the forged text starts none" \
+  test "$(logged_count '/api/referer-escape')" -eq 1 -a "$(logged_count '"forged')" -eq 0
+check "issue 431 cases without a backend: no request scoped error line is written" no_error_lines
 
 # State 2: an over-cap webhook body, with the token in its query string, is refused with 413 at the edge.
 head -c $((5 * 1024 * 1024)) /dev/zero >"$WORK/big-body"
@@ -189,7 +304,7 @@ docker run -d --name "$BACKEND" --network "$NET" --network-alias backend --entry
 wait_until probe_reaches 'upstream=[0-9.]+:8080/502 ' || { echo "the edge never reached the stand-in backend" >&2; exit 1; }
 statuses="$(send_sensitive | tr '\n' ' ')"
 check "connection refused: the proxied requests fail with 502 (got $statuses)" \
-  test "$statuses" = "502 502 502 502 502 200 "
+  test "$statuses" = "502 502 502 502 502 502 502 200 "
 check "connection refused: no marker reaches the edge's output" no_marker_in_output
 check "connection refused: the access log names the upstream and its 502" \
   logged_matching "GET /webhooks/whatsapp" 502 'upstream=[0-9.]+:8080/502 '
@@ -204,11 +319,21 @@ wait_until probe_reaches '" 200 [0-9]+ .* upstream=[0-9.]+:8080/200 ' \
   || { echo "the edge never reached the stub backend" >&2; exit 1; }
 statuses="$(send_sensitive | tr '\n' ' ')"
 check "stub backend: every request answers 200 (got $statuses)" \
-  test "$statuses" = "200 200 200 200 200 200 "
+  test "$statuses" = "200 200 200 200 200 200 200 200 "
 check "stub backend: no marker reaches the edge's output" no_marker_in_output
 check "stub backend: the webhook verification is logged by path with the upstream 200" \
   logged_matching "GET /webhooks/whatsapp" 200 'upstream=[0-9.]+:8080/200 '
 check "stub backend: the SPA route is logged by path only" logged "GET /customers" 200 "-/-"
+check "stub backend: client headers and a body reach no log" no_marker_of "${HEADER_MARKERS[@]}"
+
+# Issue 431: an upstream that closes the connection without an answer. The edge answers 502 and names the upstream.
+close_status="$(curl -s -m 20 -o /dev/null -w '%{http_code}' "$BASE/api/upstream-close?token=${UPSTREAM_CLOSE_MARKERS[0]}")"
+check "upstream closes without an answer: the edge answers 502 (got $close_status)" test "$close_status" = "502"
+check "upstream closes without an answer: no marker reaches the edge's output" no_marker_of "${UPSTREAM_CLOSE_MARKERS[@]}"
+check "upstream closes without an answer: logged by path with the upstream and its 502" \
+  logged_matching "GET /api/upstream-close" 502 'upstream=[0-9.]+:8080/502 '
+check "stub backend: no marker reaches the edge's output, after every case" no_marker_in_output
+check "stub backend: no request scoped error line is written" no_error_lines
 
 if [ "$failures" -ne 0 ]; then
   printf '%s check(s) failed\n' "$failures" >&2
