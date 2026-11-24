@@ -839,7 +839,7 @@ class DraftSafetyValidatorTest {
     void currencyCodesGluedInsideAlphanumericIdentifiersAreNotAmounts() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
         for (String name : List.of("Tienda 55cad2e1", "Tienda 55cad2a1-4f3b", "Tienda 9cad070b", "Tienda 0123cad4f5",
-                "Tienda 55c4d2e1", "Tienda 7usd5k", "Tienda 10dollars5x", "Tienda -55cad2e1")) {
+                "Tienda 55c4d2e1", "Tienda 7usd5k", "Tienda 10dollars5x", "Tienda 3f2a-55cad2e1")) {
             // The business name written into an AI draft body.
             assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
                     "Cliente: Ana.", grounding)).as("body | " + name).isEmpty();
@@ -853,7 +853,10 @@ class DraftSafetyValidatorTest {
 
         // A code at an edge of its run, or with only digits around it, is still an ungrounded amount.
         for (String body : List.of("Paga 10cad.", "Paga 10 CAD.", "Paga CAD10.", "Paga cad070.", "Paga 55cad2.",
-                "Paga 100USD200.", "Paga 10C4D.", "Paga USD100A.", "Paga U5D100A.", "Paga -55cad2.")) {
+                "Paga 100USD200.", "Paga 10C4D.", "Paga USD100A.", "Paga U5D100A.", "Paga -55cad2.",
+                // A separator or sign makes the number a written quantity, so the run stays an amount.
+                "Paga 10,000usd5k.", "Paga 10.5cad2x.", "Paga 10 000usd5k.", "Paga .5usd2x.", "Paga -10usd5x.",
+                "Tienda -55cad2e1.")) {
             Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
                     draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding);
             assertThat(violation).as(body).isPresent();

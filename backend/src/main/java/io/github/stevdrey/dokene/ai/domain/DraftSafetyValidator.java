@@ -621,9 +621,15 @@ public final class DraftSafetyValidator {
      * holds a letter outside that term ("55cad2e1", "9cad070b": hex or other alphanumeric identifiers), is part of an
      * identifier, not an amount, and is not checked as one. An amount is written with the term at an edge of its run
      * ("10cad", "CAD10", "USD100A") or with digits only around it ("100USD200"), and those stay amounts: the rule
-     * cannot tell a standalone "cad070" in a name from "CAD070", so it does not try.
+     * cannot tell a standalone "cad070" in a name from "CAD070", so it does not try. A number written as a quantity
+     * before the term, with a decimal or group separator or a sign ("10,000usd5k", "10.5cad2x", "-10usd5x"), keeps the
+     * amount: identifiers in names never carry one.
      */
     private static boolean insideIdentifier(String text, Matcher amount) {
+        int amountStart = amount.start();
+        if (signedAt(text, amountStart) || amountStart > 0 && ".,".indexOf(text.charAt(amountStart - 1)) >= 0) {
+            return false;
+        }
         Matcher term = GLUED_CURRENCY_TERM_PATTERN.matcher(text).region(amount.start(), amount.end())
                 .useTransparentBounds(true);
         while (term.find()) {
@@ -631,7 +637,9 @@ public final class DraftSafetyValidator {
             int termEnd = term.end();
             if (termStart == 0 || termEnd >= text.length()
                     || !Character.isLetterOrDigit(text.codePointBefore(termStart))
-                    || !Character.isLetterOrDigit(text.codePointAt(termEnd))) {
+                    || !Character.isLetterOrDigit(text.codePointAt(termEnd))
+                    || text.substring(amountStart, termStart).codePoints()
+                            .anyMatch(c -> !Character.isLetterOrDigit(c))) {
                 continue;
             }
             int start = termStart;
