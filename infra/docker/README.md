@@ -217,10 +217,12 @@ OAuth callback code and state, and customer search terms such as a phone number 
 query string anywhere (issue #330, [security invariant 41](../../docs/security/security-invariants.md)):
 
 - The access log (`docker compose logs frontend`, stdout) has one line per request: client address, time, method,
-  path up to its first `?`, `;` (a path parameter such as `;jsessionid=`), `%3F` or `%3B`, status, bytes, request
-  time, `upstream=<address>/<status>` (`-/-` when nginx never reached the backend), upstream response time, and the
-  `Referer` without its userinfo, cut the same way at its first `?`, `#`, `;`, `%3F`, `%3B` or `%23`. It never holds the raw request line, a client supplied
-  header (user agent, `X-Forwarded-For`, cookies, credentials) or a body.
+  path up to its first `?`, `#`, `;` (a path parameter such as `;jsessionid=`), `%3F`, `%3B` or `%23`, status,
+  bytes, request time, `upstream=<address>/<status>` (`-/-` when nginx never reached the backend), upstream response
+  time, and the `Referer` without its userinfo, cut the same way. It never holds the raw request line, a client
+  supplied header (user agent, `X-Forwarded-For`, cookies, credentials) or a body. An absolute form request
+  (`GET http://host/path?query`) is logged by its plain path, and a quote, backslash or control character in the
+  `Referer` is escaped (`\x22`, `\x5C`), so a client cannot end the field early or add a line.
 - No request scoped error line is written, on any route. nginx prints the raw request line, query string included,
   into every error line it logs while serving a request, and that format cannot be changed. Read a failure from the
   access log instead: `502` with `upstream=-/-` means the name `backend` did not resolve; `502` with `upstream=<address>/502`
@@ -232,11 +234,37 @@ query string anywhere (issue #330, [security invariant 41](../../docs/security/s
 
 **Rotation.** Images built before issue #330 logged the raw request line, query string included, to stdout on every
 request and to stderr on every failed one. If logs of such an image were kept, copied or shipped anywhere, treat them
-as holding secrets: rotate the WhatsApp webhook verify token (in the integration secret source and in the Meta app's
-webhook settings, together), delete or restrict those logs, and treat any customer search terms in them as personal
-data. OAuth callback codes in them are single use and short lived, and need no rotation once the login completed or
-expired. The local stack's own logs live only in Docker's log files for the container and go when it is removed
-(`./scripts/dev-env.sh down`).
+as holding the WhatsApp webhook verify token and rotate it:
+
+1. Create a new verify token: a long random value, for example `openssl rand -hex 32`, written straight into the
+   secret source rather than into a shell history, a ticket or a chat.
+2. Store it where the backend reads it: replace the value of the `WEBHOOK_VERIFY_TOKEN` deployment entry whose key
+   `DOKENE_INTEGRATION_WHATSAPP_VERIFY_TOKEN_REF` names, in the configured secret source
+   (`DOKENE_INTEGRATION_SECRETS_SOURCE`; see `.env.example` and the messaging wiki page). Keep the key, so the
+   reference itself does not change.
+3. Restart the backend so it runs with the new entry (`./scripts/dev-env.sh restart-backend` on the local stack).
+4. Set the same value as the verify token in the Meta app's webhook settings and save it there. Meta then sends the
+   verification handshake.
+5. Confirm the handshake answers `200`: Meta accepts the setting, and the edge access log shows
+   `"GET /webhooks/whatsapp HTTP/1.1" 200` with `upstream=<address>/200`. A `403` means the two values differ. The
+   token is checked only during this handshake; signed callbacks are verified with the app secret and keep flowing.
+6. Delete or expire the old logs and every copy of them (log shipping, backups, exports, attachments), or restrict
+   them until they expire.
+
+Treat any customer search terms in those logs as personal data. OAuth callback codes in them are single use and short
+lived, and need no rotation once the login completed or expired. The local stack's own logs live only in Docker's log
+files for the container and go when it is removed (`./scripts/dev-env.sh down`).
+
+**Proxies in front of this edge.** This rule covers only the logs of this nginx. A reverse proxy, tunnel, load
+balancer or CDN placed in front of it sees the same request lines and must follow the same rule: log no query string,
+fragment or path parameter, no `Referer` query, no client supplied header and no body, and write no error line that
+holds the request line. Check the default access log format of that component, which usually logs the full URL, before
+it carries real traffic, and treat its logs as holding secrets until it does.
+
+**Vite dev server.** `npm run dev` does not follow this rule. When a proxied request fails (the backend is down or
+drops the connection), Vite prints `http proxy error: <path>?<query>` to its terminal, query string included
+(checked on Vite 8.3.8 for issue #431). Use the dev server with synthetic data only, and do not share its terminal
+output.
 
 Verify with `./scripts/tests/nginx-log-redaction-smoke.sh` (Docker only).
 
