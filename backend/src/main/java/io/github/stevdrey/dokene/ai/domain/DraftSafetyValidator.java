@@ -30,7 +30,7 @@ public final class DraftSafetyValidator {
      * until this is bumped, with a migration that returns APPROVED template evidence to UNVERIFIED (as V32 does) and the
      * new digest pinned.
      */
-    public static final int FIXED_TEXT_RULES_VERSION = 1;
+    public static final int FIXED_TEXT_RULES_VERSION = 2;
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
@@ -128,6 +128,9 @@ public final class DraftSafetyValidator {
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
+    /** A currency code or name as a whole term inside a matched amount, to tell whether it sits inside an identifier. */
+    private static final Pattern GLUED_CURRENCY_TERM_PATTERN = Pattern.compile(
+            "(?<!\\p{L})(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})");
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
@@ -443,6 +446,9 @@ public final class DraftSafetyValidator {
                     .entrySet()) {
                 Matcher draftExact = exact.getKey().matcher(view);
                 while (draftExact.find()) {
+                    if (insideIdentifier(view, draftExact)) {
+                        continue;
+                    }
                     if (!exact.getValue().contains(quantityKey(draftExact.group()))) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                                 "Draft contains a qualified or signed amount not grounded in context: '"
@@ -452,7 +458,7 @@ public final class DraftSafetyValidator {
             }
             Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
             while (draftAmtMatcher.find()) {
-                if (signedAt(view, draftAmtMatcher.start())) {
+                if (signedAt(view, draftAmtMatcher.start()) || insideIdentifier(view, draftAmtMatcher)) {
                     continue;
                 }
                 if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
@@ -557,7 +563,7 @@ public final class DraftSafetyValidator {
         Set<String> tokens = new HashSet<>();
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
-            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start())) {
+            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start()) && !insideIdentifier(text, matcher)) {
                 tokens.add(quantityKey(matcher.group()));
             }
         }
@@ -581,7 +587,7 @@ public final class DraftSafetyValidator {
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
             // A compact code-first amount that runs into a letter ("USD100A") is part of a longer identifier.
-            if (runsIntoLetter(text, matcher)) {
+            if (runsIntoLetter(text, matcher) || insideIdentifier(text, matcher)) {
                 continue;
             }
             tokens.add(quantityKey(matcher.group()));
@@ -608,6 +614,40 @@ public final class DraftSafetyValidator {
         Pattern identifier = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(text.substring(start, end))
                 + "(?![\\p{L}\\p{N}])");
         return contextViews.stream().anyMatch(context -> identifier.matcher(context).find());
+    }
+
+    /**
+     * Issue 443: a currency code or name glued to a letter or digit on both sides, in a run of letters and digits that
+     * holds a letter outside that term ("55cad2e1", "9cad070b": hex or other alphanumeric identifiers), is part of an
+     * identifier, not an amount, and is not checked as one. An amount is written with the term at an edge of its run
+     * ("10cad", "CAD10", "USD100A") or with digits only around it ("100USD200"), and those stay amounts: the rule
+     * cannot tell a standalone "cad070" in a name from "CAD070", so it does not try.
+     */
+    private static boolean insideIdentifier(String text, Matcher amount) {
+        Matcher term = GLUED_CURRENCY_TERM_PATTERN.matcher(text).region(amount.start(), amount.end())
+                .useTransparentBounds(true);
+        while (term.find()) {
+            int termStart = term.start();
+            int termEnd = term.end();
+            if (termStart == 0 || termEnd >= text.length()
+                    || !Character.isLetterOrDigit(text.codePointBefore(termStart))
+                    || !Character.isLetterOrDigit(text.codePointAt(termEnd))) {
+                continue;
+            }
+            int start = termStart;
+            while (start > 0 && Character.isLetterOrDigit(text.codePointBefore(start))) {
+                start = text.offsetByCodePoints(start, -1);
+            }
+            int end = termEnd;
+            while (end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
+                end = text.offsetByCodePoints(end, 1);
+            }
+            String run = text.substring(start, termStart) + text.substring(termEnd, end);
+            if (run.codePoints().anyMatch(Character::isLetter)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

@@ -830,6 +830,45 @@ class DraftSafetyValidatorTest {
         assertThat(DraftSafetyValidator.validate(draftWith("Paga 100USD.", "es-419", List.of()), "Plan 100 USD")).isEmpty();
     }
 
+    /**
+     * Issue 443: a currency code glued to a letter or digit on both sides, in a run that holds another letter (hex or
+     * other alphanumeric identifiers in a business or customer name), is part of the identifier and not an amount. A
+     * code at an edge of its run, or with only digits around it, is still an amount.
+     */
+    @Test
+    void currencyCodesGluedInsideAlphanumericIdentifiersAreNotAmounts() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
+        for (String name : List.of("Tienda 55cad2e1", "Tienda 55cad2a1-4f3b", "Tienda 9cad070b", "Tienda 0123cad4f5",
+                "Tienda 55c4d2e1", "Tienda 7usd5k", "Tienda 10dollars5x", "Tienda -55cad2e1")) {
+            // The business name written into an AI draft body.
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
+                    "Cliente: Ana.", grounding)).as("body | " + name).isEmpty();
+            // The customer name rendered as a template parameter, an identity value with nothing to ground it.
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", name,
+                    "body", "Hola " + name + ", gracias por tu compra."), "es-419", grounding))
+                    .as("identity | " + name).isEmpty();
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", name), "en-US"))
+                    .as("fixed | " + name).isEmpty();
+        }
+
+        // A code at an edge of its run, or with only digits around it, is still an ungrounded amount.
+        for (String body : List.of("Paga 10cad.", "Paga 10 CAD.", "Paga CAD10.", "Paga cad070.", "Paga 55cad2.",
+                "Paga 100USD200.", "Paga 10C4D.", "Paga USD100A.", "Paga U5D100A.", "Paga -55cad2.")) {
+            Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
+                    draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding);
+            assertThat(violation).as(body).isPresent();
+            assertThat(violation.get().code()).as(body).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+        }
+        // An identity value that is itself a standalone code-first token stays an amount (accepted limitation).
+        assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", "Tienda cad070"), "es-419",
+                grounding)).isPresent();
+        // An identifier in the context grounds nothing: the amount it would hide is not read there either.
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 55cad2.", "es-419", List.of()), "Ref 55cad2e1"))
+                .isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 55cad2.", "es-419", List.of()), "Plan 55cad2"))
+                .isEmpty();
+    }
+
     @Test
     void contextAmountsFollowedByUnitLettersStillGroundTheirDraftAmount() {
         assertThat(DraftSafetyValidator.validate(draftWith("Plan de $20 mensuales.", "es-419", List.of()),

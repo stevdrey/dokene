@@ -1,5 +1,5 @@
 // ABOUTME: Proves the template evidence migrations drop approvals checked under weaker rules: placeholders (issue 218)
-// ABOUTME: and the fixed-text rules version (issue 268, V32). Drives Flyway by hand: seed before each, then upgrade.
+// ABOUTME: and the fixed-text rules version (issue 268, V32; issue 443, V43). Drives Flyway by hand: seed, then upgrade.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,6 +17,7 @@ import org.junit.jupiter.api.Test;
 class TemplateSchemaEvidenceUpgradeIntegrationTest {
     private static final String SCHEMA_EVIDENCE_MIGRATION = "verify template parameter schema";
     private static final String RULES_VERSION_MIGRATION = "template content rules version";
+    private static final String RULES_VERSION_2_MIGRATION = "reset template approvals for rules version 2";
 
     /** covers: issue #218 (no mapping stays sendable on status, name and language alone after the upgrade). */
     @Test
@@ -95,6 +96,48 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
                         AND approval_content_checked_at IS NULL AND approval_content_rules_version IS NULL
                     """, tenantId)).isEqualTo(1);
             // Evidence that was never approved keeps its state.
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT' AND approval_status = 'REJECTED'
+                    """, tenantId)).isEqualTo(1);
+        }
+    }
+
+    /**
+     * covers: issue #443 (V43). Content checked under rules version 1 is no longer trusted under version 2, so the
+     * approval returns to UNVERIFIED and its content and version are cleared, as at every rules bump.
+     */
+    @Test
+    void approvalsCheckedUnderRulesVersionOneReturnToUnverified() throws Exception {
+        String url = TenantSecurityIntegrationFixture.createEmptyDatabase(
+                "rules2_" + UUID.randomUUID().toString().replace("-", ""));
+        UUID tenantId = UUID.randomUUID();
+        UUID integrationId = UUID.randomUUID();
+
+        assertThat(flyway(url, versionBefore(url, RULES_VERSION_2_MIGRATION)).migrate().success).isTrue();
+        try (Connection migration = migrationConnection(url)) {
+            seedMappings(migration, tenantId, integrationId);
+            // The previous release's approved refresh, with its content checked under rules version 1 (V32).
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.tenant_provider_templates
+                    SET approval_content_parameter_format = 'POSITIONAL', approval_body_text = 'Hola {{1}}',
+                        approval_button_types = '{}', approval_button_texts = '{}', approval_button_values = '{}',
+                        approval_content_checked_at = approval_checked_at, approval_content_rules_version = 1,
+                        approval_content_rules_checked_at = approval_checked_at
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                    """, tenantId)).isEqualTo(1);
+        }
+
+        assertThat(flyway(url, "latest").migrate().success).isTrue();
+
+        try (Connection migration = migrationConnection(url)) {
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE' AND approval_status = 'UNVERIFIED'
+                        AND approval_checked_at IS NULL AND approval_body_text IS NULL
+                        AND approval_content_checked_at IS NULL AND approval_content_rules_version IS NULL
+                        AND approval_content_rules_checked_at IS NULL
+                    """, tenantId)).isEqualTo(1);
             assertThat(count(migration, """
                     SELECT count(*) FROM dokene.tenant_provider_templates
                     WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT' AND approval_status = 'REJECTED'

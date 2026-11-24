@@ -333,9 +333,10 @@ class ApprovedSendJourneyIntegrationTest {
         assertThat(next).as("pre-registered tenant ids").isLessThan(TENANT_IDS.size());
         Instant now = Instant.now();
         Tenant tenant = TenantTestSupport.saveTenant(tenants, contexts,
-                // The fake AI writes the business name into the draft body, where a random UUID such as "…-cad070…"
-                // reads as an ungrounded amount (CAD) about once in 360 drafts and the draft is refused. The tenant id
-                // already keeps each workspace apart, so the name carries no digits. Root cause tracked in issue 443.
+                // The fake AI writes the business name into the draft body, where a UUID group that is itself
+                // amount-shaped ("…-cad070…") still reads as an ungrounded amount (CAD) and the draft is refused (ADR
+                // 0025 addendum for issue 443). The tenant id already keeps each workspace apart, so the name carries
+                // no digits.
                 Tenant.create(TENANT_IDS.get(next), "Journey", now));
         IdentityId owner = member(tenant, TenantRole.OWNER, now);
         IdentityId operator = member(tenant, TenantRole.OPERATOR, now);
