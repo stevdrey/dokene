@@ -41,9 +41,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.IntStream;
-import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.ExtensionContext;
+import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
@@ -68,7 +70,7 @@ import tools.jackson.databind.json.JsonMapper;
 @SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.outbound.enabled=true",
         "dokene.messaging.english.enabled=true",
         "dokene.messaging.send-timeout=3s", "dokene.integration.whatsapp.graph.timeout=2s"})
-// Its Graph stub stops after the class: close the context too, so nothing cached keeps pointing at a dead stub.
+// Close the context after the class, so nothing cached keeps pointing at the Graph stub once it stops.
 @DirtiesContext
 class EnglishTemplateSendJourneyIntegrationTest {
     private static final char[] APP_SECRET = "SYNTHETIC-APP-SECRET-NOT-REAL-0268".toCharArray();
@@ -101,10 +103,10 @@ class EnglishTemplateSendJourneyIntegrationTest {
         registry.add("dokene.integration.whatsapp.verify-token-ref", () -> "webhook-verify-token");
     }
 
-    @AfterAll
-    static void stopGraph() {
-        GRAPH.server.stop(0);
-    }
+    /** Stops the stub when JUnit closes the class store, after Spring's after-class step has closed the context. */
+    @RegisterExtension
+    static final BeforeAllCallback STOP_GRAPH_LAST = context -> context.getStore(ExtensionContext.Namespace.GLOBAL)
+            .put(GraphStub.class, (AutoCloseable) () -> GRAPH.server.stop(0));
 
     @Autowired WebApplicationContext webApplicationContext;
     @Autowired AuditRequestFilter auditRequestFilter;

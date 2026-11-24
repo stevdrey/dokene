@@ -1,14 +1,17 @@
-// ABOUTME: Keeps Testcontainers classes from leaving a cached Spring context behind a stopped database (issue 447).
-// ABOUTME: Such a context's pool logs connection failures naming the host into whatever class runs next.
+// ABOUTME: Keeps Testcontainers and HTTP stub classes from leaving a cached Spring context behind a stopped database or
+// ABOUTME: stub (issues 447, 449). Such a context logs connection failures naming the host into whatever class runs next.
 package io.github.stevdrey.dokene.architecture;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sun.net.httpserver.HttpServer;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.annotation.DirtiesContext;
@@ -29,6 +32,29 @@ class TestContainerLifecycleArchitectureTest {
             }
         }
         assertThat(violations).isEmpty();
+    }
+
+    @Test
+    void everySpringBootTestThatOwnsAnHttpStubClosesItsContextWhenTheClassEnds() {
+        // A class owns a stub when it or a nested fixture starts its own server; a shared stub that never stops is not one.
+        Set<JavaClass> stubOwners = new LinkedHashSet<>();
+        for (JavaClass type : new ClassFileImporter()
+                .withImportOption(ImportOption.Predefined.ONLY_INCLUDE_TESTS)
+                .importPackages("io.github.stevdrey.dokene")) {
+            if (type.getDirectDependenciesFromSelf().stream()
+                    .anyMatch(dependency -> dependency.getTargetClass().isEquivalentTo(HttpServer.class))) {
+                JavaClass topLevel = type;
+                while (topLevel.getEnclosingClass().isPresent()) {
+                    topLevel = topLevel.getEnclosingClass().get();
+                }
+                if (topLevel.isAnnotatedWith(SpringBootTest.class)) {
+                    stubOwners.add(topLevel);
+                }
+            }
+        }
+        assertThat(stubOwners).extracting(JavaClass::getSimpleName)
+                .contains("ApprovedSendJourneyIntegrationTest", "EnglishTemplateSendJourneyIntegrationTest");
+        assertThat(stubOwners).flatExtracting(type -> violations(type.reflect())).isEmpty();
     }
 
     @Test
