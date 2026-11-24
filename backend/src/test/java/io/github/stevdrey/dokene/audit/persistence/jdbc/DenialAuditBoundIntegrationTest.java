@@ -60,6 +60,7 @@ import org.springframework.dao.PermissionDeniedDataAccessException;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
+import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.bean.override.convention.TestBean;
@@ -76,6 +77,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
         "dokene.audit.denial-limit.rows-per-identity=60",
         "dokene.audit.denial-limit.sweep-interval=PT15M"})
 @Testcontainers
+// The container stops with the class: close the context too, or its pool keeps logging against a dead database.
+@DirtiesContext
 @ExtendWith(OutputCaptureExtension.class)
 class DenialAuditBoundIntegrationTest {
     @Container
