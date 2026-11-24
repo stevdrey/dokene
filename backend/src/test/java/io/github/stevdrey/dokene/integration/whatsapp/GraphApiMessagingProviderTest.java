@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.integration.whatsapp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -40,7 +41,10 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -52,6 +56,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -72,6 +77,8 @@ class GraphApiMessagingProviderTest {
     private static final String EMOJI = "\uD83C\uDF81";
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final JsonNode FIXTURES = loadFixtures();
+    /** How long a filler may take to connect before the accept queue counts as full; under the 1 s SYN retry. */
+    private static final Duration FILLER_CONNECT_WAIT = Duration.ofMillis(500);
 
     private HttpServer server;
     private final AtomicInteger requests = new AtomicInteger();
@@ -500,28 +507,76 @@ class GraphApiMessagingProviderTest {
     @Test
     void aConnectThatHangsIsTransientBecauseNothingLeft() throws Exception {
         // A full accept queue makes Linux drop further SYNs, so the next connect hangs instead of being refused.
-        try (ServerSocket full = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
-            List<Socket> fillers = new java.util.ArrayList<>();
+        try (ServerSocketChannel full = ServerSocketChannel.open()) {
+            full.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 1);
+            List<Socket> fillers = new ArrayList<>();
             try {
-                for (int i = 0; i < 4; i++) {
-                    Socket filler = new Socket();
-                    fillers.add(filler);
-                    try {
-                        filler.connect(full.getLocalSocketAddress(), 100);
-                    } catch (IOException queueAlreadyFull) {
-                        break;
-                    }
-                }
+                int queued = fillAcceptQueue(full, fillers);
+
                 long started = System.nanoTime();
-                assertThat(providerFor(full.getLocalPort()).send(command(List.of("Ana"))))
+                ProviderSendResult result = providerFor(((InetSocketAddress) full.getLocalAddress()).getPort())
+                        .send(command(List.of("Ana")));
+                Duration elapsed = Duration.ofNanos(System.nanoTime() - started);
+
+                // Only a connect that never completed makes this case: one that joined the queue sent the request, and
+                // then an unknown outcome is the right answer, not a defect. Nothing accepts, so the queue tells.
+                int drained = drainAcceptQueue(full);
+                if (drained != queued) {
+                    noHang(("Drained %d connections for %d queued fillers, so the adapter's connect did not hang: it "
+                            + "joined the queue, or a filler left it").formatted(drained, queued));
+                }
+                assertThat(result).as("after %s", elapsed)
                         .isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
-                assertThat(Duration.ofNanos(System.nanoTime() - started)).isLessThan(Duration.ofMillis(500));
+                // The call waited on the connect: a NotSent returned before connecting (an expired deadline, a request
+                // that could not be built) comes back at once, while the 250 ms connect timeout never fires early.
+                assertThat(elapsed).isGreaterThanOrEqualTo(Duration.ofMillis(200));
+                // Bounded by the 500 ms budget, not by the kernel's SYN retries; the slack absorbs a cold, loaded JVM.
+                // This no longer pins the half-budget connect timeout of GraphApiHttp, on purpose: correctness does not
+                // need it, since the JDK reports either timer firing before a connection as a connect timeout.
+                assertThat(elapsed).isLessThan(Duration.ofMillis(1_500));
             } finally {
                 for (Socket filler : fillers) {
                     filler.close();
                 }
             }
         }
+    }
+
+    /**
+     * Connects fillers until one times out and returns how many were queued. A filler that times out is taken
+     * for a dropped SYN, so the wait is far longer than any loopback handshake, even on a loaded machine; a dropped
+     * SYN is first retransmitted after a second, so it cannot complete within the wait.
+     */
+    private static int fillAcceptQueue(ServerSocketChannel full, List<Socket> fillers) throws IOException {
+        for (int queued = 0; queued < 4; queued++) {
+            Socket filler = new Socket();
+            fillers.add(filler);
+            try {
+                filler.connect(full.getLocalAddress(), (int) FILLER_CONNECT_WAIT.toMillis());
+            } catch (SocketTimeoutException queueAlreadyFull) {
+                return queued > 0 ? queued : noHang("The listener accepted no connection at all");
+            } catch (IOException notAFullQueue) {
+                // A refusal or a local failure says nothing about the queue, so it cannot stand for a dropped SYN.
+                return noHang("Filler %d failed without timing out: %s".formatted(queued, notAFullQueue));
+            }
+        }
+        return noHang("The accept queue never filled, so no connect can be made to hang");
+    }
+
+    /** Skips locally when the environment cannot make a connect hang; on CI (Linux runners) that is a failure. */
+    private static <T> T noHang(String reason) {
+        return System.getenv("CI") != null ? fail(reason) : Assumptions.abort(reason);
+    }
+
+    /** Accepts every connection the kernel completed, without waiting for more. */
+    private static int drainAcceptQueue(ServerSocketChannel full) throws IOException {
+        full.configureBlocking(false);
+        int accepted = 0;
+        for (SocketChannel connection = full.accept(); connection != null; connection = full.accept()) {
+            connection.close();
+            accepted++;
+        }
+        return accepted;
     }
 
     @Test
