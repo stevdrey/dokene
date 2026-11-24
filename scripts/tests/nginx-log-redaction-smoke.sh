@@ -140,8 +140,9 @@ for _ in $(seq 1 30); do
 done
 
 # The client headers request's body and Basic credentials (base64 reads the marker on stdin, never as an argument).
+# Plain base64 with its line breaks stripped, since `-w0` is GNU only and macOS base64 rejects it.
 printf 'note=%s' "${HEADER_MARKERS[6]}" >"$WORK/header-body"
-BASIC_CREDENTIALS="$(printf '%s:pw' "${HEADER_MARKERS[3]}" | base64 -w0)"
+BASIC_CREDENTIALS="$(printf '%s:pw' "${HEADER_MARKERS[3]}" | base64 | tr -d '\n')"
 
 # send_sensitive: one request of each sensitive kind, each printing "<status>" on its own line.
 send_sensitive() {
@@ -165,15 +166,18 @@ send_sensitive() {
 
 # raw_request <request>: sends the request exactly as given over a new connection and prints the answer's status code
 # (empty when there is none). It goes through bash's /dev/tcp, a builtin, so the markers in it reach no argument list,
-# and curl cannot send most of these requests (a malformed request line, an absolute form target, a raw `#`).
+# and curl cannot send most of these requests (a malformed request line, an absolute form target, a raw `#`). The
+# connection uses the fixed descriptor 3 inside a subshell, which closes it on exit: an allocated `{fd}` needs Bash
+# 4.1, and macOS ships Bash 3.2.
 raw_request() {
-  local fd reply=""
-  exec {fd}<>"/dev/tcp/127.0.0.1/$PORT" || return 1
-  printf '%s' "$1" >&"$fd"
-  IFS= read -r -t 20 reply <&"$fd"
-  exec {fd}<&-
-  reply="${reply#HTTP/* }"
-  printf '%s\n' "${reply%% *}"
+  (
+    reply=""
+    exec 3<>"/dev/tcp/127.0.0.1/$PORT" || exit 1
+    printf '%s' "$1" >&3
+    IFS= read -r -t 20 reply <&3
+    reply="${reply#HTTP/* }"
+    printf '%s\n' "${reply%% *}"
+  )
 }
 CRLF=$'\r\n'
 # raw_get <target>: a plain GET of the target through raw_request, closing the connection after the answer.
