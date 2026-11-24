@@ -36,7 +36,10 @@ class TestContainerLifecycleArchitectureTest {
 
     @Test
     void everySpringBootTestThatOwnsAnHttpStubClosesItsContextWhenTheClassEnds() {
-        // A class owns a stub when it or a nested fixture starts its own server; a shared stub that never stops is not one.
+        // A class owns a stub when it or a nested fixture uses HttpServer directly; a shared stub that never stops is not one.
+        // This is a proxy that fits today's JDK HttpServer stubs only: a stub behind a helper class or another library is
+        // not seen, and a class that merely references a server is matched. Widen it (with fixtures for owned, shared and
+        // indirect stubs) or move to an explicit ownership convention once such stubs appear.
         Set<JavaClass> stubOwners = new LinkedHashSet<>();
         for (JavaClass type : new ClassFileImporter()
                 .withImportOption(ImportOption.Predefined.ONLY_INCLUDE_TESTS)
