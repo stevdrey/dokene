@@ -4,7 +4,7 @@ package io.github.stevdrey.dokene.integration.whatsapp;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.junit.jupiter.api.Assumptions.assumeTrue;
+import static org.assertj.core.api.Assertions.fail;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -55,6 +55,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -518,11 +519,16 @@ class GraphApiMessagingProviderTest {
 
                 // Only a connect that never completed makes this case: one that joined the queue sent the request, and
                 // then an unknown outcome is the right answer, not a defect. Nothing accepts, so the queue tells.
-                assumeTrue(drainAcceptQueue(full) == queued,
-                        "The adapter connected, so the environment did not make the connect hang");
+                int drained = drainAcceptQueue(full);
+                if (drained != queued) {
+                    noHang(("Drained %d connections for %d queued fillers, so the adapter's connect did not hang: it "
+                            + "joined the queue, or a filler left it").formatted(drained, queued));
+                }
                 assertThat(result).as("after %s", elapsed)
                         .isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
                 // Bounded by the 500 ms budget, not by the kernel's SYN retries; the slack absorbs a cold, loaded JVM.
+                // This no longer pins the half-budget connect timeout of GraphApiHttp, on purpose: correctness does not
+                // need it, since the JDK reports either timer firing before a connection as a connect timeout.
                 assertThat(elapsed).isLessThan(Duration.ofMillis(1_500));
             } finally {
                 for (Socket filler : fillers) {
@@ -544,12 +550,15 @@ class GraphApiMessagingProviderTest {
             try {
                 filler.connect(full.getLocalAddress(), (int) FILLER_CONNECT_WAIT.toMillis());
             } catch (IOException queueAlreadyFull) {
-                assumeTrue(queued > 0, "The listener accepted no connection at all");
-                return queued;
+                return queued > 0 ? queued : noHang("The listener accepted no connection at all");
             }
         }
-        assumeTrue(false, "The accept queue never filled, so no connect can be made to hang");
-        return 0;
+        return noHang("The accept queue never filled, so no connect can be made to hang");
+    }
+
+    /** Skips locally when the environment cannot make a connect hang; on CI (Linux runners) that is a failure. */
+    private static <T> T noHang(String reason) {
+        return System.getenv("CI") != null ? fail(reason) : Assumptions.abort(reason);
     }
 
     /** Accepts every connection the kernel completed, without waiting for more. */
