@@ -29,9 +29,14 @@ import io.github.stevdrey.dokene.template.application.TemplateMappingResolver;
 import io.github.stevdrey.dokene.template.application.TemplateMappingResolver.ResolvedTemplateMapping;
 import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
+import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.time.Instant;
+import java.util.Currency;
 import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.UUID;
@@ -49,8 +54,9 @@ class RenderedContentSafetyTest {
     private final TemplateMappingResolver templates = mock(TemplateMappingResolver.class);
     private final ContactPolicyRepository contactPolicies = mock(ContactPolicyRepository.class);
     private final DraftGroundingAssembler grounding = mock(DraftGroundingAssembler.class);
+    private final TenantRepository tenants = mock(TenantRepository.class);
     private final ApprovalBindingAssembler assembler = new ApprovalBindingAssembler(templates, contactPolicies,
-            new MessageSendGuards(contactPolicies, mock(FollowUpService.class), grounding));
+            new MessageSendGuards(contactPolicies, mock(FollowUpService.class), grounding, tenants));
     private final TenantId tenantId = new TenantId(UUID.randomUUID());
     private final SenderRevision sender = new SenderRevision(UUID.randomUUID(), "100000000000001",
             "200000000000001", 1);
@@ -87,6 +93,39 @@ class RenderedContentSafetyTest {
                 "es-419", BODY, customer), name);
         assertRefusedQuotingNothing(() -> assembler.bind(message, customer, sender), name);
         assertThat(assembler.review(message, customer)).isEmpty();
+    }
+
+    /**
+     * Issue 452: a customer name holding a short CAD-like hex token is an identifier for a tenant that operates in
+     * another currency, on every rendering path, and still refused for a CAD tenant or one with no currency set.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Tienda 55cad2", "Tienda 10cad5c", "Tienda 9cad07b"})
+    void aShortCadLikeHexNameRendersOnlyForATenantThatDoesNotOperateInCad(String name) {
+        Customer customer = customer(name);
+        OutboundMessage message = message("es-419", BODY, customer);
+
+        tenantCurrency("USD");
+        assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP, "es-419", BODY, customer);
+        assertThat(assembler.review(message, customer).orElseThrow().renderedBody()).isEqualTo("Hola " + name + ": " + BODY);
+        assertThat(assembler.bind(message, customer, sender).parameterValues()).containsExactly(name, BODY);
+
+        for (String strict : new String[] {"CAD", null}) {
+            tenantCurrency(strict);
+            assertRefusedQuotingNothing(() -> assembler.requireRenderable(SemanticTemplateIntent.GENERAL_FOLLOW_UP,
+                    "es-419", BODY, customer), name);
+            assertRefusedQuotingNothing(() -> assembler.bind(message, customer, sender), name);
+            assertThat(assembler.review(message, customer)).isEmpty();
+        }
+        // A real CAD form stays an amount for every tenant.
+        tenantCurrency("USD");
+        Customer cadName = customer("Ana 10 CAD");
+        assertRefusedQuotingNothing(() -> assembler.bind(message("es-419", BODY, cadName), cadName, sender), "10 CAD");
+    }
+
+    private void tenantCurrency(String code) {
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(Tenant.restore(tenantId, "Tienda", TenantStatus.ACTIVE,
+                code == null ? null : Currency.getInstance(code), NOW, NOW, 0)));
     }
 
     @ParameterizedTest

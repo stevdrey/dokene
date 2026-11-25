@@ -417,7 +417,10 @@ public final class OpenAiResponsesApiAdapter implements AiProvider {
                         customerContext.trusted().purchaseDates().stream().map(Object::toString).toList(),
                         customerContext.trusted().followUpStatus(),
                         customerContext.trusted().tenantDate().toString());
-                var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding);
+                // Read under the tenant's operating currency (issue 452); the gate checks again under the current one.
+                var violation = DraftSafetyValidator.validate(draft, allowedContext, grounding,
+                        request.context().businessFacts() != null
+                                ? request.context().businessFacts().operatingCurrency() : null);
                 if (violation.isPresent()) {
                     rejections.add(AiOutputRejection.UNSAFE_CONTENT);
                 }

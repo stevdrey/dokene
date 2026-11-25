@@ -5,12 +5,15 @@ import io.github.stevdrey.dokene.ratelimit.ActorCallBudget;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -37,11 +40,13 @@ public class TemplateRegistryService {
     private final Clock clock;
     private final TransactionTemplate writes;
     private final TransactionTemplate reads;
+    private final TenantRepository tenants;
 
     public TemplateRegistryService(TemplateMappingRepository repository, TemplateProviderGateway gateway,
             TemplateAuditPort audit, TenantAuthorizationService authorization, TenantContextProvider contexts,
             TemplateRegistryProperties properties, TemplateRefreshLimiter refreshes, Clock clock,
-            PlatformTransactionManager transactions) {
+            PlatformTransactionManager transactions, TenantRepository tenants) {
+        this.tenants = Objects.requireNonNull(tenants, "Tenant repository is required");
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.gateway = Objects.requireNonNull(gateway, "Gateway is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
@@ -75,10 +80,11 @@ public class TemplateRegistryService {
         return reads.execute(status -> {
             List<TemplateMapping> stored = repository.findAll(tenantId);
             Optional<TemplateProviderGateway.Sender> sender = gateway.currentSender();
+            Currency currency = operatingCurrency();
             List<Entry> entries = new ArrayList<>();
             for (SemanticTemplateIntent intent : SemanticTemplateIntent.values()) {
                 Optional<TemplateMapping> mapping = stored.stream().filter(m -> m.intent() == intent).findFirst();
-                entries.add(new Entry(intent, mapping, mapping.isPresent() && sendable(mapping.get(), sender)));
+                entries.add(new Entry(intent, mapping, mapping.isPresent() && sendable(mapping.get(), sender, currency)));
             }
             return entries;
         });
@@ -155,9 +161,11 @@ public class TemplateRegistryService {
         if (!answeredFor(lookup, sender)) {
             lookup = new TemplateProviderGateway.Unavailable();
         }
+        Currency currency = operatingCurrency();
         TemplateMapping next = switch (lookup) {
             case TemplateProviderGateway.Reported reported when reported.status() == TemplateApprovalStatus.APPROVED ->
-                    current.verifiedApproval(reported.schema(), reported.businessAccountId(), clock.instant());
+                    current.verifiedApproval(reported.schema(), reported.businessAccountId(), clock.instant(),
+                            currency);
             case TemplateProviderGateway.Reported reported ->
                     current.verified(reported.status(), reported.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Absent absent ->
@@ -165,6 +173,13 @@ public class TemplateRegistryService {
             case TemplateProviderGateway.Unavailable unavailable -> current.unverified(clock.instant());
         };
         TemplateMapping saved = next.approval().equals(current.approval()) ? current : writes.execute(status -> {
+            // Best effort: a currency change since the evidence was built is refused as stale, so nothing unsendable is
+            // written. A change committed after this read can still land old-currency evidence; it stays unsendable
+            // under the new currency (the send-time check is the guard), and the sendable flag returned is a snapshot.
+            if (next.approval().content() != null
+                    && !Objects.equals(next.approval().contentCurrency(), operatingCurrency())) {
+                throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
+            }
             if (!repository.updateApproval(next, expectedVersion, current.approval())) {
                 throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
             }
@@ -179,7 +194,7 @@ public class TemplateRegistryService {
         if (lookup instanceof TemplateProviderGateway.Unavailable) {
             throw new TemplateRefusedException(TemplateErrorCode.PROVIDER_UNAVAILABLE);
         }
-        return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender)));
+        return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender), currency));
     }
 
     /**
@@ -206,9 +221,18 @@ public class TemplateRegistryService {
         };
     }
 
-    private boolean sendable(TemplateMapping mapping, Optional<TemplateProviderGateway.Sender> sender) {
+    private boolean sendable(TemplateMapping mapping, Optional<TemplateProviderGateway.Sender> sender,
+            Currency currency) {
         return sender.isPresent() && mapping.sendable(sender.get().integrationId(),
-                sender.get().businessAccountId(), clock.instant(), properties.approvalMaxAge());
+                sender.get().businessAccountId(), clock.instant(), properties.approvalMaxAge(), currency);
+    }
+
+    /**
+     * The current tenant's operating currency, or null when unset (issue 452). A refresh checks fixed text under it
+     * and records it; evidence is sendable only while the tenant still operates in that currency.
+     */
+    private Currency operatingCurrency() {
+        return tenants.findById(contexts.requireCurrent().tenantId()).flatMap(Tenant::operatingCurrency).orElse(null);
     }
 
     /** Only domain validation maps to INVALID_INPUT; other failures stay server errors. */

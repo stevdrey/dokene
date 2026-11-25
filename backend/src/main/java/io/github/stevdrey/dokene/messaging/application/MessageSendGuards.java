@@ -22,6 +22,9 @@ import io.github.stevdrey.dokene.followup.application.FollowUpService;
 import io.github.stevdrey.dokene.followup.domain.FollowUpStatus;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
+import java.util.Currency;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -40,12 +43,14 @@ public class MessageSendGuards {
     private final ContactPolicyRepository contactPolicies;
     private final FollowUpService followUps;
     private final DraftGroundingAssembler grounding;
+    private final TenantRepository tenants;
 
     public MessageSendGuards(ContactPolicyRepository contactPolicies, FollowUpService followUps,
-            DraftGroundingAssembler grounding) {
+            DraftGroundingAssembler grounding, TenantRepository tenants) {
         this.contactPolicies = Objects.requireNonNull(contactPolicies);
         this.followUps = Objects.requireNonNull(followUps);
         this.grounding = Objects.requireNonNull(grounding);
+        this.tenants = Objects.requireNonNull(tenants);
     }
 
     /**
@@ -86,7 +91,8 @@ public class MessageSendGuards {
         } catch (RecommendationValidationException exception) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
-        if (DraftSafetyValidator.validate(draft, context.allowedContextText(), context.grounding()).isPresent()) {
+        if (DraftSafetyValidator.validate(draft, context.allowedContextText(), context.grounding(),
+                operatingCurrency(customer)).isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
     }
@@ -96,19 +102,31 @@ public class MessageSendGuards {
      * Identity values, which come from tenant records, carry no offer however a purchase reads, so they are checked
      * with nothing to ground one. The body value and the rendered body are grounded as a body is. Refuses with
      * {@code BODY_REJECTED} and never quotes a value. The customer's own name is read through {@link AmbiguousSurnames}.
+     * Amounts are read under the tenant's operating currency as it is now (issue 452).
      */
     public void checkRendered(Customer customer, String locale, List<String> identityValues, List<String> bodyValues,
             String renderedBody) {
+        Currency currency = operatingCurrency(customer);
         Map<String, String> texts = labelled(customer, identityValues);
-        if (DraftSafetyValidator.validateRenderedText(texts, locale, NOTHING_GROUNDED).isPresent()) {
+        if (DraftSafetyValidator.validateRenderedText(texts, locale, NOTHING_GROUNDED, currency).isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
         texts = labelled(customer, bodyValues);
         texts.put("rendered body", AmbiguousSurnames.neutralized(renderedBody, customer.displayName()));
-        if (DraftSafetyValidator.validateRenderedText(texts, locale, grounding.renderedContentGrounding(customer))
-                .isPresent()) {
+        if (DraftSafetyValidator.validateRenderedText(texts, locale, grounding.renderedContentGrounding(customer),
+                currency).isPresent()) {
             throw refuse(MessagingErrorCode.BODY_REJECTED);
         }
+    }
+
+    /**
+     * The customer's tenant's operating currency, or {@code null} when unset, which reads every currency (issue 452).
+     * Read on every check, so at dispatch it is the currency current at the gate inside the claim transaction: a change
+     * committed before that read prevents the send, a later one only affects later attempts (ADR 0025 addendum, issue
+     * 452; ADR 0028 race semantics).
+     */
+    private Currency operatingCurrency(Customer customer) {
+        return tenants.findById(customer.tenantId()).flatMap(Tenant::operatingCurrency).orElse(null);
     }
 
     private static Map<String, String> labelled(Customer customer, List<String> values) {
