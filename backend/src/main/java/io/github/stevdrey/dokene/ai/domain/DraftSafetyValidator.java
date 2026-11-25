@@ -131,6 +131,8 @@ public final class DraftSafetyValidator {
     /** A currency code or name as a whole term inside a matched amount, to tell whether it sits inside an identifier. */
     private static final Pattern GLUED_CURRENCY_TERM_PATTERN = Pattern.compile(
             "(?<!\\p{L})(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})");
+    /** A compact CAD price with cents ("10cad50c"): hex-shaped, but read as an amount, never as an identifier. */
+    private static final Pattern CAD_CENTS_PRICE_PATTERN = Pattern.compile("\\d+cad\\d+c");
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
@@ -623,8 +625,7 @@ public final class DraftSafetyValidator {
      * identifier as a whole, code included ("55cad2e1", "9cad070b": UUID or hash groups), and that holds a letter
      * outside the code, is part of that identifier, not an amount, and is not checked as one. Only a code spelled in
      * hex letters ("cad") can sit inside one; any other letter in the run ("10usd50c", "10dollars50c", "100cad0x")
-     * keeps the amount. A hex-lettered CAD price ("10cad50c") still reads as an identifier (accepted limitation, ADR
-     * 0025). An amount is written with the code at an edge of its run ("10cad", "CAD10", "USD100A") or with digits only
+     * keeps the amount, and so does a compact CAD price with cents ("10cad50c"). An amount is written with the code at an edge of its run ("10cad", "CAD10", "USD100A") or with digits only
      * around it ("100USD200"), and those stay amounts: the rule cannot tell a standalone "cad070" in a name from
      * "CAD070", so it does not try. A run written as a quantity, with a sign or a decimal or group separator before or
      * inside its number ("+10cad50c", "-10cad50c", "1'000cad50c", "10.5cad2e1"), keeps the amount: identifiers in
@@ -656,9 +657,12 @@ public final class DraftSafetyValidator {
                 end = text.offsetByCodePoints(end, 1);
             }
             String outsideTerm = text.substring(start, termStart) + text.substring(termEnd, end);
-            // The whole run, code included, must be hex: deleting a non-hex code ("usd") never makes one.
+            // The whole run, code included, must be hex: deleting a non-hex code ("usd") never makes one. A compact
+            // CAD price with cents ("10cad50c") is hex too, and stays an amount (fail closed).
+            String run = text.substring(start, end);
             if (!quantityPrefixAt(text, start) && outsideTerm.codePoints().anyMatch(Character::isLetter)
-                    && text.substring(start, end).chars().allMatch(c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f')) {
+                    && run.chars().allMatch(c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f')
+                    && !CAD_CENTS_PRICE_PATTERN.matcher(run).matches()) {
                 return true;
             }
         }
@@ -668,13 +672,25 @@ public final class DraftSafetyValidator {
     /**
      * True when the character before {@code index} writes the number that starts there as a quantity: a sign
      * ("+10", "-10", "–10", "±10", "~10") or a decimal or group separator ("1'000", "0.5", "1,5", "1·5", "1٫5").
-     * A hyphen, minus or en dash right after a letter or digit joins identifier groups ("3f2a-55cad2e1").
+     * A sign set apart by whitespace counts too ("+ 10cad50c"). A hyphen, minus or en dash right after a letter or
+     * digit joins identifier groups ("3f2a-55cad2e1").
      */
     private static boolean quantityPrefixAt(String text, int index) {
         if (index < 1 || index > text.length()) {
             return false;
         }
         char before = text.charAt(index - 1);
+        if (Character.isWhitespace(before) || Character.isSpaceChar(before)) {
+            // A sign set apart by whitespace ("+ 10cad50c", "− 10cad50c") still signs the number; a UUID never has
+            // whitespace inside it, so a spaced hyphen is not a group separator.
+            int signAt = index - 1;
+            while (signAt > 0 && (Character.isWhitespace(text.charAt(signAt - 1))
+                    || Character.isSpaceChar(text.charAt(signAt - 1)))) {
+                signAt--;
+            }
+            return signAt > 0 && "+-\u2212\u2013\u00b1~".indexOf(text.charAt(signAt - 1)) >= 0
+                    && (signAt < 2 || !Character.isLetterOrDigit(text.charAt(signAt - 2)));
+        }
         if (before == '-' || before == '\u2212' || before == '\u2013') {
             return index < 2 || !Character.isLetterOrDigit(text.charAt(index - 2));
         }

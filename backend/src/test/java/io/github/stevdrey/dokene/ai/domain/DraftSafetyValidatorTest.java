@@ -876,7 +876,10 @@ class DraftSafetyValidatorTest {
         // The whole run must be hex, code included, and a sign or separator makes it a quantity: each entry point
         // refuses these with no offer grounding, and the same spelling in the context grounds them.
         for (String body : List.of("Paga 10USD50c.", "Pay 10dollars50c.", "Paga 99usd99c.", "Paga +10cad50c.",
-                "Paga \u221210cad50c.", "Paga \u201310cad50c.", "Paga ~10cad50c.", "Paga 1'000cad50c.", "Paga 10.5cad2e1.")) {
+                "Paga \u221210cad50c.", "Paga \u201310cad50c.", "Paga ~10cad50c.", "Paga 1'000cad50c.", "Paga 10.5cad2e1.",
+                // A compact CAD price with cents is hex-shaped but stays an amount, and a spaced sign still signs it.
+                "Paga 10cad50c.", "Paga 10cad5c.", "Paga 10c4d50c.", "Paga + 10cad50c.", "Paga \u2212 10cad50c.",
+                "Paga - 10cad50c.", "Paga \u00b1 10cad50c.")) {
             String locale = body.startsWith("Pay") ? "en-US" : "es-419";
             assertThat(DraftSafetyValidator.validate(draftWith(body, locale, List.of()), "Cliente: Ana.", grounding))
                     .as("body | " + body).isPresent();
