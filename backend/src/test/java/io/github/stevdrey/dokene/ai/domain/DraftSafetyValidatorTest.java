@@ -831,15 +831,15 @@ class DraftSafetyValidatorTest {
     }
 
     /**
-     * Issue 443: a currency code glued to a letter or digit on both sides, in a run that holds another letter (hex or
-     * other alphanumeric identifiers in a business or customer name), is part of the identifier and not an amount. A
-     * code at an edge of its run, or with only digits around it, is still an amount.
+     * Issue 443: a currency code glued to a letter or digit on both sides, in a run whose other letters are all hex
+     * (UUID or hash groups in a business or customer name), is part of the identifier and not an amount. A code at an
+     * edge of its run, with only digits around it, or with a non-hex letter in its run, is still an amount.
      */
     @Test
-    void currencyCodesGluedInsideAlphanumericIdentifiersAreNotAmounts() {
+    void currencyCodesGluedInsideHexIdentifiersAreNotAmounts() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
         for (String name : List.of("Tienda 55cad2e1", "Tienda 55cad2a1-4f3b", "Tienda 9cad070b", "Tienda 0123cad4f5",
-                "Tienda 55c4d2e1", "Tienda 7usd5k", "Tienda 10dollars5x", "Tienda 3f2a-55cad2e1")) {
+                "Tienda 55c4d2e1", "Tienda 3f2a-55cad2e1")) {
             // The business name written into an AI draft body.
             assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
                     "Cliente: Ana.", grounding)).as("body | " + name).isEmpty();
@@ -856,7 +856,10 @@ class DraftSafetyValidatorTest {
                 "Paga 100USD200.", "Paga 10C4D.", "Paga USD100A.", "Paga U5D100A.", "Paga -55cad2.",
                 // A separator or sign makes the number a written quantity, so the run stays an amount.
                 "Paga 10,000usd5k.", "Paga 10.5cad2x.", "Paga 10 000usd5k.", "Paga .5usd2x.", "Paga -10usd5x.",
-                "Tienda -55cad2e1.")) {
+                "Tienda -55cad2e1.",
+                // A non-hex letter in the run reads as a price-like suffix, not a hex identifier.
+                "Paga 7usd5k.", "Paga 10dollars5x.", "Paga 100cad0x.", "Paga 10usd2x1.", "Paga +10usd5x.",
+                "Paga 1'000usd5k.")) {
             Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
                     draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding);
             assertThat(violation).as(body).isPresent();
@@ -870,6 +873,11 @@ class DraftSafetyValidatorTest {
                 .isPresent();
         assertThat(DraftSafetyValidator.validate(draftWith("Paga 55cad2.", "es-419", List.of()), "Plan 55cad2"))
                 .isEmpty();
+        // A space-grouped name repeated from the context is grounded by it: both sides keep the separator.
+        for (String name : List.of("Tienda 2 550cad2e1", "Tienda 10 000usd5k")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
+                    "Cliente: " + name + ".")).as(name).isEmpty();
+        }
     }
 
     @Test

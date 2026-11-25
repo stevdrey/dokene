@@ -424,6 +424,11 @@ public final class DraftSafetyValidator {
                 }
             }
         }
+        // The identifier check must see the context's separators as the draft does: normalizing drops a space-group
+        // separator ("2 550cad2e1" -> "2550cad2e1"), which would read the amount the draft keeps as an identifier.
+        for (String rawView : withLeetViews(offerContextLower)) {
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView));
+        }
         for (String amountToken : contextAmounts) {
             Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
             if (numberMatcher.find()) {
@@ -446,9 +451,6 @@ public final class DraftSafetyValidator {
                     .entrySet()) {
                 Matcher draftExact = exact.getKey().matcher(view);
                 while (draftExact.find()) {
-                    if (insideIdentifier(view, draftExact)) {
-                        continue;
-                    }
                     if (!exact.getValue().contains(quantityKey(draftExact.group()))) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                                 "Draft contains a qualified or signed amount not grounded in context: '"
@@ -587,7 +589,7 @@ public final class DraftSafetyValidator {
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
             // A compact code-first amount that runs into a letter ("USD100A") is part of a longer identifier.
-            if (runsIntoLetter(text, matcher) || insideIdentifier(text, matcher)) {
+            if (runsIntoLetter(text, matcher)) {
                 continue;
             }
             tokens.add(quantityKey(matcher.group()));
@@ -618,8 +620,10 @@ public final class DraftSafetyValidator {
 
     /**
      * Issue 443: a currency code or name glued to a letter or digit on both sides, in a run of letters and digits that
-     * holds a letter outside that term ("55cad2e1", "9cad070b": hex or other alphanumeric identifiers), is part of an
-     * identifier, not an amount, and is not checked as one. An amount is written with the term at an edge of its run
+     * holds a letter outside that term and only hex letters (a-f) there ("55cad2e1", "9cad070b": UUID or hash groups),
+     * is part of a hex identifier, not an amount, and is not checked as one. Any other letter outside the term
+     * ("100cad0x", "7usd5k", "10usd2x1") keeps the amount; a hex-lettered price ("99usd99c") still reads as an
+     * identifier (accepted limitation, ADR 0025). An amount is written with the term at an edge of its run
      * ("10cad", "CAD10", "USD100A") or with digits only around it ("100USD200"), and those stay amounts: the rule
      * cannot tell a standalone "cad070" in a name from "CAD070", so it does not try. A number written as a quantity
      * before the term, with a decimal or group separator or a sign ("10,000usd5k", "10.5cad2x", "-10usd5x"), keeps the
@@ -651,7 +655,9 @@ public final class DraftSafetyValidator {
                 end = text.offsetByCodePoints(end, 1);
             }
             String run = text.substring(start, termStart) + text.substring(termEnd, end);
-            if (run.codePoints().anyMatch(Character::isLetter)) {
+            // Hex only (UUIDs, hashes): any other letter ("100cad0x", "10usd2x1") is read as a price-like suffix.
+            if (run.codePoints().anyMatch(Character::isLetter)
+                    && run.codePoints().filter(Character::isLetter).allMatch(c -> c >= 'a' && c <= 'f')) {
                 return true;
             }
         }
