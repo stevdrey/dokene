@@ -1,23 +1,35 @@
 package io.github.stevdrey.dokene.tenant.domain;
 
 import java.time.Instant;
+import java.util.Currency;
+import java.util.List;
+import java.util.Optional;
 import java.util.OptionalLong;
 
 public final class Tenant {
 
     public static final int DISPLAY_NAME_MAX_LENGTH = 160;
+    /**
+     * The ISO 4217 codes a tenant may operate in (issue 452): the currencies the message safety rules read as amounts.
+     * A tenant with none set is read as possibly quoting any of them.
+     */
+    public static final List<String> SUPPORTED_OPERATING_CURRENCIES = List.of(
+            "ARS", "BRL", "CAD", "CLP", "CNY", "COP", "CRC", "EUR", "GBP", "GTQ", "HNL", "INR", "JPY", "KRW", "MXN",
+            "NIO", "PAB", "PEN", "USD");
 
     private final TenantId id;
     private final String displayName;
     private final Instant createdAt;
     private Long revision;
     private TenantStatus status;
+    private Currency operatingCurrency;
     private Instant updatedAt;
 
     private Tenant(
             TenantId id,
             String displayName,
             TenantStatus status,
+            Currency operatingCurrency,
             Instant createdAt,
             Instant updatedAt,
             Long revision
@@ -25,6 +37,7 @@ public final class Tenant {
         this.id = required(id, "Tenant ID is required");
         this.displayName = normalizeDisplayName(displayName);
         this.status = required(status, "Tenant status is required");
+        this.operatingCurrency = supported(operatingCurrency);
         this.createdAt = TimestampPrecision.normalize(required(createdAt, "Tenant creation timestamp is required"));
         this.updatedAt = TimestampPrecision.normalize(required(updatedAt, "Tenant update timestamp is required"));
         this.revision = revision;
@@ -38,7 +51,7 @@ public final class Tenant {
     }
 
     public static Tenant create(TenantId id, String displayName, Instant createdAt) {
-        return new Tenant(id, displayName, TenantStatus.ACTIVE, createdAt, createdAt, null);
+        return new Tenant(id, displayName, TenantStatus.ACTIVE, null, createdAt, createdAt, null);
     }
 
     public static Tenant restore(
@@ -49,7 +62,19 @@ public final class Tenant {
             Instant updatedAt,
             long revision
     ) {
-        return new Tenant(id, displayName, status, createdAt, updatedAt, revision);
+        return restore(id, displayName, status, null, createdAt, updatedAt, revision);
+    }
+
+    public static Tenant restore(
+            TenantId id,
+            String displayName,
+            TenantStatus status,
+            Currency operatingCurrency,
+            Instant createdAt,
+            Instant updatedAt,
+            long revision
+    ) {
+        return new Tenant(id, displayName, status, operatingCurrency, createdAt, updatedAt, revision);
     }
 
     public TenantId id() {
@@ -62,6 +87,11 @@ public final class Tenant {
 
     public TenantStatus status() {
         return status;
+    }
+
+    /** The currency the tenant operates in, or empty when none is set (issue 452). */
+    public Optional<Currency> operatingCurrency() {
+        return Optional.ofNullable(operatingCurrency);
     }
 
     public Instant createdAt() {
@@ -107,6 +137,40 @@ public final class Tenant {
             throw new IllegalStateException("Only active or suspended tenants can be archived");
         }
         updateStatus(TenantStatus.ARCHIVED, occurredAt);
+    }
+
+    /**
+     * Sets the operating currency, or clears it with {@code null}. Only a supported code is accepted, and an archived
+     * tenant keeps the currency it had.
+     */
+    public void changeOperatingCurrency(Currency currency, Instant occurredAt) {
+        if (status == TenantStatus.ARCHIVED) {
+            throw new IllegalStateException("An archived tenant cannot change its operating currency");
+        }
+        Currency next = supported(currency);
+        Instant changeTime = TimestampPrecision.normalize(required(
+                occurredAt, "Tenant change timestamp is required"
+        ));
+        if (changeTime.isBefore(updatedAt)) {
+            throw new IllegalArgumentException("Tenant change timestamp cannot precede the current update timestamp");
+        }
+        operatingCurrency = next;
+        updatedAt = changeTime;
+    }
+
+    /** The supported operating currency named by an ISO 4217 code such as {@code USD}; refuses any other text. */
+    public static Currency operatingCurrencyOf(String code) {
+        if (code == null || !SUPPORTED_OPERATING_CURRENCIES.contains(code)) {
+            throw new IllegalArgumentException("Operating currency is not supported");
+        }
+        return Currency.getInstance(code);
+    }
+
+    private static Currency supported(Currency currency) {
+        if (currency != null && !SUPPORTED_OPERATING_CURRENCIES.contains(currency.getCurrencyCode())) {
+            throw new IllegalArgumentException("Operating currency is not supported");
+        }
+        return currency;
     }
 
     private void transitionTo(TenantStatus targetStatus, Instant occurredAt) {

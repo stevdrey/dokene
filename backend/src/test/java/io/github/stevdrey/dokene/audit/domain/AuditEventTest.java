@@ -82,6 +82,28 @@ class AuditEventTest {
                 .isInstanceOf(IllegalArgumentException.class);
     }
 
+    /** Issue 452: a currency change names only its tenant, with the closed setting metadata. */
+    @Test
+    void operatingCurrencyEventsRequireATenantTargetAndSettingMetadata() {
+        TenantId tenant = new TenantId(UUID.randomUUID());
+        IdentityId actor = new IdentityId(UUID.randomUUID());
+        TenantMembershipId membership = new TenantMembershipId(UUID.randomUUID());
+        AuditEventType type = AuditEventType.TENANT_OPERATING_CURRENCY_CHANGED;
+        AuditTarget target = new AuditTarget(AuditTarget.Type.TENANT, tenant.value());
+        AuditMetadata setting = new AuditMetadata.TenantSettingChange();
+
+        assertThatCode(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant, actor, membership, type, target,
+                AuditOutcome.SUCCESS, UUID.randomUUID(), setting)).doesNotThrowAnyException();
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant, actor, membership, type,
+                new AuditTarget(AuditTarget.Type.CUSTOMER, UUID.randomUUID()), AuditOutcome.SUCCESS,
+                UUID.randomUUID(), setting)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant, actor, membership, type,
+                target, AuditOutcome.SUCCESS, UUID.randomUUID(), new AuditMetadata.FollowUpMutation()))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new AuditEvent(UUID.randomUUID(), Instant.now(), tenant, actor, membership, type,
+                target, AuditOutcome.DENIED, UUID.randomUUID(), setting)).isInstanceOf(IllegalArgumentException.class);
+    }
+
     @Test
     void aiInvocationMetadataEnforcesConsistentClosedDetails() {
         assertThatThrownBy(() -> new AuditMetadata.AiInvocation(AiAuditOperation.NEXT_BEST_ACTION,

@@ -9,6 +9,7 @@ import { CustomerList } from './features/customers/components/CustomerList';
 import { CustomerProfile } from './features/customers/components/CustomerProfile';
 import { FollowUpWorkbench } from './features/followups/components/FollowUpWorkbench';
 import { IntegrationStatusPanel } from './features/integrations/components/IntegrationStatusPanel';
+import { OperatingCurrencySettings } from './features/tenants/OperatingCurrencySettings';
 
 const MainAppContent: React.FC = () => {
   const { status: sessionStatus, error: sessionError, checkSession } = useSession();
@@ -221,6 +222,9 @@ const MainAppContent: React.FC = () => {
         (activeWorkspace ? (
           <>
             <PendingInvitations />
+            <OperatingCurrencySettings
+              workspace={{ tenantId: activeWorkspace.tenantId, role: activeWorkspace.role }}
+            />
             <IntegrationStatusPanel
               workspace={{ tenantId: activeWorkspace.tenantId, role: activeWorkspace.role }}
             />

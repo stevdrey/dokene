@@ -19,12 +19,14 @@ import io.github.stevdrey.dokene.audit.domain.AuditEvent;
 import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditMetadata;
 import io.github.stevdrey.dokene.audit.domain.AuditOutcome;
+import io.github.stevdrey.dokene.audit.domain.AuditTarget;
 import io.github.stevdrey.dokene.integration.testsupport.ComposeImages;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationAuditListener;
 import io.github.stevdrey.dokene.tenant.application.AuthorizationDeniedEvent;
 import io.github.stevdrey.dokene.tenant.application.DatabaseContextSigner;
 import io.github.stevdrey.dokene.tenant.application.MembershipNotFoundException;
 import io.github.stevdrey.dokene.tenant.application.MembershipRoleService;
+import io.github.stevdrey.dokene.tenant.application.OperatingCurrencyService;
 import io.github.stevdrey.dokene.tenant.application.SignedDatabaseContext;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
@@ -45,6 +47,7 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
@@ -90,6 +93,7 @@ class AuditIntegrationTest {
     @Autowired private JdbcTemplate jdbc;
     @Autowired private PlatformTransactionManager transactions;
     @Autowired private DatabaseContextSigner signer;
+    @Autowired private OperatingCurrencyService operatingCurrencies;
 
     @DynamicPropertySource
     static void database(DynamicPropertyRegistry registry) throws SQLException {
@@ -512,6 +516,34 @@ class AuditIntegrationTest {
             assertThat(jdbc.queryForObject("SELECT count(*) FROM dokene.audit_events", Integer.class)).isZero();
             migrationInsertAi(context.tenantId(), "AI_INVOCATION_OUTCOME", "SUCCESS", UUID.randomUUID(),
                     "NEXT_BEST_ACTION", "GENERATED", "NONE");
+            assertThat(reader.read().events()).hasSize(1);
+        });
+    }
+
+    /** Issue 452: a currency change and its tenant-targeted audit row commit together; an unchanged value adds none. */
+    @Test
+    void changesTheOperatingCurrencyAndRecordsATenantSettingEventAtomically() {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        scoped(context, () -> {
+            long revision = operatingCurrencies.read().revision();
+            var changed = operatingCurrencies.change(Currency.getInstance("USD"), revision);
+            assertThat(changed.operatingCurrency()).contains(Currency.getInstance("USD"));
+            assertThat(changed.revision()).isGreaterThan(revision);
+            assertThat(tenants.findById(context.tenantId()).orElseThrow().operatingCurrency())
+                    .contains(Currency.getInstance("USD"));
+
+            AuditEvent event = reader.read().events().getFirst();
+            assertThat(event.type()).isEqualTo(AuditEventType.TENANT_OPERATING_CURRENCY_CHANGED);
+            assertThat(event.outcome()).isEqualTo(AuditOutcome.SUCCESS);
+            assertThat(event.tenantId()).isEqualTo(context.tenantId());
+            assertThat(event.actorId()).isEqualTo(context.identityId());
+            assertThat(event.target()).isEqualTo(new AuditTarget(AuditTarget.Type.TENANT, context.tenantId().value()));
+            assertThat(event.metadata()).isEqualTo(new AuditMetadata.TenantSettingChange());
+
+            operatingCurrencies.change(Currency.getInstance("USD"), changed.revision());
+            assertThat(reader.read().events()).hasSize(1);
+            assertThatThrownBy(() -> operatingCurrencies.change(null, revision))
+                    .isInstanceOf(OperatingCurrencyService.StaleRevisionException.class);
             assertThat(reader.read().events()).hasSize(1);
         });
     }

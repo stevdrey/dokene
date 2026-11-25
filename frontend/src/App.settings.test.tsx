@@ -25,6 +25,12 @@ vi.mock('./features/followups/components/FollowUpWorkbench', () => ({
   FollowUpWorkbench: () => <p>Seguimientos</p>
 }));
 
+vi.mock('./features/tenants/OperatingCurrencySettings', () => ({
+  OperatingCurrencySettings: ({ workspace }: { workspace: { tenantId: string } }) => (
+    <p>Moneda {workspace.tenantId}</p>
+  )
+}));
+
 vi.mock('./features/integrations/components/IntegrationStatusPanel', () => ({
   IntegrationStatusPanel: ({ workspace }: { workspace: { tenantId: string; role: string | null } }) => (
     <p>
@@ -71,6 +77,7 @@ describe('App settings tab', () => {
     setWorkspace(workspace);
     openSettings();
     expect(screen.getByText('Integración t-1 ADMIN')).toBeInTheDocument();
+    expect(screen.getByText('Moneda t-1')).toBeInTheDocument();
   });
 
   it('explains that a workspace is needed instead of rendering a blank page', () => {
@@ -78,5 +85,6 @@ describe('App settings tab', () => {
     openSettings();
     expect(screen.getByText('Selecciona un espacio de trabajo para ver su configuración.')).toBeInTheDocument();
     expect(screen.queryByText(/^Integración/)).toBeNull();
+    expect(screen.queryByText(/^Moneda/)).toBeNull();
   });
 });

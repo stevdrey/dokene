@@ -29,6 +29,7 @@ import java.sql.Wrapper;
 import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.Currency;
 import java.util.HexFormat;
 import java.util.List;
 import java.util.Map;
@@ -114,7 +115,7 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("43");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("44");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
@@ -240,7 +241,7 @@ class TenantPersistenceIntegrationTest {
                     AND privilege_type = 'UPDATE'
                 ORDER BY column_name
                 """, String.class
-        )).containsExactly("display_name", "status", "updated_at", "version");
+        )).containsExactly("display_name", "operating_currency", "status", "updated_at", "version");
         assertThat(jdbcTemplate.queryForList("""
                 SELECT privilege_type FROM information_schema.role_table_grants
                 WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene' AND table_name = 'workspace_provisioning_records'
@@ -413,6 +414,29 @@ class TenantPersistenceIntegrationTest {
         assertThat(membership.updatedAt()).isEqualTo(Instant.parse("2026-08-23T00:02:01Z"));
         assertThat(restoredMembership.createdAt()).isEqualTo(membership.createdAt());
         assertThat(restoredMembership.updatedAt()).isEqualTo(membership.updatedAt());
+    }
+
+    /** Issue 452: the operating currency is unset by default, round trips, clears, and only supported codes are stored. */
+    @Test
+    void persistsTheOperatingCurrencyAndRefusesUnsupportedCodesAtTheDatabaseBoundary() throws SQLException {
+        Instant createdAt = Instant.parse("2026-08-23T00:00:00Z");
+        Tenant tenant = persistTenant("Workspace", createdAt);
+        assertThat(findTenant(tenant.id()).orElseThrow().operatingCurrency()).isEmpty();
+
+        tenant.changeOperatingCurrency(Currency.getInstance("USD"), createdAt.plusSeconds(60));
+        saveTenant(tenant);
+        Tenant restored = findTenant(tenant.id()).orElseThrow();
+        assertThat(restored.operatingCurrency()).contains(Currency.getInstance("USD"));
+        assertThat(restored.revision()).hasValue(1);
+
+        restored.changeOperatingCurrency(null, createdAt.plusSeconds(120));
+        saveTenant(restored);
+        assertThat(findTenant(tenant.id()).orElseThrow().operatingCurrency()).isEmpty();
+
+        assertThatThrownBy(() -> executeAsMigration("UPDATE dokene.tenants SET operating_currency = 'AUD' WHERE id = '"
+                + tenant.id().value() + "'")).isInstanceOf(SQLException.class);
+        assertThatThrownBy(() -> executeAsMigration("UPDATE dokene.tenants SET operating_currency = 'usd' WHERE id = '"
+                + tenant.id().value() + "'")).isInstanceOf(SQLException.class);
     }
 
     @Test

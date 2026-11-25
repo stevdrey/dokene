@@ -16,6 +16,10 @@ public sealed interface AuditMetadata {
     record FollowUpMutation() implements AuditMetadata {
     }
 
+    /** A tenant setting changed (issue 452); the row names the tenant only, never the old or new value. */
+    record TenantSettingChange() implements AuditMetadata {
+    }
+
     /** Privacy-safe AI lifecycle outcome: enums only, never prompts, generated text, notes or provider messages. */
     record AiInvocation(AiAuditOperation operation, AiAuditOutcome outcome, AiAuditDetail detail)
             implements AuditMetadata {

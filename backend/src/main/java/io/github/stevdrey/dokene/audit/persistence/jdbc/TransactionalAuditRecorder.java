@@ -227,6 +227,14 @@ class TransactionalAuditRecorder implements AuditRecorder {
     }
 
     @Override
+    public void tenantOperatingCurrencyChanged() {
+        TenantContext context = contexts.requireCurrent();
+        append(context, event(context, AuditEventType.TENANT_OPERATING_CURRENCY_CHANGED,
+                new AuditTarget(AuditTarget.Type.TENANT, context.tenantId().value()), AuditOutcome.SUCCESS,
+                new AuditMetadata.TenantSettingChange()), mandatory);
+    }
+
+    @Override
     public void templateMappingUpdated(UUID mappingId, boolean enabled) {
         TenantContext context = contexts.requireCurrent();
         append(context, event(context, AuditEventType.TEMPLATE_MAPPING_UPDATED,
