@@ -119,7 +119,12 @@ public class MessageSendGuards {
         }
     }
 
-    /** The customer's tenant's operating currency, or {@code null} when unset, which reads every currency (issue 452). */
+    /**
+     * The customer's tenant's operating currency, or {@code null} when unset, which reads every currency (issue 452).
+     * Read on every check, so at dispatch it is the currency current at the gate inside the claim transaction: a change
+     * committed before that read prevents the send, a later one only affects later attempts (ADR 0025 addendum, issue
+     * 452; ADR 0028 race semantics).
+     */
     private Currency operatingCurrency(Customer customer) {
         return tenants.findById(customer.tenantId()).flatMap(Tenant::operatingCurrency).orElse(null);
     }

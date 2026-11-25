@@ -948,7 +948,8 @@ class DraftSafetyValidatorTest {
         for (String body : List.of("Paga 10cad.", "Paga 10 CAD.", "Paga CAD10.", "Paga CAD 10.", "Paga cad070.",
                 "Paga 10C4D.", "Paga -55cad2.", "Paga +10cad5c.", "Paga + 10cad5c.", "Paga 10.5cad2.", "Paga 1,5cad2.",
                 "Paga 1'000cad5.", "Paga ~55cad2.", "Paga 55usd2.", "Paga 100cad0x.", "Paga 10dollars5c.",
-                "Paga $10.", "Paga 10 dólares.")) {
+                "Paga $10.", "Paga 10 dólares.", "Paga 55cad2.50.", "Paga 55cad2,50.", "Paga 55cad2 500.",
+                "Paga 55c4d2.50.")) {
             for (Currency tenant : java.util.Arrays.asList(usd, crc, cad, null)) {
                 Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
                         draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding, tenant);
@@ -957,6 +958,8 @@ class DraftSafetyValidatorTest {
                         .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
                 assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", body), "es-419", tenant))
                         .as("fixed | " + tenant + " | " + body).isPresent();
+                assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", body), "es-419",
+                        grounding, tenant)).as("rendered | " + tenant + " | " + body).isPresent();
             }
         }
 

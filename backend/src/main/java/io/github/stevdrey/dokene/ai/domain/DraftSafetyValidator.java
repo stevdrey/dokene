@@ -714,8 +714,10 @@ public final class DraftSafetyValidator {
             if (quantityPrefixAt(text, start) || !isHex(run)) {
                 continue;
             }
-            // Issue 452: a tenant that does not operate in CAD quotes no CAD price, so its shape alone is enough.
-            if (cadRuledOut && term.group().equalsIgnoreCase(HEX_CURRENCY_CODE)) {
+            // Issue 452: a tenant that does not operate in CAD quotes no CAD price, so its shape alone is enough, but
+            // only when the whole amount lies inside the run: "55cad2.50" continues past it with a decimal separator.
+            if (cadRuledOut && term.group().equalsIgnoreCase(HEX_CURRENCY_CODE)
+                    && amountStart >= start && amount.end() <= end) {
                 return true;
             }
             if (run.length() < MIN_HEX_IDENTIFIER_LENGTH) {

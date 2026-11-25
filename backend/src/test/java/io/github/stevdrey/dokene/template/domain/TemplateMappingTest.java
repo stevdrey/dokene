@@ -294,6 +294,28 @@ class TemplateMappingTest {
                 TemplateParameterFormat.POSITIONAL, CONTENT, null, usd)).isInstanceOf(IllegalArgumentException.class);
     }
 
+    /**
+     * Issue 452: evidence binds the currency value, not a change revision. It is ineligible while the tenant's currency
+     * differs and eligible again, with no refresh, once the original currency is restored, still subject to its age
+     * and every other check. Expired evidence never comes back that way.
+     */
+    @Test
+    void evidenceIsEligibleAgainWhenTheTenantReturnsToItsCurrencyButNeverOnceExpired() {
+        Currency usd = Currency.getInstance("USD");
+        Currency cad = Currency.getInstance("CAD");
+        TemplateMapping approved = mapping("hello_world", "es", List.of()).verifiedApproval(
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(),
+                        new TemplateContent("Tienda 55cad2", "Gracias por tu compra.", null)), WABA, NOW, usd);
+
+        Instant later = NOW.plus(MAX_AGE.dividedBy(2));
+        assertThat(approved.sendable(INTEGRATION, WABA, NOW, MAX_AGE, usd)).isTrue();
+        assertThat(approved.sendable(INTEGRATION, WABA, later, MAX_AGE, cad)).isFalse();
+        assertThat(approved.sendable(INTEGRATION, WABA, later, MAX_AGE, usd)).isTrue();
+
+        Instant expired = NOW.plus(MAX_AGE).plusSeconds(1);
+        assertThat(approved.sendable(INTEGRATION, WABA, expired, MAX_AGE, usd)).isFalse();
+    }
+
     private static ProviderTemplateSchema fixedBody(String body) {
         return new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of(),
                 new TemplateContent(null, body, null));

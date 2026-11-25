@@ -173,7 +173,9 @@ public class TemplateRegistryService {
             case TemplateProviderGateway.Unavailable unavailable -> current.unverified(clock.instant());
         };
         TemplateMapping saved = next.approval().equals(current.approval()) ? current : writes.execute(status -> {
-            // The tenant currency changed while the provider answered: this evidence would never be sendable.
+            // Best effort: a currency change since the evidence was built is refused as stale, so nothing unsendable is
+            // written. A change committed after this read can still land old-currency evidence; it stays unsendable
+            // under the new currency (the send-time check is the guard), and the sendable flag returned is a snapshot.
             if (next.approval().content() != null
                     && !Objects.equals(next.approval().contentCurrency(), operatingCurrency())) {
                 throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
