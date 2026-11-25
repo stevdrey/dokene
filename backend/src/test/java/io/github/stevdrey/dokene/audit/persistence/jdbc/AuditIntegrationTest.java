@@ -548,6 +548,32 @@ class AuditIntegrationTest {
         });
     }
 
+    /** Issue 452: a failed audit write rolls the currency change back with it. */
+    @Test
+    void operatingCurrencyChangeRollsBackWhenItsAuditFails() throws SQLException {
+        TenantContext context = tenant(TenantRole.ADMIN);
+        long revision = scopedRevision(context);
+        migrationSql("REVOKE EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, INTEGER, BOOLEAN, INTEGER) FROM dokene_runtime");
+        try {
+            scoped(context, () -> {
+                assertThatThrownBy(() -> operatingCurrencies.change(Currency.getInstance("USD"), revision))
+                        .isInstanceOf(AuditPersistenceException.class);
+                Tenant stored = tenants.findById(context.tenantId()).orElseThrow();
+                assertThat(stored.operatingCurrency()).isEmpty();
+                assertThat(stored.revision()).hasValue(revision);
+                assertThat(reader.read().events()).isEmpty();
+            });
+        } finally {
+            migrationSql("GRANT EXECUTE ON FUNCTION dokene.append_audit_event(UUID, TIMESTAMPTZ, VARCHAR, VARCHAR, UUID, VARCHAR, UUID, VARCHAR, VARCHAR, VARCHAR, VARCHAR, TEXT, TEXT, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, VARCHAR, INTEGER, BOOLEAN, INTEGER) TO dokene_runtime");
+        }
+    }
+
+    private long scopedRevision(TenantContext context) {
+        long[] revision = new long[1];
+        scoped(context, () -> revision[0] = operatingCurrencies.read().revision());
+        return revision[0];
+    }
+
     @Test
     void rollsBackRoleAndSuccessEventWhenBusinessTransactionRollsBack() {
         TenantContext context = tenant(TenantRole.ADMIN);

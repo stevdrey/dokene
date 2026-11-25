@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useId, useState } from 'react';
 import { ApiError, httpClient } from '@/shared/api/httpClient';
 import { Button } from '@/shared/components/Button';
+import { canArchiveCustomer } from './TenantContext';
 
 const PATH = '/api/operating-currency';
 const CURRENCY_CODE = /^[A-Z]{3}$/;
@@ -55,9 +56,9 @@ export const operatingCurrencyApi = {
   }
 };
 
-/** Mirrors TENANT_UPDATE (OWNER, ADMIN). */
+/** Mirrors TENANT_UPDATE (OWNER, ADMIN), with the shared alias handling of canArchiveCustomer. */
 export function canChangeOperatingCurrency(role?: string | null): boolean {
-  return role === 'OWNER' || role === 'ADMIN' || role === 'TENANT_ADMIN';
+  return canArchiveCustomer(role);
 }
 
 type LoadState =
@@ -106,6 +107,7 @@ const OperatingCurrencyView: React.FC<{ role: string | null }> = ({ role }) => {
   if (state.kind === 'error') {
     return (
       <section aria-label="Moneda de operación">
+        {notice && <p role="alert">{notice.text}</p>}
         <p role="alert">{state.message}</p>
         <Button onClick={() => void load()}>Reintentar</Button>
       </section>

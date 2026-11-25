@@ -6,7 +6,9 @@ import io.github.stevdrey.dokene.audit.application.AuditRecorder;
 import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
+import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
 import java.time.Clock;
+import java.time.Instant;
 import java.util.Currency;
 import java.util.Objects;
 import java.util.Optional;
@@ -61,13 +63,18 @@ public class OperatingCurrencyService {
     public Setting change(Currency currency, long expectedRevision) {
         authorization.requirePermission(TenantPermission.TENANT_UPDATE);
         Tenant tenant = currentTenant();
+        if (tenant.status() == TenantStatus.ARCHIVED) {
+            throw new TenantAccessDeniedException("Tenant is not available");
+        }
         if (tenant.revision().orElseThrow() != expectedRevision) {
             throw new StaleRevisionException();
         }
         if (tenant.operatingCurrency().equals(Optional.ofNullable(currency))) {
             return setting(tenant);
         }
-        tenant.changeOperatingCurrency(currency, clock.instant());
+        // Another instance may have written updatedAt with a clock slightly ahead of ours; never go back in time.
+        Instant now = clock.instant();
+        tenant.changeOperatingCurrency(currency, now.isBefore(tenant.updatedAt()) ? tenant.updatedAt() : now);
         try {
             tenants.save(tenant);
         } catch (OptimisticLockingFailureException concurrentChange) {

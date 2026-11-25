@@ -67,9 +67,12 @@ class OperatingCurrencyControllerTest {
     }
 
     private void stored(String currency, long revision) {
+        stored(currency, revision, TenantStatus.ACTIVE, CREATED_AT);
+    }
+
+    private void stored(String currency, long revision, TenantStatus status, Instant updatedAt) {
         when(tenants.findById(TENANT_ID)).thenReturn(Optional.of(Tenant.restore(TENANT_ID, "Workspace",
-                TenantStatus.ACTIVE, currency == null ? null : Currency.getInstance(currency), CREATED_AT,
-                CREATED_AT, revision)));
+                status, currency == null ? null : Currency.getInstance(currency), CREATED_AT, updatedAt, revision)));
     }
 
     @Test
@@ -170,6 +173,33 @@ class OperatingCurrencyControllerTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"operatingCurrency\":\"USD\"}"))
                 .andExpect(status().isBadRequest());
         verify(tenants, never()).save(any());
+    }
+
+    @Test
+    void anArchivedTenantIsRefusedWithoutAWrite() throws Exception {
+        stored(null, 3, TenantStatus.ARCHIVED, CREATED_AT);
+
+        mvc.perform(put("/api/operating-currency").header("If-Match", "\"3\"")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatingCurrency\":\"USD\"}"))
+                .andExpect(status().isForbidden());
+        verify(tenants, never()).save(any());
+        verifyNoInteractions(audit);
+    }
+
+    @Test
+    void aChangeSucceedsWhenTheStoredUpdateIsAheadOfThisInstancesClock() throws Exception {
+        Instant ahead = CREATED_AT.plusSeconds(7200);
+        stored(null, 3, TenantStatus.ACTIVE, ahead);
+        when(tenants.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        mvc.perform(put("/api/operating-currency").header("If-Match", "\"3\"")
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"operatingCurrency\":\"USD\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.operatingCurrency").value("USD"));
+        ArgumentCaptor<Tenant> saved = ArgumentCaptor.forClass(Tenant.class);
+        verify(tenants).save(saved.capture());
+        assertThat(saved.getValue().updatedAt()).isEqualTo(ahead);
+        verify(audit).tenantOperatingCurrencyChanged();
     }
 
     @Test

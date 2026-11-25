@@ -68,6 +68,22 @@ describe('OperatingCurrencySettings', () => {
     await waitFor(() => expect(select).toHaveValue('CRC'));
   });
 
+  it('keeps the conflict notice when the reload after a 409 fails', async () => {
+    let reads = 0;
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
+      if (init?.method === 'PUT') return json(null, 409);
+      reads += 1;
+      return reads === 1 ? json(setting('USD'), 200, '"2"') : json(null, 409);
+    });
+    render(<OperatingCurrencySettings workspace={{ tenantId: 't-1', role: 'ADMIN' }} />);
+
+    fireEvent.change(await screen.findByLabelText('Moneda'), { target: { value: 'CRC' } });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar moneda/ }));
+
+    expect(await screen.findByText('La moneda cambió en otra sesión. Se cargó el valor actual.')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
+  });
+
   it('is read only for a role without TENANT_UPDATE', async () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(json(setting('CAD'), 200, '"1"'));
     render(<OperatingCurrencySettings workspace={{ tenantId: 't-1', role: 'OPERATOR' }} />);
