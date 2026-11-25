@@ -1,5 +1,5 @@
-// ABOUTME: Pins a digest of every rule DraftSafetyValidator applies, so a rule change cannot ship without a new
-// ABOUTME: FIXED_TEXT_RULES_VERSION (and the reset of approved template evidence that goes with it, V32).
+// ABOUTME: Pins a digest of DraftSafetyValidator's rule constants, so a pattern or word-list change cannot ship without
+// ABOUTME: a new FIXED_TEXT_RULES_VERSION (and the reset of approved template evidence that goes with it, V32).
 package io.github.stevdrey.dokene.ai.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -40,7 +40,11 @@ class FixedTextRulesVersionTest {
                 .isEqualTo(RELEASED.get(DraftSafetyValidator.FIXED_TEXT_RULES_VERSION));
     }
 
-    /** Every static final field of the validator and its nested classes, by name, except the version itself. */
+    /**
+     * Every static final field of the validator and its nested classes, by name, except the version itself. This is a
+     * fingerprint of the rule constants, not of the method logic: a change to a decision branch alone (issue 443's
+     * insideIdentifier) leaves it unchanged, and the version must then be bumped by hand once a version is released.
+     */
     private static String rulesDigest() throws Exception {
         Map<String, String> rules = new TreeMap<>();
         List<Class<?>> classes = new ArrayList<>(List.of(DraftSafetyValidator.class));

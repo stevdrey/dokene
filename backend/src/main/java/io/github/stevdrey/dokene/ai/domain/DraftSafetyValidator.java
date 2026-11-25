@@ -619,19 +619,20 @@ public final class DraftSafetyValidator {
     }
 
     /**
-     * Issue 443: a currency code or name glued to a letter or digit on both sides, in a run of letters and digits that
-     * holds a letter outside that term and only hex letters (a-f) there ("55cad2e1", "9cad070b": UUID or hash groups),
-     * is part of a hex identifier, not an amount, and is not checked as one. Any other letter outside the term
-     * ("100cad0x", "7usd5k", "10usd2x1") keeps the amount; a hex-lettered price ("99usd99c") still reads as an
-     * identifier (accepted limitation, ADR 0025). An amount is written with the term at an edge of its run
-     * ("10cad", "CAD10", "USD100A") or with digits only around it ("100USD200"), and those stay amounts: the rule
-     * cannot tell a standalone "cad070" in a name from "CAD070", so it does not try. A number written as a quantity
-     * before the term, with a decimal or group separator or a sign ("10,000usd5k", "10.5cad2x", "-10usd5x"), keeps the
-     * amount: identifiers in names never carry one.
+     * Issue 443: a currency code glued to a letter or digit on both sides, in a run of letters and digits that is a hex
+     * identifier as a whole, code included ("55cad2e1", "9cad070b": UUID or hash groups), and that holds a letter
+     * outside the code, is part of that identifier, not an amount, and is not checked as one. Only a code spelled in
+     * hex letters ("cad") can sit inside one; any other letter in the run ("10usd50c", "10dollars50c", "100cad0x")
+     * keeps the amount. A hex-lettered CAD price ("10cad50c") still reads as an identifier (accepted limitation, ADR
+     * 0025). An amount is written with the code at an edge of its run ("10cad", "CAD10", "USD100A") or with digits only
+     * around it ("100USD200"), and those stay amounts: the rule cannot tell a standalone "cad070" in a name from
+     * "CAD070", so it does not try. A run written as a quantity, with a sign or a decimal or group separator before or
+     * inside its number ("+10cad50c", "-10cad50c", "1'000cad50c", "10.5cad2e1"), keeps the amount: identifiers in
+     * names never carry one. A hyphen after a letter or digit is a UUID group separator ("3f2a-55cad2e1"), not a sign.
      */
     private static boolean insideIdentifier(String text, Matcher amount) {
         int amountStart = amount.start();
-        if (signedAt(text, amountStart) || amountStart > 0 && ".,".indexOf(text.charAt(amountStart - 1)) >= 0) {
+        if (quantityPrefixAt(text, amountStart)) {
             return false;
         }
         Matcher term = GLUED_CURRENCY_TERM_PATTERN.matcher(text).region(amount.start(), amount.end())
@@ -654,14 +655,30 @@ public final class DraftSafetyValidator {
             while (end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
                 end = text.offsetByCodePoints(end, 1);
             }
-            String run = text.substring(start, termStart) + text.substring(termEnd, end);
-            // Hex only (UUIDs, hashes): any other letter ("100cad0x", "10usd2x1") is read as a price-like suffix.
-            if (run.codePoints().anyMatch(Character::isLetter)
-                    && run.codePoints().filter(Character::isLetter).allMatch(c -> c >= 'a' && c <= 'f')) {
+            String outsideTerm = text.substring(start, termStart) + text.substring(termEnd, end);
+            // The whole run, code included, must be hex: deleting a non-hex code ("usd") never makes one.
+            if (!quantityPrefixAt(text, start) && outsideTerm.codePoints().anyMatch(Character::isLetter)
+                    && text.substring(start, end).chars().allMatch(c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f')) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * True when the character before {@code index} writes the number that starts there as a quantity: a sign
+     * ("+10", "-10", "–10", "±10", "~10") or a decimal or group separator ("1'000", "0.5", "1,5", "1·5", "1٫5").
+     * A hyphen, minus or en dash right after a letter or digit joins identifier groups ("3f2a-55cad2e1").
+     */
+    private static boolean quantityPrefixAt(String text, int index) {
+        if (index < 1 || index > text.length()) {
+            return false;
+        }
+        char before = text.charAt(index - 1);
+        if (before == '-' || before == '\u2212' || before == '\u2013') {
+            return index < 2 || !Character.isLetterOrDigit(text.charAt(index - 2));
+        }
+        return "+\u00b1~.,'\u2019\u00b7\u066b\u066c".indexOf(before) >= 0;
     }
 
     /**

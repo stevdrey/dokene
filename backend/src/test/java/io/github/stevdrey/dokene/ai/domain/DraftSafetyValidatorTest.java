@@ -873,6 +873,20 @@ class DraftSafetyValidatorTest {
                 .isPresent();
         assertThat(DraftSafetyValidator.validate(draftWith("Paga 55cad2.", "es-419", List.of()), "Plan 55cad2"))
                 .isEmpty();
+        // The whole run must be hex, code included, and a sign or separator makes it a quantity: each entry point
+        // refuses these with no offer grounding, and the same spelling in the context grounds them.
+        for (String body : List.of("Paga 10USD50c.", "Pay 10dollars50c.", "Paga 99usd99c.", "Paga +10cad50c.",
+                "Paga \u221210cad50c.", "Paga \u201310cad50c.", "Paga ~10cad50c.", "Paga 1'000cad50c.", "Paga 10.5cad2e1.")) {
+            String locale = body.startsWith("Pay") ? "en-US" : "es-419";
+            assertThat(DraftSafetyValidator.validate(draftWith(body, locale, List.of()), "Cliente: Ana.", grounding))
+                    .as("body | " + body).isPresent();
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", body.substring(5),
+                    "body", "Hola " + body), locale, grounding)).as("identity | " + body).isPresent();
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", body), locale))
+                    .as("fixed | " + body).isPresent();
+            assertThat(DraftSafetyValidator.validate(draftWith(body, locale, List.of()), "Plan " + body))
+                    .as("grounded | " + body).isEmpty();
+        }
         // A space-grouped name repeated from the context is grounded by it: both sides keep the separator.
         for (String name : List.of("Tienda 2 550cad2e1", "Tienda 10 000usd5k")) {
             assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
