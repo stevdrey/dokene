@@ -1,5 +1,5 @@
-// ABOUTME: Pins a digest of every rule DraftSafetyValidator applies, so a rule change cannot ship without a new
-// ABOUTME: FIXED_TEXT_RULES_VERSION (and the reset of approved template evidence that goes with it, V32).
+// ABOUTME: Pins a digest of DraftSafetyValidator's rule constants, so a pattern or word-list change cannot ship without
+// ABOUTME: a new FIXED_TEXT_RULES_VERSION (and the reset of approved template evidence that goes with it, V32).
 package io.github.stevdrey.dokene.ai.domain;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -26,7 +26,9 @@ class FixedTextRulesVersionTest {
      * checked their fixed text and are trusted only under that same version (ADR 0025, issue 268).
      */
     private static final Map<Integer, String> RELEASED = Map.of(
-            1, "d292ca8d90d75c15062557a5cd868705e29d33811a3392c706ec626dd65a1e14");
+            1, "d292ca8d90d75c15062557a5cd868705e29d33811a3392c706ec626dd65a1e14",
+            // Issue 443: a currency code glued inside an alphanumeric identifier is not an amount (V43).
+            2, "bd02e9949a7d0fa830f104e789bce41c88b3e0bd389f1ac8c59d2282f9950c6e");
 
     @Test
     void theRulesVersionChangesWhenTheRulesDo() throws Exception {
@@ -38,7 +40,11 @@ class FixedTextRulesVersionTest {
                 .isEqualTo(RELEASED.get(DraftSafetyValidator.FIXED_TEXT_RULES_VERSION));
     }
 
-    /** Every static final field of the validator and its nested classes, by name, except the version itself. */
+    /**
+     * Every static final field of the validator and its nested classes, by name, except the version itself. This is a
+     * fingerprint of the rule constants, not of the method logic: a change to a decision branch alone (issue 443's
+     * insideIdentifier) leaves it unchanged, and the version must then be bumped by hand once a version is released.
+     */
     private static String rulesDigest() throws Exception {
         Map<String, String> rules = new TreeMap<>();
         List<Class<?>> classes = new ArrayList<>(List.of(DraftSafetyValidator.class));

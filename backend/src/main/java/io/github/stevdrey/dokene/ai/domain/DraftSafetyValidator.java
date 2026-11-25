@@ -30,7 +30,7 @@ public final class DraftSafetyValidator {
      * until this is bumped, with a migration that returns APPROVED template evidence to UNVERIFIED (as V32 does) and the
      * new digest pinned.
      */
-    public static final int FIXED_TEXT_RULES_VERSION = 1;
+    public static final int FIXED_TEXT_RULES_VERSION = 2;
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
@@ -128,6 +128,20 @@ public final class DraftSafetyValidator {
     /** Unicode Default_Ignorable_Code_Point (DerivedCoreProperties), spelled out because java.util.regex lacks it. */
     private static final Pattern FORMAT_CHARACTER_PATTERN = Pattern.compile("[\\p{Cf}\\x{00AD}\\x{034F}\\x{061C}\\x{115F}-\\x{1160}\\x{17B4}-\\x{17B5}\\x{180B}-\\x{180F}\\x{2065}\\x{3164}\\x{FE00}-\\x{FE0F}\\x{FFA0}\\x{FFF0}-\\x{FFF8}\\x{1BCA0}-\\x{1BCA3}\\x{1D173}-\\x{1D17A}\\x{E0000}-\\x{E0FFF}]");
     private static final Pattern CURRENCY_TERM_PATTERN = Pattern.compile("(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")");
+    /** A currency code or name as a whole term inside a matched amount, to tell whether it sits inside an identifier. */
+    private static final Pattern GLUED_CURRENCY_TERM_PATTERN = Pattern.compile(
+            "(?<!\\p{L})(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})");
+    /** Lengths of common hex identifiers: a UUID's first or last group, an MD5, a SHA-1 and a SHA-256 hex digest. */
+    private static final Set<Integer> HEX_IDENTIFIER_LENGTHS = Set.of(8, 12, 32, 40, 64);
+    /**
+     * A UUID, or its first two or more groups ("55cad2a1-4f3b"), as a whole token. Masked out before quantity matching
+     * (issue 443): it is an identifier, never an amount, wherever a currency code sits in it.
+     */
+    private static final Pattern UUID_SHAPED_PATTERN = Pattern.compile(
+            "(?<![\\p{L}\\p{N}-])[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
+                    + "(?![\\p{L}\\p{N}]|-[\\p{L}\\p{N}])");
+    /** Shortest hex run read as an identifier without an exact shape (issue 443). */
+    private static final int MIN_HEX_IDENTIFIER_LENGTH = 8;
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
@@ -398,7 +412,7 @@ public final class DraftSafetyValidator {
 
         // 3. Token-exact quantity grounding: percentages and monetary amounts. Both the raw draft and its leetspeak
         // view ("U5D 100" is "USD 100") are checked against the raw and folded context, so the two views cannot differ.
-        List<String> draftViews = withLeetViews(combinedDraftText);
+        List<String> draftViews = withLeetViews(maskUuidShapedSpans(combinedDraftText));
         Set<String> contextPercentages = new HashSet<>();
         Set<String> contextAmounts = new HashSet<>();
         // Qualified ("5 dollars ⟦australian⟧") and signed ("-5 dollars") amounts must match exactly, sign included.
@@ -407,7 +421,7 @@ public final class DraftSafetyValidator {
         // Numbers attached to price terms count as grounded even when the currency marker is omitted
         Set<String> contextNumbers = new HashSet<>();
         // Each context view is scanned on its own so a token or price term cannot straddle the two copies.
-        List<String> contextViews = withLeetViews(normalizedContext);
+        List<String> contextViews = withLeetViews(maskUuidShapedSpans(normalizedContext));
         for (String contextView : contextViews) {
             // A signed context amount grounds only the same signed amount, never its unsigned magnitude.
             contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView));
@@ -420,6 +434,11 @@ public final class DraftSafetyValidator {
                     contextNumbers.add(normalizeQuantities(contextPriceMatcher.group(1)));
                 }
             }
+        }
+        // The identifier check must see the context's separators as the draft does: normalizing drops a space-group
+        // separator ("2 550cad2e1" -> "2550cad2e1"), which would read the amount the draft keeps as an identifier.
+        for (String rawView : withLeetViews(maskUuidShapedSpans(offerContextLower))) {
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView));
         }
         for (String amountToken : contextAmounts) {
             Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
@@ -452,7 +471,7 @@ public final class DraftSafetyValidator {
             }
             Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
             while (draftAmtMatcher.find()) {
-                if (signedAt(view, draftAmtMatcher.start())) {
+                if (signedAt(view, draftAmtMatcher.start()) || insideIdentifier(view, draftAmtMatcher)) {
                     continue;
                 }
                 if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
@@ -557,7 +576,7 @@ public final class DraftSafetyValidator {
         Set<String> tokens = new HashSet<>();
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
-            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start())) {
+            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start()) && !insideIdentifier(text, matcher)) {
                 tokens.add(quantityKey(matcher.group()));
             }
         }
@@ -608,6 +627,119 @@ public final class DraftSafetyValidator {
         Pattern identifier = Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(text.substring(start, end))
                 + "(?![\\p{L}\\p{N}])");
         return contextViews.stream().anyMatch(context -> identifier.matcher(context).find());
+    }
+
+    /**
+     * Issue 443: an amount that sits inside a hex identifier (a UUID or hash piece in a business or customer name) is
+     * part of that identifier, not an amount, and is not checked as one. The whole token is judged first, in order:
+     * <ol>
+     * <li>A sign or a decimal or group separator before it ({@link #quantityPrefixAt}) makes it a written quantity,
+     * which keeps the amount: identifiers in names never carry one.</li>
+     * <li>Exact identifier shape: a UUID, or its first two or more groups ("55cad2a1-4f3b", "1a2b3c4d-4cad"), is
+     * masked before quantities are read ({@link #maskUuidShapedSpans}); here, a currency code glued to a letter or
+     * digit on both sides sits in a hex run of a common identifier length (8, 12, 32, 40 or 64: "1000cad5").</li>
+     * <li>Otherwise, such a glued code sits in a hex run of at least 8 characters that holds a hex letter outside
+     * the code ("0123cad4f5", "9cad070b").</li>
+     * </ol>
+     * The run must be hex as a whole, code included, so only "cad" can sit inside one and deleting a non-hex code or
+     * name ("10usd50c", "10dollars50c") never makes one. Anything else stays an amount (fail closed): a code at an
+     * edge of its run ("10cad", "CAD10", "cad070"), and a glued code in a shorter run ("55cad2", "10cad5c"), which
+     * syntax alone cannot tell from a price (issue 452). An identifier-shaped price ("10cad50c") reads as an
+     * identifier: prices are not written that way (ADR 0025). A hyphen after a letter or digit joins identifier
+     * groups ("3f2a-55cad2e1"); it is not a sign.
+     */
+    private static boolean insideIdentifier(String text, Matcher amount) {
+        int amountStart = amount.start();
+        if (quantityPrefixAt(text, amountStart)) {
+            return false;
+        }
+        Matcher term = GLUED_CURRENCY_TERM_PATTERN.matcher(text).region(amount.start(), amount.end())
+                .useTransparentBounds(true);
+        while (term.find()) {
+            int termStart = term.start();
+            int termEnd = term.end();
+            if (termStart == 0 || termEnd >= text.length()
+                    || !Character.isLetterOrDigit(text.codePointBefore(termStart))
+                    || !Character.isLetterOrDigit(text.codePointAt(termEnd))
+                    || text.substring(amountStart, termStart).codePoints()
+                            .anyMatch(c -> !Character.isLetterOrDigit(c))) {
+                continue;
+            }
+            int start = runStart(text, termStart);
+            int end = runEnd(text, termEnd);
+            String run = text.substring(start, end);
+            if (quantityPrefixAt(text, start) || !isHex(run) || run.length() < MIN_HEX_IDENTIFIER_LENGTH) {
+                continue;
+            }
+            // Step 2: a common identifier length. Step 3: any longer hex run with a hex letter outside the code.
+            String outsideTerm = text.substring(start, termStart) + text.substring(termEnd, end);
+            if (HEX_IDENTIFIER_LENGTHS.contains(run.length())
+                    || outsideTerm.codePoints().anyMatch(Character::isLetter)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Masks every UUID-shaped token ({@link #UUID_SHAPED_PATTERN}) with letters that read as no quantity, so neither
+     * the text nor its leetspeak views read an amount in it ("1a2b3c4d-4cad"). A sign or separator before it keeps it
+     * as written ({@link #quantityPrefixAt}). The length is kept, so match positions stay comparable.
+     */
+    private static String maskUuidShapedSpans(String text) {
+        return UUID_SHAPED_PATTERN.matcher(text).replaceAll(match -> quantityPrefixAt(text, match.start())
+                ? Matcher.quoteReplacement(match.group())
+                : match.group().replaceAll("[0-9a-f]", "x"));
+    }
+
+    /** Start of the run of letters and digits that holds the character at {@code index}, or ends right before it. */
+    private static int runStart(String text, int index) {
+        int start = index;
+        while (start > 0 && Character.isLetterOrDigit(text.codePointBefore(start))) {
+            start = text.offsetByCodePoints(start, -1);
+        }
+        return start;
+    }
+
+    /** End of the run of letters and digits that holds the character at {@code index}, or starts right at it. */
+    private static int runEnd(String text, int index) {
+        int end = index;
+        while (end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
+            end = text.offsetByCodePoints(end, 1);
+        }
+        return end;
+    }
+
+    private static boolean isHex(String run) {
+        return !run.isEmpty() && run.chars().allMatch(c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f');
+    }
+
+    /**
+     * True when the character before {@code index} writes the number that starts there as a quantity: a sign
+     * ("+10", "-10", "–10", "±10", "~10") or a decimal or group separator ("1'000", "0.5", "1,5", "1·5", "1٫5").
+     * A sign set apart by whitespace counts too ("+ 10cad50c"). A hyphen, minus or en dash right after a letter or
+     * digit joins identifier groups ("3f2a-55cad2e1").
+     */
+    private static boolean quantityPrefixAt(String text, int index) {
+        if (index < 1 || index > text.length()) {
+            return false;
+        }
+        char before = text.charAt(index - 1);
+        if (Character.isWhitespace(before) || Character.isSpaceChar(before)) {
+            // A sign set apart by whitespace ("+ 10cad50c", "− 10cad50c") still signs the number; a UUID never has
+            // whitespace inside it, so a spaced hyphen is not a group separator.
+            int signAt = index - 1;
+            while (signAt > 0 && (Character.isWhitespace(text.charAt(signAt - 1))
+                    || Character.isSpaceChar(text.charAt(signAt - 1)))) {
+                signAt--;
+            }
+            return signAt > 0 && "+-\u2212\u2013\u00b1~".indexOf(text.charAt(signAt - 1)) >= 0
+                    && (signAt < 2 || !Character.isLetterOrDigit(text.charAt(signAt - 2)));
+        }
+        if (before == '-' || before == '\u2212' || before == '\u2013') {
+            return index < 2 || !Character.isLetterOrDigit(text.charAt(index - 2));
+        }
+        return "+\u00b1~.,'\u2019\u00b7\u066b\u066c".indexOf(before) >= 0;
     }
 
     /**

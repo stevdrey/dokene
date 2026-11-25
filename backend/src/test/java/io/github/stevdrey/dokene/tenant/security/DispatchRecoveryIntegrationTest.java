@@ -143,8 +143,8 @@ class DispatchRecoveryIntegrationTest {
         safety.blockedWith = null;
         provider.reset();
         Instant now = Instant.now();
-        // No random digits in the business name: hex such as "cad0" reads as an ungrounded amount (see eligibleCustomer
-        // and issue 443).
+        // No random digits in the business name: a hex group such as "cad0" is still read as an ungrounded amount (see
+        // eligibleCustomer and the ADR 0025 addendum for issue 443).
         tenantA = seedTenant(tenants, contexts, "Recovery A", now);
         ownerA = context(seedMembership(memberships, contexts, tenantA.id(), new IdentityId(UUID.randomUUID()),
                 TenantRole.OWNER, now));
@@ -509,8 +509,8 @@ class DispatchRecoveryIntegrationTest {
     private Customer eligibleCustomer() throws Exception {
         Instant now = Instant.now();
         // The name is rendered as the template's customer_name parameter and checked as an identity value, so it must
-        // carry no digits: a random UUID such as "55cad2a1-…" reads as an ungrounded amount (CAD) about once in 340
-        // names and fails the send with BODY_REJECTED. Each test has its own tenant, so neither value needs a UUID; the
+        // carry no digits: a code glued inside a UUID ("55cad2a1-…") is no longer an amount (issue 443), but a group
+        // that is itself amount-shaped ("…-cad0-…") still is, and would fail the send with BODY_REJECTED. Each test has its own tenant, so neither value needs a UUID; the
         // counter keeps phones unique within the tenant (uq_customer_phones_tenant_phone).
         String phoneNumber = "8888" + String.format("%04d", customerSequence.incrementAndGet());
         Customer created = inContext(ownerA, () -> customers.create("Recovery customer", null,
