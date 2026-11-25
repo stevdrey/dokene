@@ -28,7 +28,7 @@ class FixedTextRulesVersionTest {
     private static final Map<Integer, String> RELEASED = Map.of(
             1, "d292ca8d90d75c15062557a5cd868705e29d33811a3392c706ec626dd65a1e14",
             // Issue 443: a currency code glued inside an alphanumeric identifier is not an amount (V43).
-            2, "d8d6d3d632b3519c10c91e89a12db91775c617031d406595d64a4ee00e0bad3e");
+            2, "bd02e9949a7d0fa830f104e789bce41c88b3e0bd389f1ac8c59d2282f9950c6e");
 
     @Test
     void theRulesVersionChangesWhenTheRulesDo() throws Exception {

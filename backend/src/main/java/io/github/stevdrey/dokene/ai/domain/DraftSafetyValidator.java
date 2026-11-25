@@ -131,8 +131,17 @@ public final class DraftSafetyValidator {
     /** A currency code or name as a whole term inside a matched amount, to tell whether it sits inside an identifier. */
     private static final Pattern GLUED_CURRENCY_TERM_PATTERN = Pattern.compile(
             "(?<!\\p{L})(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})");
-    /** A compact CAD price with cents ("10cad50c"): hex-shaped, but read as an amount, never as an identifier. */
-    private static final Pattern CAD_CENTS_PRICE_PATTERN = Pattern.compile("\\d+cad\\d+c");
+    /** Lengths of common hex identifiers: a UUID's first or last group, an MD5, a SHA-1 and a SHA-256 hex digest. */
+    private static final Set<Integer> HEX_IDENTIFIER_LENGTHS = Set.of(8, 12, 32, 40, 64);
+    /**
+     * A UUID, or its first two or more groups ("55cad2a1-4f3b"), as a whole token. Masked out before quantity matching
+     * (issue 443): it is an identifier, never an amount, wherever a currency code sits in it.
+     */
+    private static final Pattern UUID_SHAPED_PATTERN = Pattern.compile(
+            "(?<![\\p{L}\\p{N}-])[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
+                    + "(?![\\p{L}\\p{N}]|-[\\p{L}\\p{N}])");
+    /** Shortest hex run read as an identifier without an exact shape (issue 443). */
+    private static final int MIN_HEX_IDENTIFIER_LENGTH = 8;
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
@@ -403,7 +412,7 @@ public final class DraftSafetyValidator {
 
         // 3. Token-exact quantity grounding: percentages and monetary amounts. Both the raw draft and its leetspeak
         // view ("U5D 100" is "USD 100") are checked against the raw and folded context, so the two views cannot differ.
-        List<String> draftViews = withLeetViews(combinedDraftText);
+        List<String> draftViews = withLeetViews(maskUuidShapedSpans(combinedDraftText));
         Set<String> contextPercentages = new HashSet<>();
         Set<String> contextAmounts = new HashSet<>();
         // Qualified ("5 dollars ⟦australian⟧") and signed ("-5 dollars") amounts must match exactly, sign included.
@@ -412,7 +421,7 @@ public final class DraftSafetyValidator {
         // Numbers attached to price terms count as grounded even when the currency marker is omitted
         Set<String> contextNumbers = new HashSet<>();
         // Each context view is scanned on its own so a token or price term cannot straddle the two copies.
-        List<String> contextViews = withLeetViews(normalizedContext);
+        List<String> contextViews = withLeetViews(maskUuidShapedSpans(normalizedContext));
         for (String contextView : contextViews) {
             // A signed context amount grounds only the same signed amount, never its unsigned magnitude.
             contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView));
@@ -428,7 +437,7 @@ public final class DraftSafetyValidator {
         }
         // The identifier check must see the context's separators as the draft does: normalizing drops a space-group
         // separator ("2 550cad2e1" -> "2550cad2e1"), which would read the amount the draft keeps as an identifier.
-        for (String rawView : withLeetViews(offerContextLower)) {
+        for (String rawView : withLeetViews(maskUuidShapedSpans(offerContextLower))) {
             contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView));
         }
         for (String amountToken : contextAmounts) {
@@ -621,15 +630,23 @@ public final class DraftSafetyValidator {
     }
 
     /**
-     * Issue 443: a currency code glued to a letter or digit on both sides, in a run of letters and digits that is a hex
-     * identifier as a whole, code included ("55cad2e1", "9cad070b": UUID or hash groups), and that holds a letter
-     * outside the code, is part of that identifier, not an amount, and is not checked as one. Only a code spelled in
-     * hex letters ("cad") can sit inside one; any other letter in the run ("10usd50c", "10dollars50c", "100cad0x")
-     * keeps the amount, and so does a compact CAD price with cents ("10cad50c"). An amount is written with the code at an edge of its run ("10cad", "CAD10", "USD100A") or with digits only
-     * around it ("100USD200"), and those stay amounts: the rule cannot tell a standalone "cad070" in a name from
-     * "CAD070", so it does not try. A run written as a quantity, with a sign or a decimal or group separator before or
-     * inside its number ("+10cad50c", "-10cad50c", "1'000cad50c", "10.5cad2e1"), keeps the amount: identifiers in
-     * names never carry one. A hyphen after a letter or digit is a UUID group separator ("3f2a-55cad2e1"), not a sign.
+     * Issue 443: an amount that sits inside a hex identifier (a UUID or hash piece in a business or customer name) is
+     * part of that identifier, not an amount, and is not checked as one. The whole token is judged first, in order:
+     * <ol>
+     * <li>A sign or a decimal or group separator before it ({@link #quantityPrefixAt}) makes it a written quantity,
+     * which keeps the amount: identifiers in names never carry one.</li>
+     * <li>Exact identifier shape: a UUID, or its first two or more groups ("55cad2a1-4f3b", "1a2b3c4d-4cad"), is
+     * masked before quantities are read ({@link #maskUuidShapedSpans}); here, a currency code glued to a letter or
+     * digit on both sides sits in a hex run of a common identifier length (8, 12, 32, 40 or 64: "1000cad5").</li>
+     * <li>Otherwise, such a glued code sits in a hex run of at least 8 characters that holds a hex letter outside
+     * the code ("0123cad4f5", "9cad070b").</li>
+     * </ol>
+     * The run must be hex as a whole, code included, so only "cad" can sit inside one and deleting a non-hex code or
+     * name ("10usd50c", "10dollars50c") never makes one. Anything else stays an amount (fail closed): a code at an
+     * edge of its run ("10cad", "CAD10", "cad070"), and a glued code in a shorter run ("55cad2", "10cad5c"), which
+     * syntax alone cannot tell from a price (issue 452). An identifier-shaped price ("10cad50c") reads as an
+     * identifier: prices are not written that way (ADR 0025). A hyphen after a letter or digit joins identifier
+     * groups ("3f2a-55cad2e1"); it is not a sign.
      */
     private static boolean insideIdentifier(String text, Matcher amount) {
         int amountStart = amount.start();
@@ -648,25 +665,53 @@ public final class DraftSafetyValidator {
                             .anyMatch(c -> !Character.isLetterOrDigit(c))) {
                 continue;
             }
-            int start = termStart;
-            while (start > 0 && Character.isLetterOrDigit(text.codePointBefore(start))) {
-                start = text.offsetByCodePoints(start, -1);
-            }
-            int end = termEnd;
-            while (end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
-                end = text.offsetByCodePoints(end, 1);
-            }
-            String outsideTerm = text.substring(start, termStart) + text.substring(termEnd, end);
-            // The whole run, code included, must be hex: deleting a non-hex code ("usd") never makes one. A compact
-            // CAD price with cents ("10cad50c") is hex too, and stays an amount (fail closed).
+            int start = runStart(text, termStart);
+            int end = runEnd(text, termEnd);
             String run = text.substring(start, end);
-            if (!quantityPrefixAt(text, start) && outsideTerm.codePoints().anyMatch(Character::isLetter)
-                    && run.chars().allMatch(c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f')
-                    && !CAD_CENTS_PRICE_PATTERN.matcher(run).matches()) {
+            if (quantityPrefixAt(text, start) || !isHex(run) || run.length() < MIN_HEX_IDENTIFIER_LENGTH) {
+                continue;
+            }
+            // Step 2: a common identifier length. Step 3: any longer hex run with a hex letter outside the code.
+            String outsideTerm = text.substring(start, termStart) + text.substring(termEnd, end);
+            if (HEX_IDENTIFIER_LENGTHS.contains(run.length())
+                    || outsideTerm.codePoints().anyMatch(Character::isLetter)) {
                 return true;
             }
         }
         return false;
+    }
+
+    /**
+     * Masks every UUID-shaped token ({@link #UUID_SHAPED_PATTERN}) with letters that read as no quantity, so neither
+     * the text nor its leetspeak views read an amount in it ("1a2b3c4d-4cad"). A sign or separator before it keeps it
+     * as written ({@link #quantityPrefixAt}). The length is kept, so match positions stay comparable.
+     */
+    private static String maskUuidShapedSpans(String text) {
+        return UUID_SHAPED_PATTERN.matcher(text).replaceAll(match -> quantityPrefixAt(text, match.start())
+                ? Matcher.quoteReplacement(match.group())
+                : match.group().replaceAll("[0-9a-f]", "x"));
+    }
+
+    /** Start of the run of letters and digits that holds the character at {@code index}, or ends right before it. */
+    private static int runStart(String text, int index) {
+        int start = index;
+        while (start > 0 && Character.isLetterOrDigit(text.codePointBefore(start))) {
+            start = text.offsetByCodePoints(start, -1);
+        }
+        return start;
+    }
+
+    /** End of the run of letters and digits that holds the character at {@code index}, or starts right at it. */
+    private static int runEnd(String text, int index) {
+        int end = index;
+        while (end < text.length() && Character.isLetterOrDigit(text.codePointAt(end))) {
+            end = text.offsetByCodePoints(end, 1);
+        }
+        return end;
+    }
+
+    private static boolean isHex(String run) {
+        return !run.isEmpty() && run.chars().allMatch(c -> c >= '0' && c <= '9' || c >= 'a' && c <= 'f');
     }
 
     /**

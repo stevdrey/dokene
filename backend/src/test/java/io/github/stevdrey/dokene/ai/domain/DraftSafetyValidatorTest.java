@@ -839,7 +839,12 @@ class DraftSafetyValidatorTest {
     void currencyCodesGluedInsideHexIdentifiersAreNotAmounts() {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
         for (String name : List.of("Tienda 55cad2e1", "Tienda 55cad2a1-4f3b", "Tienda 9cad070b", "Tienda 0123cad4f5",
-                "Tienda 55c4d2e1", "Tienda 3f2a-55cad2e1")) {
+                "Tienda 55c4d2e1", "Tienda 3f2a-55cad2e1",
+                // Identifier-shaped runs are identifiers even when they look like a price: prices are not written so.
+                "Tienda 10cad50c", "Tienda 10c4d50c", "Tienda 1000cad5",
+                // A UUID, or its first groups, is an identifier as a whole, even with the code at a group edge.
+                "Tienda 55cad2a1-4f3b-4c2d-9e1f-0a1b2c3d4e5f", "Tienda 1a2b3c4d-4cad-4c2d-9e1f-0a1b2c3d4e5f",
+                "Tienda 1a2b3c4d-4cad")) {
             // The business name written into an AI draft body.
             assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
                     "Cliente: Ana.", grounding)).as("body | " + name).isEmpty();
@@ -877,9 +882,10 @@ class DraftSafetyValidatorTest {
         // refuses these with no offer grounding, and the same spelling in the context grounds them.
         for (String body : List.of("Paga 10USD50c.", "Pay 10dollars50c.", "Paga 99usd99c.", "Paga +10cad50c.",
                 "Paga \u221210cad50c.", "Paga \u201310cad50c.", "Paga ~10cad50c.", "Paga 1'000cad50c.", "Paga 10.5cad2e1.",
-                // A compact CAD price with cents is hex-shaped but stays an amount, and a spaced sign still signs it.
-                "Paga 10cad50c.", "Paga 10cad5c.", "Paga 10c4d50c.", "Paga + 10cad50c.", "Paga \u2212 10cad50c.",
-                "Paga - 10cad50c.", "Paga \u00b1 10cad50c.")) {
+                // A hex run shorter than 8 has no identifier shape and stays an amount (issue 452), and a spaced sign
+                // still signs an identifier-shaped run.
+                "Paga 10cad5c.", "Paga 9cad07b.", "Paga + 10cad50c.", "Paga \u2212 10cad50c.", "Paga - 10cad50c.",
+                "Paga \u00b1 10cad50c.", "Paga -1a2b3c4d-4cad.")) {
             String locale = body.startsWith("Pay") ? "en-US" : "es-419";
             assertThat(DraftSafetyValidator.validate(draftWith(body, locale, List.of()), "Cliente: Ana.", grounding))
                     .as("body | " + body).isPresent();
