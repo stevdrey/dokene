@@ -226,10 +226,13 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
                     WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT' AND approval_content_currency IS NULL
                     """, tenantId)).isEqualTo(1);
             assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, approve, tenantId)).isEqualTo(1);
-            assertThatThrownBy(() -> TenantSecurityIntegrationFixture.executeUpdate(migration, """
-                    UPDATE dokene.tenant_provider_templates SET approval_content_currency = 'usd'
-                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
-                    """, tenantId)).isInstanceOf(SQLException.class);
+            // Only a code a tenant may operate in (V44) is accepted: not a lowercase, unknown or unsupported one.
+            for (String code : List.of("usd", "ZZZ", "AUD")) {
+                assertThatThrownBy(() -> TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                        UPDATE dokene.tenant_provider_templates SET approval_content_currency = '%s'
+                        WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                        """.formatted(code), tenantId)).as(code).isInstanceOf(SQLException.class);
+            }
         }
     }
 

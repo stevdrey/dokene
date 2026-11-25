@@ -1,10 +1,13 @@
 // ABOUTME: Unit tests for the approval refresh budget (issue 321): requests are metered per page, local answers
 // ABOUTME: cost nothing, overlapping refreshes stay in the limit, denials are audited once, and retries recover.
+// ABOUTME: A refresh whose tenant currency changes during the provider call is refused as stale (issue 452).
 package io.github.stevdrey.dokene.template.application;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.mock;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -15,20 +18,28 @@ import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import io.github.stevdrey.dokene.tenant.domain.TenantStatus;
+import io.github.stevdrey.dokene.template.domain.ProviderTemplateSchema;
+import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
+import io.github.stevdrey.dokene.template.domain.TemplateContent;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
+import io.github.stevdrey.dokene.template.domain.TemplateParameterFormat;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Supplier;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -46,10 +57,11 @@ class TemplateRegistryServiceRefreshLimitTest {
     private final TemplateAuditPort audit = mock(TemplateAuditPort.class);
     private final TenantContextProvider contexts = mock(TenantContextProvider.class);
     private final PagingGateway gateway = new PagingGateway();
+    private final TenantRepository tenants = mock(TenantRepository.class);
     private final TemplateRegistryService service = new TemplateRegistryService(repository, gateway, audit,
             mock(TenantAuthorizationService.class), contexts, new TemplateRegistryProperties(null),
             new TemplateRefreshLimiter(new TemplateRefreshLimitProperties(12, 7, WINDOW), clock), clock,
-            mock(PlatformTransactionManager.class), mock(TenantRepository.class));
+            mock(PlatformTransactionManager.class), tenants);
 
     @BeforeEach
     void storeAnUnverifiedMapping() {
@@ -140,6 +152,23 @@ class TemplateRegistryServiceRefreshLimitTest {
         assertThat(gateway.lookups).hasValue(4);
     }
 
+    @Test
+    void aRefreshWhoseTenantCurrencyChangesDuringTheProviderCallIsStaleAndWritesNothing() {
+        gateway.pages = 0;
+        gateway.answer = () -> new TemplateProviderGateway.Reported(TemplateApprovalStatus.APPROVED, WABA,
+                new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL, List.of("1"),
+                        new TemplateContent(null, "Synthetic body", null)));
+        when(tenants.findById(tenantId)).thenReturn(Optional.of(tenantIn("USD")), Optional.of(tenantIn("CRC")));
+
+        assertRefusedWith(TemplateErrorCode.STALE_VERSION);
+        verify(repository, never()).updateApproval(any(), anyLong(), any());
+    }
+
+    private Tenant tenantIn(String currency) {
+        return Tenant.restore(tenantId, "Workspace", TenantStatus.ACTIVE, Currency.getInstance(currency), START, START,
+                1);
+    }
+
     private void actAs(IdentityId identity) {
         when(contexts.requireCurrent()).thenReturn(new TenantContext(tenantId, identity, TenantMembershipId.random(),
                 TenantRole.ADMIN));
@@ -165,6 +194,7 @@ class TemplateRegistryServiceRefreshLimitTest {
         final AtomicInteger lookups = new AtomicInteger();
         volatile int pages = 1;
         volatile Runnable during = () -> { };
+        volatile Supplier<Lookup> answer = Unavailable::new;
 
         @Override
         public Optional<Sender> currentSender() {
@@ -178,7 +208,7 @@ class TemplateRegistryServiceRefreshLimitTest {
                 meter.request();
                 during.run();
             }
-            return new Unavailable();
+            return answer.get();
         }
     }
 

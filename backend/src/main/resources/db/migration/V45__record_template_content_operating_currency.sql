@@ -9,10 +9,13 @@
 -- sends, so a currency left over from an earlier write cannot vouch for it.
 ALTER TABLE dokene.tenant_provider_templates
     ADD COLUMN approval_content_currency VARCHAR(3),
-    -- A currency only ever accompanies the rules version that checked the content under it.
+    -- A currency only ever accompanies the rules version that checked the content under it, and is one of the codes
+    -- a tenant may operate in (V44, Tenant.SUPPORTED_OPERATING_CURRENCIES).
     ADD CONSTRAINT ck_tenant_provider_templates_content_currency CHECK (
         approval_content_currency IS NULL
-        OR (approval_content_rules_version IS NOT NULL AND approval_content_currency ~ '^[A-Z]{3}$'));
+        OR (approval_content_rules_version IS NOT NULL AND approval_content_currency IN (
+            'ARS', 'BRL', 'CAD', 'CLP', 'CNY', 'COP', 'CRC', 'EUR', 'GBP', 'GTQ', 'HNL', 'INR', 'JPY', 'KRW', 'MXN',
+            'NIO', 'PAB', 'PEN', 'USD')));
 
 -- Content checked under version 2 is kept with its version, which TemplateMapping.sendable() no longer trusts. Without
 -- this reset such an approval would read as APPROVED but unusable; UNVERIFIED says it needs a refresh, which checks the

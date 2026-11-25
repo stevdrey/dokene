@@ -80,10 +80,11 @@ public class TemplateRegistryService {
         return reads.execute(status -> {
             List<TemplateMapping> stored = repository.findAll(tenantId);
             Optional<TemplateProviderGateway.Sender> sender = gateway.currentSender();
+            Currency currency = operatingCurrency();
             List<Entry> entries = new ArrayList<>();
             for (SemanticTemplateIntent intent : SemanticTemplateIntent.values()) {
                 Optional<TemplateMapping> mapping = stored.stream().filter(m -> m.intent() == intent).findFirst();
-                entries.add(new Entry(intent, mapping, mapping.isPresent() && sendable(mapping.get(), sender)));
+                entries.add(new Entry(intent, mapping, mapping.isPresent() && sendable(mapping.get(), sender, currency)));
             }
             return entries;
         });
@@ -160,10 +161,11 @@ public class TemplateRegistryService {
         if (!answeredFor(lookup, sender)) {
             lookup = new TemplateProviderGateway.Unavailable();
         }
+        Currency currency = operatingCurrency();
         TemplateMapping next = switch (lookup) {
             case TemplateProviderGateway.Reported reported when reported.status() == TemplateApprovalStatus.APPROVED ->
                     current.verifiedApproval(reported.schema(), reported.businessAccountId(), clock.instant(),
-                            operatingCurrency());
+                            currency);
             case TemplateProviderGateway.Reported reported ->
                     current.verified(reported.status(), reported.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Absent absent ->
@@ -171,6 +173,11 @@ public class TemplateRegistryService {
             case TemplateProviderGateway.Unavailable unavailable -> current.unverified(clock.instant());
         };
         TemplateMapping saved = next.approval().equals(current.approval()) ? current : writes.execute(status -> {
+            // The tenant currency changed while the provider answered: this evidence would never be sendable.
+            if (next.approval().content() != null
+                    && !Objects.equals(next.approval().contentCurrency(), operatingCurrency())) {
+                throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
+            }
             if (!repository.updateApproval(next, expectedVersion, current.approval())) {
                 throw new TemplateRefusedException(TemplateErrorCode.STALE_VERSION);
             }
@@ -185,7 +192,7 @@ public class TemplateRegistryService {
         if (lookup instanceof TemplateProviderGateway.Unavailable) {
             throw new TemplateRefusedException(TemplateErrorCode.PROVIDER_UNAVAILABLE);
         }
-        return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender)));
+        return new Entry(intent, Optional.of(saved), sendable(saved, Optional.of(sender), currency));
     }
 
     /**
@@ -212,9 +219,10 @@ public class TemplateRegistryService {
         };
     }
 
-    private boolean sendable(TemplateMapping mapping, Optional<TemplateProviderGateway.Sender> sender) {
+    private boolean sendable(TemplateMapping mapping, Optional<TemplateProviderGateway.Sender> sender,
+            Currency currency) {
         return sender.isPresent() && mapping.sendable(sender.get().integrationId(),
-                sender.get().businessAccountId(), clock.instant(), properties.approvalMaxAge(), operatingCurrency());
+                sender.get().businessAccountId(), clock.instant(), properties.approvalMaxAge(), currency);
     }
 
     /**

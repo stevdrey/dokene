@@ -1,6 +1,7 @@
 package io.github.stevdrey.dokene.template.persistence.jdbc;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.template.application.TemplateErrorCode;
 import io.github.stevdrey.dokene.template.application.TemplateMappingRepository;
@@ -198,8 +199,13 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
         // The V32 trigger keeps the version paired with this content; the pairing is checked again as defense in depth.
         boolean paired = checkedAt.equals(rs.getTimestamp("approval_content_rules_checked_at"));
         Integer rulesVersion = paired ? rs.getObject("approval_content_rules_version", Integer.class) : null;
-        // The currency goes with the rules version it was checked under (V45); an unknown code is never trusted.
+        // The currency goes with the rules version it was checked under (V45). An unknown code is never trusted: the
+        // content then reads as checked under unknown rules, never as checked for a tenant with no currency set.
         String currencyCode = rulesVersion == null ? null : rs.getString("approval_content_currency");
+        if (currencyCode != null && !Tenant.SUPPORTED_OPERATING_CURRENCIES.contains(currencyCode)) {
+            rulesVersion = null;
+            currencyCode = null;
+        }
         return new CurrentApproval(format, new TemplateContent(rs.getString("approval_header_text"), body,
                 rs.getString("approval_footer_text"), buttons(rs)), rulesVersion,
                 currencyCode == null ? null : Currency.getInstance(currencyCode));
