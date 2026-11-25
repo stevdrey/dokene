@@ -128,7 +128,7 @@ const OperatingCurrencyView: React.FC<{ role: string | null }> = ({ role }) => {
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
         await load();
-        setNotice({ error: true, text: 'La moneda cambió en otra sesión. Se cargó el valor actual.' });
+        setNotice({ error: true, text: 'La moneda cambió en otra sesión. Revisa el valor actual antes de guardar nuevamente.' });
       } else {
         setNotice({ error: true, text: errorMessage(error) });
       }

@@ -7,6 +7,7 @@ import { apiClient } from '../../api/apiClient';
 import { narrowOperatingCurrency, OperatingCurrencySettings } from './OperatingCurrencySettings';
 
 const SUPPORTED = ['CAD', 'CRC', 'USD'];
+const CONFLICT = 'La moneda cambió en otra sesión. Revisa el valor actual antes de guardar nuevamente.';
 
 function json(body: unknown, status = 200, etag?: string): Response {
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -51,8 +52,12 @@ describe('OperatingCurrencySettings', () => {
 
   it('clears the currency with null and reloads the current value after a conflict', async () => {
     let reads = 0;
+    let puts = 0;
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
-      if (init?.method === 'PUT') return json(null, 409);
+      if (init?.method === 'PUT') {
+        puts += 1;
+        return puts === 1 ? json(null, 409) : json(setting('USD'), 200, '"6"');
+      }
       reads += 1;
       return reads === 1 ? json(setting('USD'), 200, '"2"') : json(setting('CRC'), 200, '"5"');
     });
@@ -62,10 +67,16 @@ describe('OperatingCurrencySettings', () => {
     fireEvent.change(select, { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /Guardar moneda/ }));
 
-    expect(await screen.findByText('La moneda cambió en otra sesión. Se cargó el valor actual.')).toBeInTheDocument();
+    expect(await screen.findByText(CONFLICT)).toBeInTheDocument();
     const put = fetchSpy.mock.calls.find(([, init]) => init?.method === 'PUT');
     expect(put?.[1]?.body).toBe(JSON.stringify({ operatingCurrency: null }));
     await waitFor(() => expect(select).toHaveValue('CRC'));
+
+    fireEvent.change(select, { target: { value: 'USD' } });
+    fireEvent.click(screen.getByRole('button', { name: /Guardar moneda/ }));
+    expect(await screen.findByText('Moneda guardada.')).toBeInTheDocument();
+    const retry = fetchSpy.mock.calls.filter(([, init]) => init?.method === 'PUT')[1];
+    expect((retry?.[1]?.headers as Record<string, string>)['If-Match']).toBe('"5"');
   });
 
   it('keeps the conflict notice when the reload after a 409 fails', async () => {
@@ -73,14 +84,16 @@ describe('OperatingCurrencySettings', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (_url, init) => {
       if (init?.method === 'PUT') return json(null, 409);
       reads += 1;
-      return reads === 1 ? json(setting('USD'), 200, '"2"') : json(null, 409);
+      return reads === 1 ? json(setting('USD'), 200, '"2"') : json(null, 503);
     });
     render(<OperatingCurrencySettings workspace={{ tenantId: 't-1', role: 'ADMIN' }} />);
 
     fireEvent.change(await screen.findByLabelText('Moneda'), { target: { value: 'CRC' } });
     fireEvent.click(screen.getByRole('button', { name: /Guardar moneda/ }));
 
-    expect(await screen.findByText('La moneda cambió en otra sesión. Se cargó el valor actual.')).toBeInTheDocument();
+    expect(await screen.findByText(CONFLICT)).toBeInTheDocument();
+    expect(screen.queryByText(/Se cargó el valor actual/)).toBeNull();
+    expect(screen.getAllByRole('alert')).toHaveLength(2);
     expect(screen.getByRole('button', { name: 'Reintentar' })).toBeInTheDocument();
   });
 
