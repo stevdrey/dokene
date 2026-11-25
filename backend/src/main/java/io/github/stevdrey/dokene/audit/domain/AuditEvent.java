@@ -94,6 +94,13 @@ public record AuditEvent(
                     throw new IllegalArgumentException("Invalid tenant follow-up mutation event");
                 }
             }
+            case TENANT_OPERATING_CURRENCY_CHANGED -> {
+                if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
+                        || target.type() != AuditTarget.Type.TENANT
+                        || !(metadata instanceof AuditMetadata.TenantSettingChange)) {
+                    throw new IllegalArgumentException("Invalid tenant setting event");
+                }
+            }
             case CUSTOMER_FOLLOW_UP_POLICY_CHANGED, FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED,
                     FOLLOW_UP_DISMISSED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null

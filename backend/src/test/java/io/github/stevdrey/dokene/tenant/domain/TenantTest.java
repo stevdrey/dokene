@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatIllegalArgumentException
 import static org.assertj.core.api.Assertions.assertThatIllegalStateException;
 
 import java.time.Instant;
+import java.util.Currency;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +22,37 @@ class TenantTest {
         assertThat(tenant.createdAt()).isEqualTo(CREATED_AT);
         assertThat(tenant.updatedAt()).isEqualTo(CREATED_AT);
         assertThat(tenant.revision()).isEmpty();
+    }
+
+    /** Issue 452: unset by default; set and cleared with a later timestamp; only the supported codes are accepted. */
+    @Test
+    void changesTheOperatingCurrencyToASupportedCodeOrClearsIt() {
+        Tenant tenant = Tenant.create(new TenantId(UUID.randomUUID()), "Workspace", CREATED_AT);
+        assertThat(tenant.operatingCurrency()).isEmpty();
+
+        tenant.changeOperatingCurrency(Tenant.operatingCurrencyOf("CRC"), CREATED_AT.plusSeconds(60));
+        assertThat(tenant.operatingCurrency()).contains(Currency.getInstance("CRC"));
+        assertThat(tenant.updatedAt()).isEqualTo(CREATED_AT.plusSeconds(60));
+
+        tenant.changeOperatingCurrency(null, CREATED_AT.plusSeconds(120));
+        assertThat(tenant.operatingCurrency()).isEmpty();
+
+        assertThatIllegalArgumentException().isThrownBy(() -> tenant.changeOperatingCurrency(
+                Currency.getInstance("AUD"), CREATED_AT.plusSeconds(180)));
+        assertThatIllegalArgumentException().isThrownBy(() -> tenant.changeOperatingCurrency(
+                Currency.getInstance("USD"), CREATED_AT));
+        for (String code : new String[] {null, "", "usd", "AUD", "US", "USDD", " USD"}) {
+            assertThatIllegalArgumentException().as(String.valueOf(code))
+                    .isThrownBy(() -> Tenant.operatingCurrencyOf(code));
+        }
+        assertThat(Tenant.SUPPORTED_OPERATING_CURRENCIES).allSatisfy(code ->
+                assertThat(Tenant.operatingCurrencyOf(code).getCurrencyCode()).isEqualTo(code));
+        assertThatIllegalArgumentException().isThrownBy(() -> Tenant.restore(tenant.id(), "Workspace",
+                TenantStatus.ACTIVE, Currency.getInstance("AUD"), CREATED_AT, CREATED_AT, 0));
+
+        tenant.archive(CREATED_AT.plusSeconds(240));
+        assertThatIllegalStateException().isThrownBy(() -> tenant.changeOperatingCurrency(
+                Currency.getInstance("USD"), CREATED_AT.plusSeconds(300)));
     }
 
     @Test

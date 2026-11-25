@@ -11,6 +11,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 import jakarta.persistence.Version;
 import java.time.Instant;
+import java.util.Currency;
 import java.util.UUID;
 
 @Entity
@@ -28,6 +29,10 @@ class TenantEntity {
     @Column(name = "status", nullable = false, length = 16)
     private TenantStatus status;
 
+    /** ISO 4217 code, or null when the tenant has none set (V44, issue 452). */
+    @Column(name = "operating_currency", length = 3)
+    private String operatingCurrency;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     private Instant createdAt;
 
@@ -41,10 +46,12 @@ class TenantEntity {
     protected TenantEntity() {
     }
 
-    private TenantEntity(UUID id, String displayName, TenantStatus status, Instant createdAt, Instant updatedAt, Long revision) {
+    private TenantEntity(UUID id, String displayName, TenantStatus status, String operatingCurrency,
+            Instant createdAt, Instant updatedAt, Long revision) {
         this.id = id;
         this.displayName = displayName;
         this.status = status;
+        this.operatingCurrency = operatingCurrency;
         this.createdAt = createdAt;
         this.updatedAt = updatedAt;
         this.revision = revision;
@@ -56,6 +63,7 @@ class TenantEntity {
                 tenant.id().value(),
                 tenant.displayName(),
                 tenant.status(),
+                tenant.operatingCurrency().map(Currency::getCurrencyCode).orElse(null),
                 tenant.createdAt(),
                 tenant.updatedAt(),
                 revision
@@ -63,6 +71,8 @@ class TenantEntity {
     }
 
     Tenant toDomain() {
-        return Tenant.restore(new TenantId(id), displayName, status, createdAt, updatedAt, revision);
+        return Tenant.restore(new TenantId(id), displayName, status,
+                operatingCurrency == null ? null : Tenant.operatingCurrencyOf(operatingCurrency),
+                createdAt, updatedAt, revision);
     }
 }

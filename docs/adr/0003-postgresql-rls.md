@@ -75,7 +75,7 @@ not a global table for the runtime role. Since V16/V17 (issue #183):
 
 - `tenants` forces RLS with runtime `SELECT`, `INSERT`, and `UPDATE` policies on
   `id = dokene.current_verified_tenant_id()`. Runtime has no `DELETE` privilege and may
-  update only `display_name`, `status`, `updated_at`, and `version`.
+  update only `display_name`, `operating_currency` (V44, issue 452), `status`, `updated_at`, and `version`.
 - `workspace_provisioning_records` forces RLS, has only the `dokene_migration` policy, and grants
   the runtime role no direct privilege. It is reachable only through two narrowly granted
   `SECURITY DEFINER` functions that require the identity-scoped signed capability:

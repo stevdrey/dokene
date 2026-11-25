@@ -85,7 +85,17 @@ There is no general string/map/JSON payload API. SQL checks reject unknown permi
 reason, role, and event shapes. Secrets, tokens, credentials, message bodies, request
 payloads, exception messages, names, IP addresses, and foreign-tenant identifiers are
 not metadata fields. Adding a new event requires deliberate code/schema changes and
-privacy review. UUID references remain sensitive operational identifiers and require
+privacy review.
+
+The reader maps every row strictly to a known `AuditEventType`, so a release that does not know an event type cannot
+read a page that contains it. That gives each new event type a rollout boundary:
+- **Before the first row of the new type exists,** rolling the application back to the previous release is safe.
+- **After the first row exists,** roll forward instead, or roll back only to a release whose reader knows the type.
+- **During a mixed-version rollout,** an older instance's `AuditReader` can fail on such a page until it is replaced.
+  The reader is internal (no HTTP endpoint), and this limitation is accepted.
+
+Audit rows are never deleted, rewritten or hidden to make a rollback possible. `TENANT_OPERATING_CURRENCY_CHANGED`
+(issue 452) is the latest event added under this rule. UUID references remain sensitive operational identifiers and require
 access control. `FAILURE` is permitted only for `AI_INVOCATION_OUTCOME` with outcome `FAILED`; no
 general failure-payload entry point exists.
 

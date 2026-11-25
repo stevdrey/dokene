@@ -104,6 +104,14 @@ public interface AuditRecorder {
     }
 
     /**
+     * Requires an existing business transaction; failure must roll back the currency change (issue 452). The row
+     * names the current tenant only: never the old or new currency.
+     */
+    default void tenantOperatingCurrencyChanged() {
+        throw new UnsupportedOperationException("Tenant settings audit is not configured");
+    }
+
+    /**
      * Requires an existing business transaction; failure must roll back the mapping change. Metadata carries the
      * enabled flag only: never template names, parameters, statuses or provider text.
      */
