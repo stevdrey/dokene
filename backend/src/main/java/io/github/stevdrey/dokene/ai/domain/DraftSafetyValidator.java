@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.text.Normalizer;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -28,9 +29,9 @@ public final class DraftSafetyValidator {
      * evidence records it with the fixed text it checked, and text checked under another version is not trusted until
      * a refresh checks it again. {@code FixedTextRulesVersionTest} pins a digest of every rule here, so a change fails
      * until this is bumped, with a migration that returns APPROVED template evidence to UNVERIFIED (as V32 does) and the
-     * new digest pinned.
+     * new digest pinned. Version 3 (issue 452) reads the tenant's operating currency, which evidence records too.
      */
-    public static final int FIXED_TEXT_RULES_VERSION = 2;
+    public static final int FIXED_TEXT_RULES_VERSION = 3;
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
@@ -142,6 +143,12 @@ public final class DraftSafetyValidator {
                     + "(?![\\p{L}\\p{N}]|-[\\p{L}\\p{N}])");
     /** Shortest hex run read as an identifier without an exact shape (issue 443). */
     private static final int MIN_HEX_IDENTIFIER_LENGTH = 8;
+    /**
+     * The one currency whose code is all hex letters, so the only one that can sit inside a hex identifier. A tenant
+     * that operates in another currency does not quote it, so for that tenant a glued CAD-like hex token of any length
+     * is an identifier (issue 452).
+     */
+    private static final String HEX_CURRENCY_CODE = "CAD";
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
@@ -283,6 +290,16 @@ public final class DraftSafetyValidator {
      */
     public static Optional<DraftSafetyViolation> validate(MessageDraft draft, String allowedContextText,
             DraftGroundingContext grounding) {
+        return validate(draft, allowedContextText, grounding, null);
+    }
+
+    /**
+     * As {@link #validate(MessageDraft, String, DraftGroundingContext)}, reading amounts for a tenant that operates in
+     * {@code operatingCurrency}; {@code null} when the tenant has none set, which reads the text as possibly quoting
+     * any currency (issue 452).
+     */
+    public static Optional<DraftSafetyViolation> validate(MessageDraft draft, String allowedContextText,
+            DraftGroundingContext grounding, Currency operatingCurrency) {
         Objects.requireNonNull(draft, "Draft is required");
         Map<String, String> texts = new LinkedHashMap<>();
         texts.put("body", draft.body());
@@ -295,7 +312,7 @@ public final class DraftSafetyValidator {
 
         String offerContext = grounding != null ? grounding.offerBearingText() : allowedContextText;
         Optional<DraftSafetyViolation> violation = validateTexts(texts, allowedContextText, offerContext, false,
-                Vocabulary.of(draft.locale()));
+                Vocabulary.of(draft.locale()), cadRuledOut(operatingCurrency));
         if (violation.isPresent()) {
             return violation;
         }
@@ -355,8 +372,17 @@ public final class DraftSafetyValidator {
      * text's BCP 47 language, which selects the offer vocabulary as for a draft.
      */
     public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts, String locale) {
+        return validateFixedText(texts, locale, null);
+    }
+
+    /**
+     * As {@link #validateFixedText(Map, String)}, for a tenant that operates in {@code operatingCurrency} ({@code null}
+     * when unset). Evidence checked this way records the currency, and is trusted only under that same one (issue 452).
+     */
+    public static Optional<DraftSafetyViolation> validateFixedText(Map<String, String> texts, String locale,
+            Currency operatingCurrency) {
         Objects.requireNonNull(texts, "Texts are required");
-        return validateTexts(texts, "", "", false, Vocabulary.of(locale));
+        return validateTexts(texts, "", "", false, Vocabulary.of(locale), cadRuledOut(operatingCurrency));
     }
 
     /**
@@ -366,18 +392,33 @@ public final class DraftSafetyValidator {
      */
     public static Optional<DraftSafetyViolation> validateRenderedText(Map<String, String> texts, String locale,
             DraftGroundingContext grounding) {
+        return validateRenderedText(texts, locale, grounding, null);
+    }
+
+    /**
+     * As {@link #validateRenderedText(Map, String, DraftGroundingContext)}, for a tenant that operates in
+     * {@code operatingCurrency} ({@code null} when unset, issue 452).
+     */
+    public static Optional<DraftSafetyViolation> validateRenderedText(Map<String, String> texts, String locale,
+            DraftGroundingContext grounding, Currency operatingCurrency) {
         Objects.requireNonNull(texts, "Texts are required");
         Objects.requireNonNull(grounding, "Grounding is required");
-        return validateTexts(texts, "", grounding.offerBearingText(), false, Vocabulary.of(locale));
+        return validateTexts(texts, "", grounding.offerBearingText(), false, Vocabulary.of(locale),
+                cadRuledOut(operatingCurrency));
+    }
+
+    /** True when the tenant operates in a known currency other than CAD, so it quotes no CAD price (issue 452). */
+    private static boolean cadRuledOut(Currency operatingCurrency) {
+        return operatingCurrency != null && !HEX_CURRENCY_CODE.equals(operatingCurrency.getCurrencyCode());
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
             String offerContextText, boolean refusalRationale) {
-        return validateTexts(texts, allowedContextText, offerContextText, refusalRationale, Vocabulary.SPANISH);
+        return validateTexts(texts, allowedContextText, offerContextText, refusalRationale, Vocabulary.SPANISH, false);
     }
 
     private static Optional<DraftSafetyViolation> validateTexts(Map<String, String> texts, String allowedContextText,
-            String offerContextText, boolean refusalRationale, Vocabulary vocabulary) {
+            String offerContextText, boolean refusalRationale, Vocabulary vocabulary, boolean cadRuledOut) {
         String offerContextLower = canonicalize(offerContextText);
         String normalizedContext = normalizeQuantities(offerContextLower);
         Map<String, String> canonicalTexts = new LinkedHashMap<>();
@@ -424,8 +465,8 @@ public final class DraftSafetyValidator {
         List<String> contextViews = withLeetViews(maskUuidShapedSpans(normalizedContext));
         for (String contextView : contextViews) {
             // A signed context amount grounds only the same signed amount, never its unsigned magnitude.
-            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView));
-            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView));
+            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView, cadRuledOut));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView, cadRuledOut));
             contextQualified.addAll(extractTokens(QUALIFIED_AMOUNT_PATTERN, contextView));
             contextSigned.addAll(extractTokens(SIGNED_QUANTITY_PATTERN, contextView));
             for (Pattern priceTerm : vocabulary.priceTerms()) {
@@ -438,7 +479,7 @@ public final class DraftSafetyValidator {
         // The identifier check must see the context's separators as the draft does: normalizing drops a space-group
         // separator ("2 550cad2e1" -> "2550cad2e1"), which would read the amount the draft keeps as an identifier.
         for (String rawView : withLeetViews(maskUuidShapedSpans(offerContextLower))) {
-            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView, cadRuledOut));
         }
         for (String amountToken : contextAmounts) {
             Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
@@ -471,7 +512,7 @@ public final class DraftSafetyValidator {
             }
             Matcher draftAmtMatcher = AMOUNT_PATTERN.matcher(view);
             while (draftAmtMatcher.find()) {
-                if (signedAt(view, draftAmtMatcher.start()) || insideIdentifier(view, draftAmtMatcher)) {
+                if (signedAt(view, draftAmtMatcher.start()) || insideIdentifier(view, draftAmtMatcher, cadRuledOut)) {
                     continue;
                 }
                 if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
@@ -569,14 +610,15 @@ public final class DraftSafetyValidator {
     }
 
     /** The tokens of {@code pattern} not preceded by a sign ({@link #signedAt}), which are matched with it instead. */
-    private static Set<String> unsignedTokens(Pattern pattern, String text) {
+    private static Set<String> unsignedTokens(Pattern pattern, String text, boolean cadRuledOut) {
         if (text == null || text.isBlank()) {
             return Set.of();
         }
         Set<String> tokens = new HashSet<>();
         Matcher matcher = pattern.matcher(text);
         while (matcher.find()) {
-            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start()) && !insideIdentifier(text, matcher)) {
+            if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start())
+                    && !insideIdentifier(text, matcher, cadRuledOut)) {
                 tokens.add(quantityKey(matcher.group()));
             }
         }
@@ -644,11 +686,12 @@ public final class DraftSafetyValidator {
      * The run must be hex as a whole, code included, so only "cad" can sit inside one and deleting a non-hex code or
      * name ("10usd50c", "10dollars50c") never makes one. Anything else stays an amount (fail closed): a code at an
      * edge of its run ("10cad", "CAD10", "cad070"), and a glued code in a shorter run ("55cad2", "10cad5c"), which
-     * syntax alone cannot tell from a price (issue 452). An identifier-shaped price ("10cad50c") reads as an
-     * identifier: prices are not written that way (ADR 0025). A hyphen after a letter or digit joins identifier
-     * groups ("3f2a-55cad2e1"); it is not a sign.
+     * syntax alone cannot tell from a price, unless {@code cadRuledOut}: for a tenant that operates in a known currency
+     * other than CAD, a glued CAD code in a hex run of any length is an identifier (issue 452). An identifier-shaped
+     * price ("10cad50c") reads as an identifier: prices are not written that way (ADR 0025). A hyphen after a letter
+     * or digit joins identifier groups ("3f2a-55cad2e1"); it is not a sign.
      */
-    private static boolean insideIdentifier(String text, Matcher amount) {
+    private static boolean insideIdentifier(String text, Matcher amount, boolean cadRuledOut) {
         int amountStart = amount.start();
         if (quantityPrefixAt(text, amountStart)) {
             return false;
@@ -668,7 +711,14 @@ public final class DraftSafetyValidator {
             int start = runStart(text, termStart);
             int end = runEnd(text, termEnd);
             String run = text.substring(start, end);
-            if (quantityPrefixAt(text, start) || !isHex(run) || run.length() < MIN_HEX_IDENTIFIER_LENGTH) {
+            if (quantityPrefixAt(text, start) || !isHex(run)) {
+                continue;
+            }
+            // Issue 452: a tenant that does not operate in CAD quotes no CAD price, so its shape alone is enough.
+            if (cadRuledOut && term.group().equalsIgnoreCase(HEX_CURRENCY_CODE)) {
+                return true;
+            }
+            if (run.length() < MIN_HEX_IDENTIFIER_LENGTH) {
                 continue;
             }
             // Step 2: a common identifier length. Step 3: any longer hex run with a hex letter outside the code.

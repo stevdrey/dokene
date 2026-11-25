@@ -17,6 +17,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
 import java.util.OptionalLong;
@@ -94,7 +95,8 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                             approval_button_types = NULL, approval_button_texts = NULL,
                             approval_button_values = NULL, approval_content_parameter_format = NULL,
                             approval_content_checked_at = NULL, approval_content_rules_version = NULL,
-                            approval_content_rules_checked_at = NULL, updated_at = ?,
+                            approval_content_rules_checked_at = NULL, approval_content_currency = NULL,
+                            updated_at = ?,
                             version = version + 1
                         WHERE tenant_id = ? AND id = ? AND version = ?
                         RETURNING version
@@ -127,7 +129,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                     approval_header_text = ?, approval_body_text = ?, approval_footer_text = ?,
                     approval_button_types = ?, approval_button_texts = ?, approval_button_values = ?,
                     approval_content_checked_at = ?, approval_content_rules_version = ?,
-                    approval_content_rules_checked_at = ?, updated_at = ?
+                    approval_content_rules_checked_at = ?, approval_content_currency = ?, updated_at = ?
                 WHERE tenant_id = ? AND id = ? AND version = ?
                     AND approval_status = ? AND approval_checked_at IS NOT DISTINCT FROM ?
                     AND approval_checked_business_account_id IS NOT DISTINCT FROM ?
@@ -142,6 +144,7 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                 content == null ? null : timestamp(evidence),
                 evidence.contentRulesVersion(),
                 evidence.contentRulesVersion() == null ? null : timestamp(evidence),
+                evidence.contentCurrency() == null ? null : evidence.contentCurrency().getCurrencyCode(),
                 Timestamp.from(mapping.updatedAt()),
                 mapping.tenantId().value(), mapping.id(), expectedVersion, expected.status().name(),
                 timestamp(expected), expected.checkedBusinessAccountId(), expected.checkedVersion()) == 1;
@@ -173,9 +176,10 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
 
     /**
      * The verified format and fixed content of current evidence, written together by this release (V31), and the
-     * version of the fixed-text rules that checked the content (V32; null when unknown).
+     * version of the fixed-text rules that checked the content (V32; null when unknown), with the tenant operating
+     * currency it was checked under (V45; null when the tenant had none set).
      */
-    private record CurrentApproval(String format, TemplateContent content, Integer rulesVersion) {
+    private record CurrentApproval(String format, TemplateContent content, Integer rulesVersion, Currency currency) {
     }
 
     /**
@@ -192,10 +196,13 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
             return null;
         }
         // The V32 trigger keeps the version paired with this content; the pairing is checked again as defense in depth.
-        Integer rulesVersion = checkedAt.equals(rs.getTimestamp("approval_content_rules_checked_at"))
-                ? rs.getObject("approval_content_rules_version", Integer.class) : null;
+        boolean paired = checkedAt.equals(rs.getTimestamp("approval_content_rules_checked_at"));
+        Integer rulesVersion = paired ? rs.getObject("approval_content_rules_version", Integer.class) : null;
+        // The currency goes with the rules version it was checked under (V45); an unknown code is never trusted.
+        String currencyCode = rulesVersion == null ? null : rs.getString("approval_content_currency");
         return new CurrentApproval(format, new TemplateContent(rs.getString("approval_header_text"), body,
-                rs.getString("approval_footer_text"), buttons(rs)), rulesVersion);
+                rs.getString("approval_footer_text"), buttons(rs)), rulesVersion,
+                currencyCode == null ? null : Currency.getInstance(currencyCode));
     }
 
     private static List<TemplateButton> buttons(ResultSet rs) throws SQLException {
@@ -225,7 +232,8 @@ public class JdbcTemplateMappingRepository implements TemplateMappingRepository 
                 checkedAt == null ? null : checkedAt.toInstant(),
                 rs.getString("approval_checked_business_account_id"), checkedVersion,
                 format == null ? null : TemplateParameterFormat.valueOf(format),
-                current == null ? null : current.content(), current == null ? null : current.rulesVersion());
+                current == null ? null : current.content(), current == null ? null : current.rulesVersion(),
+                current == null ? null : current.currency());
         return new TemplateMapping(rs.getObject("id", UUID.class),
                 new TenantId(rs.getObject("tenant_id", UUID.class)), rs.getObject("integration_id", UUID.class),
                 SemanticTemplateIntent.valueOf(rs.getString("semantic_intent")), rs.getString("provider_template_name"),

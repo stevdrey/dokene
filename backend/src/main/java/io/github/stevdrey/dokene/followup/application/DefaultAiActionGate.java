@@ -672,7 +672,9 @@ public class DefaultAiActionGate implements AiActionGate {
                     AmbiguousSurnames.neutralized(draft.body(), assembly.context().untrusted().displayName()),
                     draft.draftVariables(), draft.locale(), draft.evidence(), draft.warnings(), draft.rationale(),
                     draft.confidence());
-            var violation = DraftSafetyValidator.validate(screened, allowedContext, grounding);
+            // Amounts are read under the tenant's operating currency as it is now (issue 452).
+            var violation = DraftSafetyValidator.validate(screened, allowedContext, grounding,
+                    tenant.operatingCurrency().orElse(null));
             if (violation.isPresent()) {
                 emitRejection(tenantContextOpt, customerId, ActionGateRejectionReason.INVALID_RECOMMENDATION, violation.get().code(), TenantPermission.MESSAGE_DRAFT);
                 return DraftGateDecision.rejected(ActionGateRejectionReason.INVALID_RECOMMENDATION,

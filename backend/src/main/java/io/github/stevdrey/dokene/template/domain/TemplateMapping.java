@@ -9,6 +9,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TimestampPrecision;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Currency;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -94,14 +95,24 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * {@code contentRulesVersion} is the version of the fixed-text safety rules that checked {@code content}
      * ({@link #FIXED_TEXT_RULES_VERSION} when recorded now); null with content means text recorded by an earlier release
      * under unknown rules. Content checked under any other version is kept as read but is never sendable (V32).
+     * {@code contentCurrency} is the tenant operating currency the content was checked under, null when the tenant had
+     * none set (issue 452, V45); content is trusted only while the tenant still operates in that same currency.
      */
     public record ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
             Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content,
-            Integer contentRulesVersion) {
+            Integer contentRulesVersion, Currency contentCurrency) {
         public static final ApprovalEvidence UNVERIFIED = new ApprovalEvidence(TemplateApprovalStatus.UNVERIFIED,
-                null, null, null, null, null, null);
+                null, null, null, null, null, null, null);
 
-        /** Evidence recorded now: content, if any, was checked under the current fixed-text rules. */
+        /** Evidence read with a rules version and checked for a tenant with no currency set. */
+        public ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
+                Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content,
+                Integer contentRulesVersion) {
+            this(status, checkedAt, checkedBusinessAccountId, checkedVersion, parameterFormat, content,
+                    contentRulesVersion, null);
+        }
+
+        /** Evidence recorded now: content, if any, was checked under the current fixed-text rules and no currency. */
         public ApprovalEvidence(TemplateApprovalStatus status, Instant checkedAt, String checkedBusinessAccountId,
                 Long checkedVersion, TemplateParameterFormat parameterFormat, TemplateContent content) {
             this(status, checkedAt, checkedBusinessAccountId, checkedVersion, parameterFormat, content,
@@ -125,6 +136,9 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
             }
             if (contentRulesVersion != null && (content == null || contentRulesVersion < 1)) {
                 throw new IllegalArgumentException("A rules version only accompanies the content it checked");
+            }
+            if (contentCurrency != null && contentRulesVersion == null) {
+                throw new IllegalArgumentException("A currency only accompanies the rules version it was checked with");
             }
             if (checkedAt != null) {
                 checkedAt = TimestampPrecision.normalize(checkedAt);
@@ -164,19 +178,22 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * the message body sends its fixed body as the message, so a fixed body longer than a message body may be is
      * unsupported: no message could ever be submitted against it. Fixed text reaches every recipient unchanged and
      * cannot be grounded per customer, so any header, body, footer or button label the safety checks refuse makes the
-     * template unsupported too; button targets are structured and shown in review instead.
+     * template unsupported too; button targets are structured and shown in review instead. The fixed text is checked
+     * under the tenant's {@code operatingCurrency} ({@code null} when unset), which the evidence records (issue 452).
      */
-    public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now) {
+    public TemplateMapping verifiedApproval(ProviderTemplateSchema schema, String businessAccountId, Instant now,
+            Currency operatingCurrency) {
         ProviderTemplateSchema.Verdict verdict = Objects.requireNonNull(schema, "Schema is required")
                 .check(parameterNames);
         TemplateContent content = verdict.status() == TemplateApprovalStatus.APPROVED
                 && schema instanceof ProviderTemplateSchema.BodyParameters body ? body.content() : null;
-        if (content != null && (!fixedTextIsSafe(content) || fixedBodyTooLong(content))) {
+        if (content != null && (!fixedTextIsSafe(content, operatingCurrency) || fixedBodyTooLong(content))) {
             verdict = new ProviderTemplateSchema.Verdict(TemplateApprovalStatus.SCHEMA_UNSUPPORTED, null);
             content = null;
         }
         return withEvidence(new ApprovalEvidence(verdict.status(), now, businessAccountId, version, verdict.format(),
-                content), now);
+                content, content == null ? null : FIXED_TEXT_RULES_VERSION, content == null ? null : operatingCurrency),
+                now);
     }
 
     /** Without the message body as a parameter, the fixed body is the message, so it must fit a message body. */
@@ -186,7 +203,7 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
     }
 
     /** Checked in the template's own language, whose Meta code ({@code en_US}) maps to a BCP 47 tag ({@code en-US}). */
-    private boolean fixedTextIsSafe(TemplateContent content) {
+    private boolean fixedTextIsSafe(TemplateContent content, Currency operatingCurrency) {
         Map<String, String> texts = new LinkedHashMap<>();
         texts.put("body", content.body());
         if (content.header() != null) {
@@ -198,7 +215,7 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
         for (int i = 0; i < content.buttons().size(); i++) {
             texts.put("button " + (i + 1), content.buttons().get(i).text());
         }
-        return DraftSafetyValidator.validateFixedText(texts, language.replace('_', '-')).isEmpty();
+        return DraftSafetyValidator.validateFixedText(texts, language.replace('_', '-'), operatingCurrency).isEmpty();
     }
 
     private TemplateMapping withEvidence(ApprovalEvidence evidence, Instant now) {
@@ -223,13 +240,17 @@ public record TemplateMapping(UUID id, TenantId tenantId, UUID integrationId, Se
      * resolved mapping into the approval fingerprint and the send command. Approval without a format was never
      * schema-checked, and approval without content cannot be reviewed, so neither is sendable. The fixed text was
      * safety-checked when the evidence was recorded, so only content checked under the current rules version is
-     * trusted here, without running the checks again (see {@code DraftSafetyValidator.FIXED_TEXT_RULES_VERSION}).
+     * trusted here, without running the checks again (see {@code DraftSafetyValidator.FIXED_TEXT_RULES_VERSION}), and
+     * only while the tenant operates in the currency it was checked under: {@code currentOperatingCurrency}, null when
+     * the tenant has none set (issue 452). After a currency change, a refresh checks the text again.
      */
-    public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge) {
+    public boolean sendable(UUID currentIntegrationId, String currentBusinessAccountId, Instant now, Duration maxAge,
+            Currency currentOperatingCurrency) {
         return enabled && approval.status() == TemplateApprovalStatus.APPROVED
                 && approval.parameterFormat() != null
                 && approval.content() != null
                 && Objects.equals(approval.contentRulesVersion(), FIXED_TEXT_RULES_VERSION)
+                && Objects.equals(approval.contentCurrency(), currentOperatingCurrency)
                 && approval.checkedVersion() == version
                 && integrationId.equals(currentIntegrationId)
                 && approval.checkedBusinessAccountId().equals(currentBusinessAccountId)

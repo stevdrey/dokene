@@ -737,6 +737,44 @@ class OpenAiResponsesApiAdapterTest {
                 });
     }
 
+    /** Issue 452: the adapter reads amounts under the tenant's operating currency from the trusted business facts. */
+    @Test
+    void draft_readsShortCadLikeHexTokensUnderTheTenantsOperatingCurrency() {
+        String draftJson = """
+                {
+                  "draft": {
+                    "outcome": "DRAFT",
+                    "action": "REPEAT_PURCHASE_FOLLOW_UP",
+                    "templateIntent": "REPEAT_PURCHASE",
+                    "body": "Hola, le saluda Tienda 55cad2.",
+                    "draftVariables": [],
+                    "locale": "es-419",
+                    "evidence": [],
+                    "warnings": [],
+                    "rationale": "Mensaje basado en la compra.",
+                    "confidence": 0.90
+                  }
+                }
+                """;
+        OpenAiResponsesApiAdapter adapter = createAdapter("gpt-6-luna", Duration.ofSeconds(15));
+        for (String code : new String[] {"USD", "CAD", null}) {
+            responseBody.set(buildWireResponse("resp_draft_currency", "gpt-6-luna", draftJson, 50, 50));
+            responseStatusCode.set(200);
+            AiDraftRequest request = new AiDraftRequest(new DraftContext(sampleContext,
+                    SemanticAction.REPEAT_PURCHASE_FOLLOW_UP, SemanticTemplateIntent.REPEAT_PURCHASE,
+                    new TrustedBusinessFacts("Tienda 55cad2", "es-419",
+                            code == null ? null : java.util.Currency.getInstance(code))), Duration.ofSeconds(5));
+            if ("USD".equals(code)) {
+                assertThat(adapter.draft(request)).as(code).isNotNull();
+            } else {
+                assertThatThrownBy(() -> adapter.draft(request)).as(String.valueOf(code))
+                        .isInstanceOf(AiProviderException.class)
+                        .satisfies(e -> assertThat(((AiProviderException) e).rejections())
+                                .contains(io.github.stevdrey.dokene.ai.application.AiOutputRejection.UNSAFE_CONTENT));
+            }
+        }
+    }
+
     private void assertDraftRejection(String id, String action, String intent, String body,
             io.github.stevdrey.dokene.ai.application.AiOutputRejection expected) {
         assertDraftRejections(id, action, intent, body, java.util.Set.of(expected));

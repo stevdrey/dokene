@@ -56,6 +56,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -1118,6 +1119,38 @@ class DefaultAiActionGateTest {
         assertThat(greeting.isAccepted()).isTrue();
         assertThat(greeting.rawOutcome()).contains(draftWithBody("Hola Ana Bono, ¿cómo está?"));
         assertThat(offer.isAccepted()).isFalse();
+    }
+
+    /**
+     * Issue 452: a business name holding a short CAD-like hex token is accepted in a draft body only for a tenant that
+     * operates in a currency other than CAD, read from the tenant as it is at the gate.
+     */
+    @Test
+    void evaluateDraft_readsShortCadLikeHexTokensUnderTheTenantsOperatingCurrency() {
+        when(customers.findById(tenantId, customerId)).thenReturn(Optional.of(Customer.create(customerId, tenantId,
+                "Ana", null, List.of(primaryPhone), now.minusSeconds(86400))));
+        var context = new RecommendationContext(
+                new RecommendationContext.TrustedFacts(tenantDate, "DUE", List.of(TrustedFollowUpReason.DUE_TODAY), 30,
+                        tenantDate, true, List.of(lastPurchaseTime), List.of(SemanticAction.REPEAT_PURCHASE_FOLLOW_UP)),
+                new RecommendationContext.UntrustedText("Ana", null, List.of("Café")));
+        RecommendationContextAssembler.Assembly assembly = new RecommendationContextAssembler.Assembly(dueEvaluation,
+                context, List.of(PurchaseBaseline.from(lastPurchase)));
+        MessageDraft draft = draftWithBody("Hola Ana, le saluda Tienda 55cad2.");
+
+        for (String code : new String[] {"USD", "CRC"}) {
+            when(tenants.findById(tenantId)).thenReturn(Optional.of(Tenant.restore(tenantId, "Tienda 55cad2",
+                    TenantStatus.ACTIVE, Currency.getInstance(code), now.minusSeconds(86400),
+                    now.minusSeconds(86400), 1L)));
+            assertThat(gate.evaluateDraft(customerId, assembly, draft).isAccepted()).as(code).isTrue();
+        }
+        for (String code : new String[] {"CAD", null}) {
+            when(tenants.findById(tenantId)).thenReturn(Optional.of(Tenant.restore(tenantId, "Tienda 55cad2",
+                    TenantStatus.ACTIVE, code == null ? null : Currency.getInstance(code),
+                    now.minusSeconds(86400), now.minusSeconds(86400), 1L)));
+            DraftGateDecision decision = gate.evaluateDraft(customerId, assembly, draft);
+            assertThat(decision.isAccepted()).as(String.valueOf(code)).isFalse();
+            assertThat(decision.rejectionReason()).contains(ActionGateRejectionReason.INVALID_RECOMMENDATION);
+        }
     }
 
     private static MessageDraft draftWithBody(String body) {

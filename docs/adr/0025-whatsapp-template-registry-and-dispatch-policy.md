@@ -166,3 +166,25 @@ A random identifier in a business or customer name (a UUID such as `55cad2a1-…
 - **Accepted limitation.** Short CAD-like hex tokens in names (`55cad2`, `10cad5c`, `5cad`) can't be told apart from a CAD price by syntax, so they are still refused (fail closed). Issue 452 proposes using the tenant's operating currency to rule them out for tenants that don't use CAD. A standalone `cad` is still a Spanish offer term. Identity values never become monetary grounding. Tests that need unique names keep using digit-free names (`ApprovedSendJourneyIntegrationTest`, `DispatchRecoveryIntegrationTest`). The operator reviews every draft before it is sent.
 - **Rules version.** The change accepts fixed text the earlier rules refused, so `FIXED_TEXT_RULES_VERSION` is `2`, `FixedTextRulesVersionTest` pins its digest, and V43 returns every `APPROVED` mapping to `UNVERIFIED`, as V32 did, so approvals are refreshed and checked again under version 2. The digest is a fingerprint of the validator's constants (patterns, word lists, maps), not of its method logic: a change that only alters a decision branch, as the iterations of this rule did, leaves the digest unchanged, so the author must bump the version by hand whenever behavior changes after a release. Iterations before version 2 is released need no further bump.
 
+## Addendum (issue 452): the tenant's operating currency rules out short CAD-like hex tokens
+
+The issue 443 limitation above remains for syntax alone: a short glued token such as `55cad2`, `10cad5c` or `9cad07b` in a business or customer name can't be told apart from a CAD price. The tenant's currency can tell them apart. A tenant that does not operate in CAD has no reason to quote a CAD price.
+
+- **Decision.** A tenant has an optional operating currency, one of the ISO 4217 codes the safety rules read (`Tenant.SUPPORTED_OPERATING_CURRENCIES`). It is unset by default, which keeps every existing tenant on the issue 443 rules. Owners and admins set or clear it with `TENANT_UPDATE` through `PUT /api/operating-currency`, under `If-Match` on the tenant revision. Every change records a `TENANT_OPERATING_CURRENCY_CHANGED` audit row that names the tenant only (V44, ADR 0005).
+- **Rule.** When the tenant's currency is set and is not `CAD`, a glued currency code in a hex run that is hex as a whole is an identifier whatever the run's length, so `55cad2` is not an amount. The code must be glued to a letter or digit on both sides, with no sign or separator before the number. `CAD` is the only code spelled in hex letters, so no other code is affected. Everything else is unchanged for every tenant:
+  - real CAD forms stay amounts (`10cad`, `10 CAD`, `CAD10`, `cad070`, `10C4D`);
+  - signs and separators still keep the amount (`-55cad2`, `+10cad5c`, `10.5cad2`, `1'000cad5`);
+  - non-hex runs stay amounts (`55usd2`, `100cad0x`);
+  - leetspeak views are read under the same rule.
+
+  A CAD tenant, or one with no currency set, keeps the issue 443 rules (fail closed). The currency affects only this CAD/hex ambiguity: amounts in other currencies are still read and grounded the same way for every tenant. Grounding is unchanged, and identity values never become monetary grounding.
+- **Where it applies.** The currency is read on every path that checks message text:
+  - the AI draft: in the provider adapter through `TrustedBusinessFacts`, and in the gate from the tenant as it is at the gate;
+  - the operator's submitted body and the rendered template values and body, in `MessageSendGuards`;
+  - fixed template text, at approval refresh.
+
+  Refusal rationales and action recommendations are still checked as if no currency were set (fail closed).
+- **Approval evidence.** Fixed text is checked once, at refresh. So approval evidence records the currency the content was checked under (`approval_content_currency`, V45), with the rules version. `TemplateMapping.sendable()` trusts the content only while the tenant still operates in that same currency, set or unset. A currency change therefore makes every approved template unsendable until a refresh checks its text again under the new currency. A refresh racing a change records the currency it read, which then no longer matches, so it is never sendable. The currency is stored only with a rules version, and the stale-content trigger clears it whenever it clears the version.
+- **Rules version.** `FIXED_TEXT_RULES_VERSION` is `3` and `FixedTextRulesVersionTest` pins its digest. V45 returns every `APPROVED` mapping to `UNVERIFIED`, as V32 and V43 did. An instance of the previous release writes version 2 and never the currency, and version 2 content is never sendable by this release.
+- **Residual risk.** A tenant that sets a non-CAD currency but does quote CAD prices in compact glued form (`55cad2`) would see them read as identifiers. That spelling is not how prices are written. Every draft is still reviewed by an operator before it is sent, and the setting is limited to owners and admins and audited.
+

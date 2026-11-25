@@ -26,6 +26,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.time.Clock;
 import java.time.Instant;
@@ -58,7 +59,7 @@ class OutboundMessageCommandServiceValidationTest {
 
     private OutboundMessageCommandService service(boolean englishEnabled) {
         return new OutboundMessageCommandService(messages, idempotency, customers,
-                new MessageSendGuards(contactPolicies, followUps, grounding), bindings, safety,
+                new MessageSendGuards(contactPolicies, followUps, grounding, mock(TenantRepository.class)), bindings, safety,
                 new MessageCommandSupport(messages, authorization, contexts, mock(MessageTemplatePreviews.class)),
                 mock(CurrentMembershipAuthorizer.class), audit,
                 Clock.fixed(Instant.parse("2026-10-08T12:00:00Z"), ZoneOffset.UTC),

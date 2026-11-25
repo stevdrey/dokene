@@ -1,8 +1,9 @@
 // ABOUTME: Proves the template evidence migrations drop approvals checked under weaker rules: placeholders (issue 218)
-// ABOUTME: and the fixed-text rules version (issue 268, V32; issue 443, V43). Drives Flyway by hand: seed, then upgrade.
+// ABOUTME: and the fixed-text rules version (issues 268, 443, 452: V32, V43, V45). Drives Flyway by hand.
 package io.github.stevdrey.dokene.tenant.security;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -18,6 +19,7 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
     private static final String SCHEMA_EVIDENCE_MIGRATION = "verify template parameter schema";
     private static final String RULES_VERSION_MIGRATION = "template content rules version";
     private static final String RULES_VERSION_2_MIGRATION = "reset template approvals for rules version 2";
+    private static final String RULES_VERSION_3_MIGRATION = "record template content operating currency";
 
     /** covers: issue #218 (no mapping stays sendable on status, name and language alone after the upgrade). */
     @Test
@@ -142,6 +144,92 @@ class TemplateSchemaEvidenceUpgradeIntegrationTest {
                     SELECT count(*) FROM dokene.tenant_provider_templates
                     WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT' AND approval_status = 'REJECTED'
                     """, tenantId)).isEqualTo(1);
+        }
+    }
+
+    /**
+     * covers: issue #452 (V45). Content checked under rules version 2 is no longer trusted under version 3, so the
+     * approval returns to UNVERIFIED and its content, version and currency are cleared. A currency is stored only with
+     * the rules version it was checked under, and goes when the version does, whoever clears it.
+     */
+    @Test
+    void approvalsCheckedUnderRulesVersionTwoReturnToUnverifiedAndTheCurrencyFollowsTheVersion() throws Exception {
+        String url = TenantSecurityIntegrationFixture.createEmptyDatabase(
+                "rules3_" + UUID.randomUUID().toString().replace("-", ""));
+        UUID tenantId = UUID.randomUUID();
+        UUID integrationId = UUID.randomUUID();
+
+        assertThat(flyway(url, versionBefore(url, RULES_VERSION_3_MIGRATION)).migrate().success).isTrue();
+        try (Connection migration = migrationConnection(url)) {
+            seedMappings(migration, tenantId, integrationId);
+            // The previous release's approved refresh, with its content checked under rules version 2 (V43).
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.tenant_provider_templates
+                    SET approval_content_parameter_format = 'POSITIONAL', approval_body_text = 'Hola {{1}}',
+                        approval_button_types = '{}', approval_button_texts = '{}', approval_button_values = '{}',
+                        approval_content_checked_at = approval_checked_at, approval_content_rules_version = 2,
+                        approval_content_rules_checked_at = approval_checked_at
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                    """, tenantId)).isEqualTo(1);
+        }
+
+        assertThat(flyway(url, "latest").migrate().success).isTrue();
+
+        try (Connection migration = migrationConnection(url)) {
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE' AND approval_status = 'UNVERIFIED'
+                        AND approval_checked_at IS NULL AND approval_body_text IS NULL
+                        AND approval_content_rules_version IS NULL AND approval_content_currency IS NULL
+                    """, tenantId)).isEqualTo(1);
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT' AND approval_status = 'REJECTED'
+                    """, tenantId)).isEqualTo(1);
+
+            // A current approval records its currency with its rules version.
+            String approve = """
+                    UPDATE dokene.tenant_provider_templates
+                    SET approval_status = 'APPROVED', approval_checked_at = now(),
+                        approval_checked_business_account_id = '400000000000001', approval_checked_version = 0,
+                        approval_content_parameter_format = 'POSITIONAL', approval_body_text = 'Hola {{1}}',
+                        approval_button_types = '{}', approval_button_texts = '{}', approval_button_values = '{}',
+                        approval_content_checked_at = now(), approval_content_rules_version = 3,
+                        approval_content_rules_checked_at = now(), approval_content_currency = 'USD'
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                    """;
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, approve, tenantId)).isEqualTo(1);
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND approval_content_currency = 'USD' AND approval_content_rules_version = 3
+                    """, tenantId)).isEqualTo(1);
+            // An edit by a writer that knows nothing of the currency clears the version, and the currency with it.
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.tenant_provider_templates
+                    SET approval_status = 'UNVERIFIED', approval_checked_at = NULL,
+                        approval_checked_business_account_id = NULL, approval_checked_version = NULL,
+                        approval_content_rules_version = NULL, approval_content_rules_checked_at = NULL
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                    """, tenantId)).isEqualTo(1);
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                        AND approval_content_currency IS NULL AND approval_body_text IS NULL
+                    """, tenantId)).isEqualTo(1);
+            // A currency without a rules version is dropped by the trigger, and one that is not a code is refused.
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.tenant_provider_templates SET approval_content_currency = 'USD'
+                    WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT'
+                    """, tenantId)).isEqualTo(1);
+            assertThat(count(migration, """
+                    SELECT count(*) FROM dokene.tenant_provider_templates
+                    WHERE tenant_id = ? AND semantic_intent = 'RELATED_PRODUCT' AND approval_content_currency IS NULL
+                    """, tenantId)).isEqualTo(1);
+            assertThat(TenantSecurityIntegrationFixture.executeUpdate(migration, approve, tenantId)).isEqualTo(1);
+            assertThatThrownBy(() -> TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.tenant_provider_templates SET approval_content_currency = 'usd'
+                    WHERE tenant_id = ? AND semantic_intent = 'REPEAT_PURCHASE'
+                    """, tenantId)).isInstanceOf(SQLException.class);
         }
     }
 

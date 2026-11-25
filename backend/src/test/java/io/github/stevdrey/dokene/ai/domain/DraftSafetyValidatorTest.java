@@ -2,6 +2,7 @@ package io.github.stevdrey.dokene.ai.domain;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Currency;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -901,6 +902,72 @@ class DraftSafetyValidatorTest {
             assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
                     "Cliente: " + name + ".")).as(name).isEmpty();
         }
+    }
+
+    /**
+     * Issue 452: a tenant that operates in a known currency other than CAD quotes no CAD price, so a glued, all-hex
+     * CAD-like token of any length is an identifier on every path. A CAD tenant, or one with no currency set, keeps
+     * the issue 443 rules. Real CAD forms, signs and separators stay amounts for every tenant.
+     */
+    @Test
+    void shortCadLikeHexTokensAreIdentifiersOnlyForATenantThatDoesNotOperateInCad() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
+        Currency usd = Currency.getInstance("USD");
+        Currency crc = Currency.getInstance("CRC");
+        Currency cad = Currency.getInstance("CAD");
+        for (String name : List.of("Tienda 55cad2", "Tienda 10cad5c", "Tienda 9cad07b", "Tienda 1cad2",
+                "Tienda 55CAD2", "Tienda 55c4d2", "Tienda 1cad2b")) {
+            MessageDraft draft = draftWith("Hola de parte de " + name + ".", "es-419", List.of());
+            Map<String, String> rendered = Map.of("customer_name", name, "body", "Hola " + name + ", gracias.");
+            Map<String, String> fixed = Map.of("body", name);
+            for (Currency other : List.of(usd, crc)) {
+                assertThat(DraftSafetyValidator.validate(draft, "Cliente: Ana.", grounding, other))
+                        .as("body | " + other + " | " + name).isEmpty();
+                assertThat(DraftSafetyValidator.validateRenderedText(rendered, "es-419", grounding, other))
+                        .as("rendered | " + other + " | " + name).isEmpty();
+                assertThat(DraftSafetyValidator.validateFixedText(fixed, "en-US", other))
+                        .as("fixed | " + other + " | " + name).isEmpty();
+            }
+            for (Currency strict : java.util.Arrays.asList(cad, null)) {
+                Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(draft, "Cliente: Ana.",
+                        grounding, strict);
+                assertThat(violation).as("body | " + strict + " | " + name).isPresent();
+                assertThat(violation.get().code()).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+                assertThat(DraftSafetyValidator.validateRenderedText(rendered, "es-419", grounding, strict))
+                        .as("rendered | " + strict + " | " + name).isPresent();
+                assertThat(DraftSafetyValidator.validateFixedText(fixed, "en-US", strict))
+                        .as("fixed | " + strict + " | " + name).isPresent();
+            }
+            // The overloads without a currency read it as unset.
+            assertThat(DraftSafetyValidator.validate(draft, "Cliente: Ana.", grounding)).isPresent();
+            assertThat(DraftSafetyValidator.validateRenderedText(rendered, "es-419", grounding)).isPresent();
+            assertThat(DraftSafetyValidator.validateFixedText(fixed, "en-US")).isPresent();
+        }
+
+        // Real CAD forms, signs, separators and non-hex runs stay amounts, even for a tenant that does not use CAD.
+        for (String body : List.of("Paga 10cad.", "Paga 10 CAD.", "Paga CAD10.", "Paga CAD 10.", "Paga cad070.",
+                "Paga 10C4D.", "Paga -55cad2.", "Paga +10cad5c.", "Paga + 10cad5c.", "Paga 10.5cad2.", "Paga 1,5cad2.",
+                "Paga 1'000cad5.", "Paga ~55cad2.", "Paga 55usd2.", "Paga 100cad0x.", "Paga 10dollars5c.",
+                "Paga $10.", "Paga 10 dólares.")) {
+            for (Currency tenant : java.util.Arrays.asList(usd, crc, cad, null)) {
+                Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
+                        draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding, tenant);
+                assertThat(violation).as(tenant + " | " + body).isPresent();
+                assertThat(violation.get().code()).as(tenant + " | " + body)
+                        .isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+                assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", body), "es-419", tenant))
+                        .as("fixed | " + tenant + " | " + body).isPresent();
+            }
+        }
+
+        // Grounding is unchanged: an identifier in the context grounds nothing, and a real context amount still
+        // grounds the same draft amount.
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 10 CAD.", "es-419", List.of()), "Plan 55cad2",
+                grounding, usd)).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 10 CAD.", "es-419", List.of()), "Plan 10 CAD",
+                null, usd)).isEmpty();
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 55cad2.", "es-419", List.of()), "Plan 55cad2",
+                null, cad)).isEmpty();
     }
 
     @Test

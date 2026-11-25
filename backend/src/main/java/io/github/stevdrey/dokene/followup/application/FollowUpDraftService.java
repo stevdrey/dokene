@@ -28,6 +28,7 @@ import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import java.time.Duration;
+import java.util.Currency;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicReference;
@@ -205,13 +206,16 @@ public final class FollowUpDraftService {
 
             // Ground with business facts
             String businessName = "Dokene";
+            Currency operatingCurrency = null;
             if (tenants != null && tenantContext != null) {
                 var tenantOpt = tenants.findById(tenantContext.tenantId());
                 if (tenantOpt.isPresent()) {
                     businessName = tenantOpt.get().displayName();
+                    operatingCurrency = tenantOpt.get().operatingCurrency().orElse(null);
                 }
             }
-            TrustedBusinessFacts businessFacts = new TrustedBusinessFacts(businessName);
+            TrustedBusinessFacts businessFacts = new TrustedBusinessFacts(businessName,
+                    TrustedBusinessFacts.DEFAULT_LOCALE, operatingCurrency);
             DraftContext draftContext = new DraftContext(assembly.context(), action, templateIntent, businessFacts);
 
             // Fail closed before customer data crosses the provider boundary

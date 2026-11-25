@@ -11,6 +11,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Collections;
+import java.util.Currency;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,7 @@ class TemplateMappingTest {
 
     private static TemplateMapping approved() {
         return mapping("repeat_purchase_v1", "es_MX", List.of("customer_name"))
-                .verifiedApproval(POSITIONAL_ONE, WABA, NOW);
+                .verifiedApproval(POSITIONAL_ONE, WABA, NOW, null);
     }
 
     @ParameterizedTest
@@ -58,29 +59,29 @@ class TemplateMappingTest {
 
     @Test
     void anApprovedMappingForTheCurrentRevisionAndAccountIsSendable() {
-        assertThat(approved().sendable(INTEGRATION, WABA, NOW.plusSeconds(60), MAX_AGE)).isTrue();
+        assertThat(approved().sendable(INTEGRATION, WABA, NOW.plusSeconds(60), MAX_AGE, null)).isTrue();
     }
 
     @Test
     void anyBrokenConditionMakesItIneligible() {
         TemplateMapping base = approved();
-        assertThat(base.sendable(INTEGRATION, WABA, NOW.plus(MAX_AGE).plusSeconds(1), MAX_AGE)).isFalse();
-        assertThat(base.sendable(INTEGRATION, WABA, NOW.minusSeconds(1), MAX_AGE)).isFalse();
-        assertThat(base.sendable(UUID.randomUUID(), WABA, NOW, MAX_AGE)).isFalse();
-        assertThat(base.sendable(INTEGRATION, "999999999999999", NOW, MAX_AGE)).isFalse();
-        assertThat(base.withVersion(1).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        assertThat(base.sendable(INTEGRATION, WABA, NOW.plus(MAX_AGE).plusSeconds(1), MAX_AGE, null)).isFalse();
+        assertThat(base.sendable(INTEGRATION, WABA, NOW.minusSeconds(1), MAX_AGE, null)).isFalse();
+        assertThat(base.sendable(UUID.randomUUID(), WABA, NOW, MAX_AGE, null)).isFalse();
+        assertThat(base.sendable(INTEGRATION, "999999999999999", NOW, MAX_AGE, null)).isFalse();
+        assertThat(base.withVersion(1).sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
         assertThat(base.edit(INTEGRATION, "repeat_purchase_v1", "es_MX", List.of("customer_name"), true, NOW)
-                .sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+                .sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
         assertThat(base.edit(INTEGRATION, "repeat_purchase_v1", "es_MX", List.of("customer_name"), false, NOW)
-                .verifiedApproval(POSITIONAL_ONE, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE))
+                .verifiedApproval(POSITIONAL_ONE, WABA, NOW, null).sendable(INTEGRATION, WABA, NOW, MAX_AGE, null))
                 .isFalse();
         for (TemplateApprovalStatus status : TemplateApprovalStatus.values()) {
             if (status != TemplateApprovalStatus.APPROVED && status != TemplateApprovalStatus.UNVERIFIED
                     && !status.derivedFromSchema()) {
-                assertThat(base.verified(status, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+                assertThat(base.verified(status, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
             }
         }
-        assertThat(base.unverified(NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        assertThat(base.unverified(NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
     }
 
     @Test
@@ -105,7 +106,7 @@ class TemplateMappingTest {
                 base.providerTemplateName(), base.language(), base.parameterNames(), true,
                 new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L, null, null),
                 base.createdAt(), base.updatedAt(), 0);
-        assertThat(unchecked.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        assertThat(unchecked.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
     }
 
     /**
@@ -121,13 +122,13 @@ class TemplateMappingTest {
                 base.parameterNames(), true, new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW,
                         WABA, 0L, TemplateParameterFormat.POSITIONAL, content, rules),
                 base.createdAt(), base.updatedAt(), 0);
-        assertThat(withRules.apply(TemplateMapping.FIXED_TEXT_RULES_VERSION).sendable(INTEGRATION, WABA, NOW, MAX_AGE))
+        assertThat(withRules.apply(TemplateMapping.FIXED_TEXT_RULES_VERSION).sendable(INTEGRATION, WABA, NOW, MAX_AGE, null))
                 .isTrue();
         assertThat(withRules.apply(TemplateMapping.FIXED_TEXT_RULES_VERSION + 1)
-                .sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+                .sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
         TemplateMapping unknown = withRules.apply(null);
         assertThat(unknown.approval().content()).isEqualTo(content);
-        assertThat(unknown.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        assertThat(unknown.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
 
         // Evidence recorded now carries the current rules version with its content, and none without content.
         assertThat(approved().approval().contentRulesVersion()).isEqualTo(TemplateMapping.FIXED_TEXT_RULES_VERSION);
@@ -151,13 +152,13 @@ class TemplateMappingTest {
                 new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
                         TemplateParameterFormat.POSITIONAL, null),
                 base.createdAt(), base.updatedAt(), 0);
-        assertThat(withoutContent.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        assertThat(withoutContent.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
 
         assertThat(approved().verified(TemplateApprovalStatus.PAUSED, WABA, NOW).approval().content()).isNull();
         assertThat(approved().unverified(NOW).approval().content()).isNull();
         assertThat(approved().edit(INTEGRATION, "repeat_purchase_v1", "es_MX", List.of("customer_name"), true, NOW)
                 .approval().content()).isNull();
-        assertThat(mapping("t", "es", List.of("customer_name", "product")).verifiedApproval(POSITIONAL_ONE, WABA, NOW)
+        assertThat(mapping("t", "es", List.of("customer_name", "product")).verifiedApproval(POSITIONAL_ONE, WABA, NOW, null)
                 .approval().content()).isNull();
         assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
                 null, CONTENT)).isInstanceOf(IllegalArgumentException.class);
@@ -205,18 +206,18 @@ class TemplateMappingTest {
         ProviderTemplateSchema tooLong = fixedBody("é".repeat(MessageDraft.MAX_BODY_LENGTH + 1));
 
         TemplateMapping fixed = mapping("hello_world", "en_US", List.of());
-        assertThat(fixed.verifiedApproval(fits, WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
-        TemplateMapping refused = fixed.verifiedApproval(tooLong, WABA, NOW);
+        assertThat(fixed.verifiedApproval(fits, WABA, NOW, null).sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isTrue();
+        TemplateMapping refused = fixed.verifiedApproval(tooLong, WABA, NOW, null);
         assertThat(refused.approval().status()).isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
         assertThat(refused.approval().content()).isNull();
-        assertThat(refused.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+        assertThat(refused.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
 
         // With message_body the operator's text is sent as a parameter, so a long fixed body is not the limit.
         ProviderTemplateSchema withBody = new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.NAMED,
                 List.of(TemplateMapping.Parameter.MESSAGE_BODY.parameterName()), new TemplateContent(null,
                         "é".repeat(MessageDraft.MAX_BODY_LENGTH) + " {{message_body}}", null));
         assertThat(mapping("t", "es", List.of(TemplateMapping.Parameter.MESSAGE_BODY.parameterName()))
-                .verifiedApproval(withBody, WABA, NOW).approval().status())
+                .verifiedApproval(withBody, WABA, NOW, null).approval().status())
                 .isEqualTo(TemplateApprovalStatus.APPROVED);
     }
 
@@ -236,16 +237,16 @@ class TemplateMappingTest {
                         List.of(new TemplateButton(TemplateButtonType.QUICK_REPLY, "Quiero mi descuento", null))));
         for (TemplateContent content : refused) {
             TemplateMapping verified = fixed.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
-                    TemplateParameterFormat.POSITIONAL, List.of(), content), WABA, NOW);
+                    TemplateParameterFormat.POSITIONAL, List.of(), content), WABA, NOW, null);
             assertThat(verified.approval().status()).as(content.body())
                     .isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
             assertThat(verified.approval().content()).isNull();
-            assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+            assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
         }
         // English fixed text is checked with the English offer vocabulary as well (issue 268, part 2).
         TemplateMapping english = fixed.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
                 TemplateParameterFormat.POSITIONAL, List.of(), new TemplateContent(null, "Thanks for your order.",
-                        "Get a great deal next week")), WABA, NOW);
+                        "Get a great deal next week")), WABA, NOW, null);
         assertThat(english.approval().status()).isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
         // Button targets are structured and shown in review, so a static URL or phone target alone is fine.
         TemplateContent withTargets = new TemplateContent("Hello World", "Welcome and congratulations!! Thank you "
@@ -253,7 +254,44 @@ class TemplateMappingTest {
                         new TemplateButton(TemplateButtonType.URL, "View catalog", "https://example.test/catalog"),
                         new TemplateButton(TemplateButtonType.PHONE_NUMBER, "Call us", "+50600000099")));
         assertThat(fixed.verifiedApproval(new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL,
-                List.of(), withTargets), WABA, NOW).sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
+                List.of(), withTargets), WABA, NOW, null).sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isTrue();
+    }
+
+    /**
+     * Issue 452: fixed text holding a short CAD-like hex token is approved only for a tenant that operates in another
+     * currency. The evidence records that currency and is sendable only while the tenant still operates in it.
+     */
+    @Test
+    void fixedTextIsCheckedAndTrustedUnderTheTenantsOperatingCurrency() {
+        Currency usd = Currency.getInstance("USD");
+        TemplateMapping fixed = mapping("hello_world", "es", List.of());
+        ProviderTemplateSchema schema = new ProviderTemplateSchema.BodyParameters(TemplateParameterFormat.POSITIONAL,
+                List.of(), new TemplateContent("Tienda 55cad2", "Gracias por tu compra.", null));
+
+        TemplateMapping approved = fixed.verifiedApproval(schema, WABA, NOW, usd);
+        assertThat(approved.approval().status()).isEqualTo(TemplateApprovalStatus.APPROVED);
+        assertThat(approved.approval().contentCurrency()).isEqualTo(usd);
+        assertThat(approved.approval().contentRulesVersion()).isEqualTo(TemplateMapping.FIXED_TEXT_RULES_VERSION);
+        assertThat(approved.sendable(INTEGRATION, WABA, NOW, MAX_AGE, usd)).isTrue();
+        // A currency change, set or cleared, leaves the content unchecked under the new one until a refresh.
+        for (Currency other : java.util.Arrays.asList(Currency.getInstance("CAD"), Currency.getInstance("CRC"), null)) {
+            assertThat(approved.sendable(INTEGRATION, WABA, NOW, MAX_AGE, other)).as(String.valueOf(other)).isFalse();
+        }
+        for (Currency strict : java.util.Arrays.asList(Currency.getInstance("CAD"), null)) {
+            TemplateMapping refused = fixed.verifiedApproval(schema, WABA, NOW, strict);
+            assertThat(refused.approval().status()).as(String.valueOf(strict))
+                    .isEqualTo(TemplateApprovalStatus.SCHEMA_UNSUPPORTED);
+            assertThat(refused.approval().content()).isNull();
+            assertThat(refused.approval().contentCurrency()).isNull();
+        }
+        // Content checked with no currency set is trusted only while none is set.
+        TemplateMapping unset = fixed.verifiedApproval(fixedBody("Gracias por tu compra."), WABA, NOW, null);
+        assertThat(unset.approval().contentCurrency()).isNull();
+        assertThat(unset.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isTrue();
+        assertThat(unset.sendable(INTEGRATION, WABA, NOW, MAX_AGE, usd)).isFalse();
+        // A currency never stands without the rules version it was checked with.
+        assertThatThrownBy(() -> new TemplateMapping.ApprovalEvidence(TemplateApprovalStatus.APPROVED, NOW, WABA, 0L,
+                TemplateParameterFormat.POSITIONAL, CONTENT, null, usd)).isInstanceOf(IllegalArgumentException.class);
     }
 
     private static ProviderTemplateSchema fixedBody(String body) {
@@ -270,17 +308,17 @@ class TemplateMappingTest {
                 new ProviderTemplateSchema.Unsupported(), TemplateApprovalStatus.SCHEMA_UNSUPPORTED,
                 new ProviderTemplateSchema.Unreadable(), TemplateApprovalStatus.SCHEMA_UNREADABLE);
         cases.forEach((schema, status) -> {
-            TemplateMapping verified = base.verifiedApproval(schema, WABA, NOW);
+            TemplateMapping verified = base.verifiedApproval(schema, WABA, NOW, null);
             assertThat(verified.approval()).isEqualTo(
                     new TemplateMapping.ApprovalEvidence(status, NOW, WABA, 0L, null, null));
-            assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isFalse();
+            assertThat(verified.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isFalse();
         });
         TemplateMapping named = base.verifiedApproval(new ProviderTemplateSchema.BodyParameters(
-                TemplateParameterFormat.NAMED, List.of("customer_name"), CONTENT), WABA, NOW);
+                TemplateParameterFormat.NAMED, List.of("customer_name"), CONTENT), WABA, NOW, null);
         assertThat(named.approval().status()).isEqualTo(TemplateApprovalStatus.APPROVED);
         assertThat(named.approval().parameterFormat()).isEqualTo(TemplateParameterFormat.NAMED);
         // Named placeholders are sent by name, so a template verified as NAMED is as sendable as a positional one.
-        assertThat(named.sendable(INTEGRATION, WABA, NOW, MAX_AGE)).isTrue();
+        assertThat(named.sendable(INTEGRATION, WABA, NOW, MAX_AGE, null)).isTrue();
     }
 
     @Test

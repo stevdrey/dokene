@@ -28,7 +28,9 @@ class FixedTextRulesVersionTest {
     private static final Map<Integer, String> RELEASED = Map.of(
             1, "d292ca8d90d75c15062557a5cd868705e29d33811a3392c706ec626dd65a1e14",
             // Issue 443: a currency code glued inside an alphanumeric identifier is not an amount (V43).
-            2, "bd02e9949a7d0fa830f104e789bce41c88b3e0bd389f1ac8c59d2282f9950c6e");
+            2, "bd02e9949a7d0fa830f104e789bce41c88b3e0bd389f1ac8c59d2282f9950c6e",
+            // Issue 452: a glued CAD-like hex token is an identifier for a tenant that does not operate in CAD (V45).
+            3, "bf9bf5df8b7bd147fbac8ce3c11dcb394b6c648e8d4d9bb9dfd817b93a292bf5");
 
     @Test
     void theRulesVersionChangesWhenTheRulesDo() throws Exception {

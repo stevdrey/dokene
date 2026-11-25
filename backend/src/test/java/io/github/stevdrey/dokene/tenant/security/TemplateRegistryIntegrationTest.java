@@ -252,6 +252,56 @@ class TemplateRegistryIntegrationTest {
                 .isInstanceOf(TemplateMappingResolver.Disabled.class);
     }
 
+    /**
+     * Issue 452: fixed text holding a short CAD-like hex token is approved for a tenant that operates in USD, set
+     * through the operating currency API. Changing the currency makes the approval unsendable until a refresh checks
+     * the text again, and under CAD the same text is unsupported. Viewers cannot change the currency.
+     */
+    @Test
+    void aCurrencyChangeMakesFixedTextUnsendableUntilARefreshChecksItAgain() throws Exception {
+        create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());
+        TemplateProviderGateway.Reported cadLikeHeader = new TemplateProviderGateway.Reported(
+                TemplateApprovalStatus.APPROVED, WABA_ID, new ProviderTemplateSchema.BodyParameters(
+                        TemplateParameterFormat.POSITIONAL, List.of("1", "2"),
+                        new TemplateContent("Tienda 55cad2", "Synthetic body", null)));
+
+        changeCurrency(viewerA, "USD").andExpect(status().isForbidden());
+        changeCurrency(adminA, "USD").andExpect(status().isOk()).andExpect(jsonPath("$.operatingCurrency").value("USD"));
+        gateway.next = cadLikeHeader;
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("APPROVED")).andExpect(jsonPath("$.sendable").value(true));
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Resolved.class);
+
+        changeCurrency(adminA, "CAD").andExpect(status().isOk());
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+        gateway.next = cadLikeHeader;
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.approvalStatus").value("SCHEMA_UNSUPPORTED"))
+                .andExpect(jsonPath("$.sendable").value(false));
+
+        changeCurrency(adminA, "CRC").andExpect(status().isOk());
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Disabled.class);
+        gateway.next = cadLikeHeader;
+        refresh(adminA, tenantA, "REPEAT_PURCHASE", "\"0\"").andExpect(status().isOk())
+                .andExpect(jsonPath("$.sendable").value(true));
+        assertThat(resolve(tenantA, SemanticTemplateIntent.REPEAT_PURCHASE))
+                .isInstanceOf(TemplateMappingResolver.Resolved.class);
+        // The other tenant's currency is its own.
+        assertThat(contexts.callWithTenantId(tenantB.id(), () -> tenants.findById(tenantB.id()).orElseThrow()
+                .operatingCurrency())).isEmpty();
+    }
+
+    private ResultActions changeCurrency(IdentityId who, String code) throws Exception {
+        String etag = mvc.perform(get("/api/operating-currency").with(user(who)).header("X-Tenant-Id",
+                tenantA.id().value())).andExpect(status().isOk()).andReturn().getResponse().getHeader("ETag");
+        return mvc.perform(put("/api/operating-currency").with(user(who)).with(csrf())
+                .header("X-Tenant-Id", tenantA.id().value()).header("If-Match", etag)
+                .contentType(MediaType.APPLICATION_JSON).content("{\"operatingCurrency\":\"" + code + "\"}"));
+    }
+
     @Test
     void everyNonApprovedProviderStateIsIneligible() throws Exception {
         create(adminA, tenantA, "REPEAT_PURCHASE", TEMPLATE).andExpect(status().isOk());

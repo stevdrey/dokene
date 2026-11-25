@@ -5,12 +5,15 @@ import io.github.stevdrey.dokene.ratelimit.ActorCallBudget;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantPermission;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.template.domain.TemplateApprovalStatus;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Currency;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -37,11 +40,13 @@ public class TemplateRegistryService {
     private final Clock clock;
     private final TransactionTemplate writes;
     private final TransactionTemplate reads;
+    private final TenantRepository tenants;
 
     public TemplateRegistryService(TemplateMappingRepository repository, TemplateProviderGateway gateway,
             TemplateAuditPort audit, TenantAuthorizationService authorization, TenantContextProvider contexts,
             TemplateRegistryProperties properties, TemplateRefreshLimiter refreshes, Clock clock,
-            PlatformTransactionManager transactions) {
+            PlatformTransactionManager transactions, TenantRepository tenants) {
+        this.tenants = Objects.requireNonNull(tenants, "Tenant repository is required");
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.gateway = Objects.requireNonNull(gateway, "Gateway is required");
         this.audit = Objects.requireNonNull(audit, "Audit port is required");
@@ -157,7 +162,8 @@ public class TemplateRegistryService {
         }
         TemplateMapping next = switch (lookup) {
             case TemplateProviderGateway.Reported reported when reported.status() == TemplateApprovalStatus.APPROVED ->
-                    current.verifiedApproval(reported.schema(), reported.businessAccountId(), clock.instant());
+                    current.verifiedApproval(reported.schema(), reported.businessAccountId(), clock.instant(),
+                            operatingCurrency());
             case TemplateProviderGateway.Reported reported ->
                     current.verified(reported.status(), reported.businessAccountId(), clock.instant());
             case TemplateProviderGateway.Absent absent ->
@@ -208,7 +214,15 @@ public class TemplateRegistryService {
 
     private boolean sendable(TemplateMapping mapping, Optional<TemplateProviderGateway.Sender> sender) {
         return sender.isPresent() && mapping.sendable(sender.get().integrationId(),
-                sender.get().businessAccountId(), clock.instant(), properties.approvalMaxAge());
+                sender.get().businessAccountId(), clock.instant(), properties.approvalMaxAge(), operatingCurrency());
+    }
+
+    /**
+     * The current tenant's operating currency, or null when unset (issue 452). A refresh checks fixed text under it
+     * and records it; evidence is sendable only while the tenant still operates in that currency.
+     */
+    private Currency operatingCurrency() {
+        return tenants.findById(contexts.requireCurrent().tenantId()).flatMap(Tenant::operatingCurrency).orElse(null);
     }
 
     /** Only domain validation maps to INVALID_INPUT; other failures stay server errors. */

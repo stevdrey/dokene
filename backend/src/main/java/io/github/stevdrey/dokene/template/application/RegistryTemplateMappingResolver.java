@@ -2,6 +2,8 @@ package io.github.stevdrey.dokene.template.application;
 
 import io.github.stevdrey.dokene.ai.domain.SemanticTemplateIntent;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
+import io.github.stevdrey.dokene.tenant.domain.Tenant;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import java.time.Clock;
 import java.util.Objects;
@@ -22,9 +24,12 @@ public class RegistryTemplateMappingResolver implements TemplateMappingResolver 
     private final TenantContextProvider contexts;
     private final TemplateRegistryProperties properties;
     private final Clock clock;
+    private final TenantRepository tenants;
 
     public RegistryTemplateMappingResolver(TemplateMappingRepository repository, TemplateProviderGateway gateway,
-            TenantContextProvider contexts, TemplateRegistryProperties properties, Clock clock) {
+            TenantContextProvider contexts, TemplateRegistryProperties properties, Clock clock,
+            TenantRepository tenants) {
+        this.tenants = Objects.requireNonNull(tenants, "Tenant repository is required");
         this.repository = Objects.requireNonNull(repository, "Repository is required");
         this.gateway = Objects.requireNonNull(gateway, "Gateway is required");
         this.contexts = Objects.requireNonNull(contexts, "Tenant contexts are required");
@@ -36,14 +41,16 @@ public class RegistryTemplateMappingResolver implements TemplateMappingResolver 
     @Transactional(readOnly = true)
     public Resolution resolve(SemanticTemplateIntent intent) {
         Objects.requireNonNull(intent, "Intent is required");
-        Optional<TemplateMapping> found = repository.find(contexts.requireCurrent().tenantId(), intent);
+        var tenantId = contexts.requireCurrent().tenantId();
+        Optional<TemplateMapping> found = repository.find(tenantId, intent);
         if (found.isEmpty()) {
             return new NotMapped();
         }
         TemplateMapping mapping = found.get();
         Optional<TemplateProviderGateway.Sender> sender = gateway.currentSender();
         if (sender.isEmpty() || !mapping.sendable(sender.get().integrationId(), sender.get().businessAccountId(),
-                clock.instant(), properties.approvalMaxAge())) {
+                clock.instant(), properties.approvalMaxAge(),
+                tenants.findById(tenantId).flatMap(Tenant::operatingCurrency).orElse(null))) {
             return new Disabled();
         }
         return new Resolved(new ResolvedTemplateMapping(mapping.intent(), mapping.providerTemplateName(),

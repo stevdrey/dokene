@@ -17,6 +17,7 @@ import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipId;
+import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import java.time.Clock;
@@ -48,7 +49,7 @@ class TemplateRegistryServiceRefreshLimitTest {
     private final TemplateRegistryService service = new TemplateRegistryService(repository, gateway, audit,
             mock(TenantAuthorizationService.class), contexts, new TemplateRegistryProperties(null),
             new TemplateRefreshLimiter(new TemplateRefreshLimitProperties(12, 7, WINDOW), clock), clock,
-            mock(PlatformTransactionManager.class));
+            mock(PlatformTransactionManager.class), mock(TenantRepository.class));
 
     @BeforeEach
     void storeAnUnverifiedMapping() {
