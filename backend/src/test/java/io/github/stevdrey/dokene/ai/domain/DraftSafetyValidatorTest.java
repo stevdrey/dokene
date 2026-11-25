@@ -973,6 +973,51 @@ class DraftSafetyValidatorTest {
                 null, cad)).isEmpty();
     }
 
+    /**
+     * Issue 456: a second CAD code is not the hex letter that makes a run an identifier ("55cad2cad"), and a
+     * compact multiplier or hex prefix ("2x", "0x") does not hide the amount after it: the run after the prefix is
+     * judged on its own, so "0x55cad2e1" is still an identifier while "0x55cad2" is a price, as "55cad2" is.
+     */
+    @Test
+    void compactCadFormsWithARepeatedCodeOrAMultiplierPrefixAreAmounts() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
+        for (String body : List.of("Paga 55cad2cad.", "Paga 2x55cad2.", "Paga 0x55cad2.", "Paga 55CAD2CAD.",
+                "Paga 2X55cad2.", "Paga 2x55cad.", "Paga 0x10cad.", "Paga 3x10usd.", "Paga 2x55c4d2.",
+                "Paga 1cad2cad3.", "Paga 2x55cad2cad.")) {
+            Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
+                    draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding);
+            assertThat(violation).as("body | " + body).isPresent();
+            assertThat(violation.get().code()).as(body).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", body.substring(5),
+                    "body", "Hola " + body), "es-419", grounding)).as("rendered | " + body).isPresent();
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", body), "es-419"))
+                    .as("fixed | " + body).isPresent();
+            // The same spelling in the context grounds it.
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Plan " + body))
+                    .as("grounded | " + body).isEmpty();
+        }
+
+        // Identifiers keep the issue 443 reading: a non-code hex letter, an identifier length, or a UUID shape,
+        // including after a prefix.
+        for (String name : List.of("Tienda 55cad2e1", "Tienda 0x55cad2e1", "Tienda 2x55cad2e1", "Tienda 5cad2cad",
+                "Tienda 0123cad4f5cad", "Tienda 0x1a2b3c4d-4cad", "Tienda 0x1f")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
+                    "Cliente: Ana.", grounding)).as("body | " + name).isEmpty();
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", name,
+                    "body", "Hola " + name + ", gracias por tu compra."), "es-419", grounding))
+                    .as("rendered | " + name).isEmpty();
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", name), "en-US"))
+                    .as("fixed | " + name).isEmpty();
+        }
+
+        // A tenant that does not operate in CAD keeps the issue 452 reading of glued CAD-like hex runs.
+        Currency usd = Currency.getInstance("USD");
+        for (String name : List.of("Tienda 55cad2cad", "Tienda 2x55cad2", "Tienda 0x55cad2")) {
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", name), "en-US", usd))
+                    .as("usd | " + name).isEmpty();
+        }
+    }
+
     @Test
     void contextAmountsFollowedByUnitLettersStillGroundTheirDraftAmount() {
         assertThat(DraftSafetyValidator.validate(draftWith("Plan de $20 mensuales.", "es-419", List.of()),

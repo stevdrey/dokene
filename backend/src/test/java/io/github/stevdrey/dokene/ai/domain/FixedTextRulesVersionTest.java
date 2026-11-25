@@ -30,7 +30,9 @@ class FixedTextRulesVersionTest {
             // Issue 443: a currency code glued inside an alphanumeric identifier is not an amount (V43).
             2, "bd02e9949a7d0fa830f104e789bce41c88b3e0bd389f1ac8c59d2282f9950c6e",
             // Issue 452: a glued CAD-like hex token is an identifier for a tenant that does not operate in CAD (V45).
-            3, "bf9bf5df8b7bd147fbac8ce3c11dcb394b6c648e8d4d9bb9dfd817b93a292bf5");
+            3, "bf9bf5df8b7bd147fbac8ce3c11dcb394b6c648e8d4d9bb9dfd817b93a292bf5",
+            // Issue 456: a repeated CAD code or a multiplier prefix no longer hides an amount (V46).
+            4, "aaf82b8de908efaabc69f972be6e7d9c717c869c3553f50fc50b133fa8d75597");
 
     @Test
     void theRulesVersionChangesWhenTheRulesDo() throws Exception {

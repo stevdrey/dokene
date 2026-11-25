@@ -30,8 +30,9 @@ public final class DraftSafetyValidator {
      * a refresh checks it again. {@code FixedTextRulesVersionTest} pins a digest of every rule here, so a change fails
      * until this is bumped, with a migration that returns APPROVED template evidence to UNVERIFIED (as V32 does) and the
      * new digest pinned. Version 3 (issue 452) reads the tenant's operating currency, which evidence records too.
+     * Version 4 (issue 456) reads an amount after a multiplier prefix and behind a repeated CAD code (V46).
      */
-    public static final int FIXED_TEXT_RULES_VERSION = 3;
+    public static final int FIXED_TEXT_RULES_VERSION = 4;
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
@@ -139,7 +140,7 @@ public final class DraftSafetyValidator {
      * (issue 443): it is an identifier, never an amount, wherever a currency code sits in it.
      */
     private static final Pattern UUID_SHAPED_PATTERN = Pattern.compile(
-            "(?<![\\p{L}\\p{N}-])[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
+            "(?:(?<![\\p{L}\\p{N}-])|(?<=\\d[xX]))[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
                     + "(?![\\p{L}\\p{N}]|-[\\p{L}\\p{N}])");
     /** Shortest hex run read as an identifier without an exact shape (issue 443). */
     private static final int MIN_HEX_IDENTIFIER_LENGTH = 8;
@@ -151,6 +152,15 @@ public final class DraftSafetyValidator {
     private static final String HEX_CURRENCY_CODE = "CAD";
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
+    /**
+     * A compact multiplier or hex prefix ("2x", "0x") before a number (issue 456). It does not hide the
+     * quantity after it: an amount may start right after it ("2x55cad2", "0x55cad2"), and the run after it is judged
+     * on its own as an identifier ("0x55cad2e1").
+     */
+    private static final String MULTIPLIER_PREFIX = "\\d+[xX]";
+    private static final Pattern LEADING_MULTIPLIER_PREFIX_PATTERN = Pattern.compile("^" + MULTIPLIER_PREFIX);
+    /** Where a number-first amount may start: a word boundary, or right after a multiplier prefix. */
+    private static final String NUMBER_START = "(?:\\b|(?<=\\d[xX]))";
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
     private static final Pattern COMPACT_PROMOTION_PATTERN = Pattern.compile("\\d+x\\d+");
 
@@ -190,7 +200,7 @@ public final class DraftSafetyValidator {
     private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
             "(?i)(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))" + SP + NUM
-                    + "|\\b" + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?:" + NUM + ")?)"
+                    + "|" + NUMBER_START + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?:" + NUM + ")?)"
     );
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile(NUM);
@@ -709,6 +719,11 @@ public final class DraftSafetyValidator {
                 continue;
             }
             int start = runStart(text, termStart);
+            // Issue 456: a multiplier or hex prefix ("2x", "0x") is not part of the run it introduces.
+            Matcher prefix = LEADING_MULTIPLIER_PREFIX_PATTERN.matcher(text).region(start, termStart);
+            if (prefix.find()) {
+                start = prefix.end();
+            }
             int end = runEnd(text, termEnd);
             String run = text.substring(start, end);
             if (quantityPrefixAt(text, start) || !isHex(run)) {
@@ -723,8 +738,10 @@ public final class DraftSafetyValidator {
             if (run.length() < MIN_HEX_IDENTIFIER_LENGTH) {
                 continue;
             }
-            // Step 2: a common identifier length. Step 3: any longer hex run with a hex letter outside the code.
-            String outsideTerm = text.substring(start, termStart) + text.substring(termEnd, end);
+            // Step 2: a common identifier length. Step 3: any longer hex run with a hex letter outside the code, where
+            // another CAD code is no such letter ("55cad2cad" is two glued amounts, issue 456).
+            String outsideTerm = withoutHexCurrencyCodes(text.substring(start, termStart))
+                    + withoutHexCurrencyCodes(text.substring(termEnd, end));
             if (HEX_IDENTIFIER_LENGTHS.contains(run.length())
                     || outsideTerm.codePoints().anyMatch(Character::isLetter)) {
                 return true;
@@ -760,6 +777,10 @@ public final class DraftSafetyValidator {
             end = text.offsetByCodePoints(end, 1);
         }
         return end;
+    }
+
+    private static String withoutHexCurrencyCodes(String part) {
+        return part.replaceAll("(?i)" + HEX_CURRENCY_CODE, "");
     }
 
     private static boolean isHex(String run) {
