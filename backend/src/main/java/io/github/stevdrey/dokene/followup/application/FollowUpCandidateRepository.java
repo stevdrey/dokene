@@ -14,11 +14,17 @@ public interface FollowUpCandidateRepository {
      * {@code dueDate, customerId} order, using the same eligibility, cadence and tenant time zone as the due queue.
      * Runs in the caller's transaction under a trusted tenant scope. A cycle another run recorded first is skipped, so
      * concurrent runs together record each cycle once.
+     * The insert records nothing when the tenant is not active at the time of the statement.
      *
      * @return the candidates this call recorded, in due order
      */
     List<FollowUpCandidate> recordDueCandidates(TenantId tenantId, Instant evaluatedAt, int limit);
 
-    /** At most {@code limit} of the tenant's candidates in {@code dueDate, customerId} order. */
+    /**
+     * The oldest {@code limit} of the tenant's candidates in {@code dueDate, customerId} order, for diagnostics and
+     * tests. It is not paged: paging and claiming belong to the work ledger (issue 458).
+     *
+     * @throws IllegalArgumentException when {@code limit} is not positive
+     */
     List<FollowUpCandidate> findCandidates(TenantId tenantId, int limit);
 }

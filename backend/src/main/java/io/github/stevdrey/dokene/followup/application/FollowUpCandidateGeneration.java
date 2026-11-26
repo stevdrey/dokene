@@ -8,6 +8,10 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Objects;
 
+/**
+ * @param batchFull {@code true} when the scan recorded a full batch, so more due cycles may remain; {@code false} does
+ *        not prove that none remain, because a concurrent scan may have recorded some of the cycles this one skipped
+ */
 public record FollowUpCandidateGeneration(TenantId tenantId, Instant evaluatedAt, Outcome outcome,
         List<FollowUpCandidate> recorded, boolean batchFull) {
 

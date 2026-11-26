@@ -36,7 +36,8 @@ public class JdbcFollowUpCandidateRepository implements FollowUpCandidateReposit
     /**
      * The NOT EXISTS skips cycles already recorded before the LIMIT applies, so a full batch never hides newer cycles
      * behind older ones. ON CONFLICT covers a concurrent run that inserts the same cycle after this statement's snapshot:
-     * PostgreSQL makes this insert wait for that one and then skip it.
+     * PostgreSQL makes this insert wait for that one and then skip it. The tenant status is re-checked in the same
+     * statement, so a suspension committed after the generator's own check stops the insert.
      */
     @Override
     public List<FollowUpCandidate> recordDueCandidates(TenantId tenantId, Instant evaluatedAt, int limit) {
@@ -56,6 +57,9 @@ public class JdbcFollowUpCandidateRepository implements FollowUpCandidateReposit
                       WHERE existing.tenant_id = ? AND existing.customer_id = ec.customer_id
                         AND existing.due_date = ec.due_date
                   )
+                  AND EXISTS (
+                      SELECT 1 FROM dokene.tenants t WHERE t.id = ? AND t.status = 'ACTIVE'
+                  )
                 ORDER BY ec.due_date ASC, ec.customer_id ASC
                 LIMIT ?
                 ON CONFLICT (tenant_id, customer_id, due_date) DO NOTHING
@@ -64,12 +68,15 @@ public class JdbcFollowUpCandidateRepository implements FollowUpCandidateReposit
         Timestamp generatedAt = Timestamp.from(evaluatedAt);
         List<FollowUpCandidate> recorded = jdbc.query(sql, this::map, tenantId.value(),
                 evaluatedAt.atOffset(ZoneOffset.UTC), tenantId.value(), tenantId.value(), generatedAt,
-                tenantId.value(), limit);
+                tenantId.value(), tenantId.value(), limit);
         return recorded.stream().sorted(DUE_ORDER).toList();
     }
 
     @Override
     public List<FollowUpCandidate> findCandidates(TenantId tenantId, int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("Candidate limit must be positive");
+        }
         return jdbc.query("""
                 SELECT * FROM dokene.follow_up_candidates
                 WHERE tenant_id = ?

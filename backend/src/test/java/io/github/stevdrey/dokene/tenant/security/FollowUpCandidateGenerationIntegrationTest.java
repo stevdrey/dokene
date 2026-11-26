@@ -125,18 +125,19 @@ class FollowUpCandidateGenerationIntegrationTest {
     @Test
     void repeatedScansRecordEachCycleOnceAndANewCycleGetsItsOwnCandidate() throws Exception {
         Customer customer = consentedCustomer(contextA, "Cycle customer");
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
         var policy = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(3), 0));
         long versionBefore = policy.version();
 
-        FollowUpCandidateGeneration first = generate(tenantA, Instant.now());
+        FollowUpCandidateGeneration first = generate(tenantA, now);
         assertThat(first.recorded()).singleElement().satisfies(candidate -> {
             assertThat(candidate.dueDate()).isEqualTo(today.minusDays(3));
             assertThat(candidate.timingSource()).isEqualTo(FollowUpTimingSource.EXPLICIT_DATE);
             assertThat(candidate.policyVersion()).isEqualTo(versionBefore);
         });
         for (int scan = 0; scan < 3; scan++) {
-            assertThat(generate(tenantA, Instant.now()).recorded()).isEmpty();
+            assertThat(generate(tenantA, now).recorded()).isEmpty();
         }
         // Generation neither advances the cadence nor changes the policy, and the customer stays in the due queue.
         var unchanged = inContext(contextA, () -> followUps.customerPolicy(customer.id()));
@@ -148,7 +149,7 @@ class FollowUpCandidateGenerationIntegrationTest {
                 .isZero();
 
         inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, versionBefore));
-        assertThat(generate(tenantA, Instant.now()).recorded()).singleElement()
+        assertThat(generate(tenantA, now).recorded()).singleElement()
                 .satisfies(candidate -> assertThat(candidate.dueDate()).isEqualTo(today));
         assertThat(stored(tenantA)).extracting(FollowUpCandidate::dueDate)
                 .containsExactly(today.minusDays(3), today);
@@ -157,20 +158,22 @@ class FollowUpCandidateGenerationIntegrationTest {
     @Test
     void aSnoozeDefersTheCycleWithoutStartingANewOne() throws Exception {
         Customer customer = consentedCustomer(contextA, "Snoozed customer");
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
         var policy = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(1), 0));
         inContext(contextA, () -> followUps.snooze(customer.id(), today.plusDays(1), policy.version()));
 
-        assertThat(generate(tenantA, Instant.now()).recorded()).isEmpty();
-        assertThat(generate(tenantA, Instant.now().plus(Duration.ofDays(1))).recorded()).isEmpty();
-        FollowUpCandidateGeneration afterSnooze = generate(tenantA, Instant.now().plus(Duration.ofDays(2)));
+        assertThat(generate(tenantA, now).recorded()).isEmpty();
+        assertThat(generate(tenantA, now.plus(Duration.ofDays(1))).recorded()).isEmpty();
+        FollowUpCandidateGeneration afterSnooze = generate(tenantA, now.plus(Duration.ofDays(2)));
         assertThat(afterSnooze.recorded()).singleElement()
                 .satisfies(candidate -> assertThat(candidate.dueDate()).isEqualTo(today.minusDays(1)));
     }
 
     @Test
     void skipsArchivedDoNotContactUnconsentedAndNotYetDueCustomers() throws Exception {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
         Customer due = consentedCustomer(contextA, "Due customer");
         Customer unconsented = customer(contextA, "Unconsented customer");
         Customer doNotContact = consentedCustomer(contextA, "Do-not-contact customer");
@@ -189,13 +192,14 @@ class FollowUpCandidateGenerationIntegrationTest {
             return null;
         });
 
-        assertThat(generate(tenantA, Instant.now()).recorded()).extracting(FollowUpCandidate::customerId)
+        assertThat(generate(tenantA, now).recorded()).extracting(FollowUpCandidate::customerId)
                 .containsExactly(due.id());
     }
 
     @Test
     void aFullBatchLeavesTheRestForTheNextScanInDueOrder() throws Exception {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
         List<CustomerId> expected = new ArrayList<>();
         for (int days = 3; days >= 1; days--) {
             Customer customer = consentedCustomer(contextA, "Batch customer " + days);
@@ -203,7 +207,7 @@ class FollowUpCandidateGenerationIntegrationTest {
             inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(offset), 0));
             expected.add(customer.id());
         }
-        FollowUpCandidateGenerator generator = generator(Instant.now(), 2);
+        FollowUpCandidateGenerator generator = generator(now, 2);
 
         FollowUpCandidateGeneration first = generator.generate(tenantA.id());
         assertThat(first.batchFull()).isTrue();
@@ -217,12 +221,13 @@ class FollowUpCandidateGenerationIntegrationTest {
 
     @Test
     void concurrentScansTogetherRecordEachCycleOnce() throws Exception {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
         for (int index = 0; index < 3; index++) {
             Customer customer = consentedCustomer(contextA, "Concurrent customer " + index);
             inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, 0));
         }
-        FollowUpCandidateGenerator generator = generator(Instant.now(), 100);
+        FollowUpCandidateGenerator generator = generator(now, 100);
         CountDownLatch start = new CountDownLatch(1);
         List<Callable<Integer>> scans = new ArrayList<>();
         for (int index = 0; index < 6; index++) {
@@ -246,9 +251,9 @@ class FollowUpCandidateGenerationIntegrationTest {
     @Test
     void aScanWaitsForAnUncommittedInsertOfTheSameCycleAndThenSkipsIt() throws Exception {
         Customer customer = consentedCustomer(contextA, "Racing customer");
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
-        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, 0));
         Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
+        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, 0));
         CountDownLatch inserted = new CountDownLatch(1);
         CountDownLatch release = new CountDownLatch(1);
         TransactionTemplate transaction = new TransactionTemplate(transactionManager);
@@ -275,19 +280,20 @@ class FollowUpCandidateGenerationIntegrationTest {
 
     @Test
     void scansAndReadsStayInsideTheirTenant() throws Exception {
-        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
         Customer customerA = consentedCustomer(contextA, "Tenant A customer");
         Customer customerB = consentedCustomer(contextB, "Tenant B customer");
         inContext(contextA, () -> followUps.configureCustomer(customerA.id(), 7, today, 0));
         inContext(contextB, () -> followUps.configureCustomer(customerB.id(), 7, today, 0));
 
-        assertThat(generate(tenantA, Instant.now()).recorded()).extracting(FollowUpCandidate::customerId)
+        assertThat(generate(tenantA, now).recorded()).extracting(FollowUpCandidate::customerId)
                 .containsExactly(customerA.id());
         assertThat(stored(tenantB)).isEmpty();
         // Under tenant B's scope, RLS hides tenant A's rows even when tenant A's id is asked for.
         assertThat(contexts.callWithTenantId(tenantB.id(), () -> candidates.findCandidates(tenantA.id(), 10)))
                 .isEmpty();
-        assertThat(generate(tenantB, Instant.now()).recorded()).extracting(FollowUpCandidate::customerId)
+        assertThat(generate(tenantB, now).recorded()).extracting(FollowUpCandidate::customerId)
                 .containsExactly(customerB.id());
         assertThat(stored(tenantA)).extracting(FollowUpCandidate::customerId).containsExactly(customerA.id());
 
@@ -306,6 +312,29 @@ class FollowUpCandidateGenerationIntegrationTest {
         assertThatThrownBy(() -> contexts.callWithTenantId(tenantA.id(), () -> jdbc.update(
                 "UPDATE dokene.follow_up_candidates SET due_date = due_date WHERE tenant_id = ?",
                 tenantA.id().value()))).isInstanceOf(RuntimeException.class);
+    }
+
+    @Test
+    void recordsNothingForATenantThatIsNoLongerActive() throws Exception {
+        Instant now = Instant.now();
+        LocalDate today = LocalDate.ofInstant(now, ZoneOffset.UTC);
+        Customer customer = consentedCustomer(contextA, "Suspended tenant customer");
+        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, 0));
+        try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection()) {
+            TenantSecurityIntegrationFixture.executeUpdate(connection,
+                    "UPDATE dokene.tenants SET status = 'SUSPENDED' WHERE id = ?", tenantA.id().value());
+        }
+
+        // The insert re-checks the tenant itself, so a suspension after the generator's check still stops it.
+        List<FollowUpCandidate> recorded = contexts.callWithTenantId(tenantA.id(),
+                () -> new TransactionTemplate(transactionManager)
+                        .execute(status -> candidates.recordDueCandidates(tenantA.id(), now, 100)));
+        assertThat(recorded).isEmpty();
+        assertThat(generate(tenantA, now).outcome()).isEqualTo(FollowUpCandidateGeneration.Outcome.TENANT_INACTIVE);
+        assertThat(stored(tenantA)).isEmpty();
+        assertThatThrownBy(() -> contexts.callWithTenantId(tenantA.id(),
+                () -> candidates.findCandidates(tenantA.id(), 0)))
+                .hasRootCauseInstanceOf(IllegalArgumentException.class);
     }
 
     private FollowUpCandidateGeneration generate(Tenant tenant, String instant) {
