@@ -110,3 +110,7 @@ If `snoozed_until >= today` exists, it takes precedence as `dueDate` with status
 ## Amended by ADR 0023
 
 [ADR 0023](0023-phase-3-outbound-messaging-contracts.md) adds `last_outbound_message_date` (set when an outbound message reaches `SENT`) to the anchor precedence list, so a sent follow-up message advances the cadence cycle like a dismissal or manual completion.
+
+## Extended by ADR 0036
+
+[ADR 0036](0036-deterministic-recurring-follow-up-candidates.md) records recurring follow-up candidates from the same due queue derivation, one per tenant, customer and due date. The queue itself is unchanged.

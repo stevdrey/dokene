@@ -115,14 +115,15 @@ class TenantPersistenceIntegrationTest {
 
     @Test
     void migratesTheTenantFoundationWithLeastPrivilegeRuntimeAccess() {
-        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("46");
+        assertThat(flyway.info().current().getVersion().getVersion()).isEqualTo("47");
         assertThat(jdbcTemplate.queryForList(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'dokene' ORDER BY tablename",
                 String.class
         )).containsExactly("ai_token_usage", "audit_events", "customer_consent_history", "customer_contact_consents",
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
-                "flyway_schema_history", "follow_up_dismissals", "manual_follow_up_completions", "oidc_identity_mappings",
+                "flyway_schema_history", "follow_up_candidates", "follow_up_dismissals", "manual_follow_up_completions",
+                "oidc_identity_mappings",
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
                 "outbound_message_idempotency_keys", "outbound_message_resolutions", "outbound_messages",
                 "outbound_send_attempts",
@@ -137,7 +138,7 @@ class TenantPersistenceIntegrationTest {
                 "customer_do_not_contact", "customer_do_not_contact_history", "customer_follow_up_policies",
                 "customer_phone_contacts", "customers",
                 // Read-only since V34 (issue 308): the backend validates the schema history at startup.
-                "flyway_schema_history", "follow_up_dismissals", "manual_follow_up_completions",
+                "flyway_schema_history", "follow_up_candidates", "follow_up_dismissals", "manual_follow_up_completions",
                 "outbound_message_approvals", "outbound_message_cancellations", "outbound_message_events",
                 "outbound_message_idempotency_keys", "outbound_message_resolutions", "outbound_messages",
                 "outbound_send_attempts",
@@ -149,6 +150,7 @@ class TenantPersistenceIntegrationTest {
         assertThat(tableOwner("customer_do_not_contact")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_do_not_contact_history")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customer_follow_up_policies")).isEqualTo(MIGRATION_ROLE);
+        assertThat(tableOwner("follow_up_candidates")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("follow_up_dismissals")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("manual_follow_up_completions")).isEqualTo(MIGRATION_ROLE);
         assertThat(tableOwner("customers")).isEqualTo(MIGRATION_ROLE);
