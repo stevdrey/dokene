@@ -30,13 +30,30 @@ public final class DraftSafetyValidator {
      * a refresh checks it again. {@code FixedTextRulesVersionTest} pins a digest of every rule here, so a change fails
      * until this is bumped, with a migration that returns APPROVED template evidence to UNVERIFIED (as V32 does) and the
      * new digest pinned. Version 3 (issue 452) reads the tenant's operating currency, which evidence records too.
+     * Version 4 (issue 456) reads an amount after a multiplier prefix and behind a repeated CAD code (V46).
      */
-    public static final int FIXED_TEXT_RULES_VERSION = 3;
+    public static final int FIXED_TEXT_RULES_VERSION = 4;
 
     /** Full localized number: dot/comma decimals or groups, or space/NBSP/narrow-NBSP thousands groups. */
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
     private static final String SP = "[\\s\\u00a0\\u2007\\u202f\\u2009]*";
     private static final String NUM = "\\d+(?:[.,]\\d+|[ \\u00a0\\u202f]\\d{3})*(?!\\d)";
+    /**
+     * A compact multiplier or hex prefix ("2x", "0x") before a number (issue 456). It does not hide the
+     * quantity after it: an amount may start right after it ("2x55cad2", "0x55cad2"), and the run after it is judged
+     * on its own as an identifier ("0x55cad2e1").
+     */
+    private static final String MULTIPLIER_PREFIX = "\\d{1,9}[xX]";
+    private static final Pattern LEADING_MULTIPLIER_PREFIX_PATTERN = Pattern.compile("^" + MULTIPLIER_PREFIX);
+    /**
+     * Right after a multiplier prefix that starts its token: "deadbeef0x55cad2" has none, so its run is judged whole.
+     * Bounded, as Java requires in a lookbehind.
+     */
+    private static final String AFTER_MULTIPLIER_PREFIX = "(?<=(?<![\\p{L}\\p{N}])" + MULTIPLIER_PREFIX + ")";
+    /** Opens a grounding key that carries a multiplier prefix ({@code groundingKey}); no text key starts with it. */
+    private static final String PREFIXED_KEY_MARK = "\u27ea";
+    /** Where a number-first quantity may start: a word boundary, or right after a multiplier prefix. */
+    private static final String NUMBER_START = "(?:\\b|" + AFTER_MULTIPLIER_PREFIX + ")";
     private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad|jpy|cny|krw|inr";
     /** Currency symbols recognised after NFKC folding (fullwidth forms such as {@code ＄} and {@code ￥} fold to these). */
     private static final String CURRENCY_SYMBOLS = "$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢";
@@ -122,7 +139,7 @@ public final class DraftSafetyValidator {
     private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
             "(?<=\\d)((?:\\s+" + QUALIFIER_WORD + "){1,2}?)\\s+((?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     private static final Pattern QUALIFIED_AMOUNT_PATTERN = Pattern.compile(
-            "(?i)\\b" + NUM + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}) ⟦[^⟧]+⟧");
+            "(?i)" + NUMBER_START + NUM + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}) ⟦[^⟧]+⟧");
     /** A minus sign directly before an amount or percentage ("-5 dollars", "negative five dollars" once rewritten). */
     private static final Pattern SIGNED_QUANTITY_PATTERN = Pattern.compile(
             "(?i)(?<![\\p{L}\\p{N}])[-−]" + NUM + SP + "(?:%|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))");
@@ -139,7 +156,7 @@ public final class DraftSafetyValidator {
      * (issue 443): it is an identifier, never an amount, wherever a currency code sits in it.
      */
     private static final Pattern UUID_SHAPED_PATTERN = Pattern.compile(
-            "(?<![\\p{L}\\p{N}-])[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
+            "(?:(?<![\\p{L}\\p{N}-])|" + AFTER_MULTIPLIER_PREFIX + ")[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
                     + "(?![\\p{L}\\p{N}]|-[\\p{L}\\p{N}])");
     /** Shortest hex run read as an identifier without an exact shape (issue 443). */
     private static final int MIN_HEX_IDENTIFIER_LENGTH = 8;
@@ -187,10 +204,10 @@ public final class DraftSafetyValidator {
                     + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS + ")*"
                     + "(?![\\p{L}\\p{N}])");
 
-    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
+    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)" + NUMBER_START + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
             "(?i)(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))" + SP + NUM
-                    + "|\\b" + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?:" + NUM + ")?)"
+                    + "|" + NUMBER_START + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?:" + NUM + ")?)"
     );
 
     private static final Pattern NUMBER_PATTERN = Pattern.compile(NUM);
@@ -465,8 +482,9 @@ public final class DraftSafetyValidator {
         List<String> contextViews = withLeetViews(maskUuidShapedSpans(normalizedContext));
         for (String contextView : contextViews) {
             // A signed context amount grounds only the same signed amount, never its unsigned magnitude.
-            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView, cadRuledOut));
-            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView, cadRuledOut));
+            // Percentages keep their bare key: a context "2x15%" grounds "15%" (accepted, issue 456).
+            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView, cadRuledOut, false));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView, cadRuledOut, true));
             contextQualified.addAll(extractTokens(QUALIFIED_AMOUNT_PATTERN, contextView));
             contextSigned.addAll(extractTokens(SIGNED_QUANTITY_PATTERN, contextView));
             for (Pattern priceTerm : vocabulary.priceTerms()) {
@@ -479,9 +497,13 @@ public final class DraftSafetyValidator {
         // The identifier check must see the context's separators as the draft does: normalizing drops a space-group
         // separator ("2 550cad2e1" -> "2550cad2e1"), which would read the amount the draft keeps as an identifier.
         for (String rawView : withLeetViews(maskUuidShapedSpans(offerContextLower))) {
-            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView, cadRuledOut));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView, cadRuledOut, true));
         }
         for (String amountToken : contextAmounts) {
+            // A prefixed amount ("2x10cad") grounds only the same spelling, never a bare price-term number.
+            if (amountToken.startsWith(PREFIXED_KEY_MARK)) {
+                continue;
+            }
             Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
             if (numberMatcher.find()) {
                 contextNumbers.add(normalizeQuantities(numberMatcher.group()));
@@ -503,7 +525,7 @@ public final class DraftSafetyValidator {
                     .entrySet()) {
                 Matcher draftExact = exact.getKey().matcher(view);
                 while (draftExact.find()) {
-                    if (!exact.getValue().contains(quantityKey(draftExact.group()))) {
+                    if (!exact.getValue().contains(groundingKey(view, draftExact))) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                                 "Draft contains a qualified or signed amount not grounded in context: '"
                                         + draftExact.group().trim() + "'"));
@@ -515,7 +537,7 @@ public final class DraftSafetyValidator {
                 if (signedAt(view, draftAmtMatcher.start()) || insideIdentifier(view, draftAmtMatcher, cadRuledOut)) {
                     continue;
                 }
-                if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
+                if (!contextAmounts.contains(groundingKey(view, draftAmtMatcher))
                         && !isGroundedIdentifier(view, draftAmtMatcher, contextViews)) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                             "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
@@ -609,8 +631,11 @@ public final class DraftSafetyValidator {
         return Optional.empty();
     }
 
-    /** The tokens of {@code pattern} not preceded by a sign ({@link #signedAt}), which are matched with it instead. */
-    private static Set<String> unsignedTokens(Pattern pattern, String text, boolean cadRuledOut) {
+    /**
+     * The tokens of {@code pattern} not preceded by a sign ({@link #signedAt}), which are matched with it instead. With
+     * {@code keepPrefix} each is keyed with the multiplier prefix it follows ({@link #groundingKey}).
+     */
+    private static Set<String> unsignedTokens(Pattern pattern, String text, boolean cadRuledOut, boolean keepPrefix) {
         if (text == null || text.isBlank()) {
             return Set.of();
         }
@@ -619,10 +644,98 @@ public final class DraftSafetyValidator {
         while (matcher.find()) {
             if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start())
                     && !insideIdentifier(text, matcher, cadRuledOut)) {
-                tokens.add(quantityKey(matcher.group()));
+                tokens.add(keepPrefix ? groundingKey(text, matcher) : quantityKey(matcher.group()));
             }
         }
         return tokens;
+    }
+
+    /**
+     * Issue 456: the key a quantity is grounded by. A number-first quantity after a multiplier prefix keeps the prefix
+     * and any sign or separator before it ("-2x10cad"), so it grounds and is grounded only by the same spelling:
+     * "-2x10cad" is not "10cad", and "2x55cad2" is not "3x55cad2" or "55cad2".
+     */
+    private static String groundingKey(String text, Matcher quantity) {
+        String prefix = multiplierPrefixBefore(text, quantity.start());
+        return prefix.isEmpty() ? quantityKey(quantity.group()) : PREFIXED_KEY_MARK + prefix + quantityKey(quantity.group());
+    }
+
+    /** The multiplier prefix that starts its token right before a number at {@code start}, with its sign, or "". */
+    private static String multiplierPrefixBefore(String text, int start) {
+        if (start < 2 || start >= text.length() || !isAsciiDigit(text.charAt(start))
+                || Character.toLowerCase(text.charAt(start - 1)) != 'x') {
+            return "";
+        }
+        int prefixStart = start - 1;
+        while (prefixStart > 0 && isAsciiDigit(text.charAt(prefixStart - 1))) {
+            prefixStart--;
+        }
+        int digits = start - 1 - prefixStart;
+        if (digits < 1 || digits > 9
+                || prefixStart > 0 && Character.isLetterOrDigit(text.codePointBefore(prefixStart))) {
+            return "";
+        }
+        // The whole multiplier is kept, so "1.2x" is not "7.2x" or ".2x", and a space-grouped one ("1 234x") is not
+        // cut at its group separator, which normalizeQuantities drops: the raw and normalized context agree.
+        while (prefixStart > 0) {
+            if (isAsciiDigit(text.charAt(prefixStart - 1))
+                    || MULTIPLIER_SEPARATORS.indexOf(text.charAt(prefixStart - 1)) >= 0) {
+                prefixStart--;
+            } else {
+                int groupRun = groupSeparatorRunBefore(text, prefixStart);
+                if (groupRun < 0) {
+                    break;
+                }
+                prefixStart = groupRun;
+            }
+        }
+        // Letters or digits glued before the multiplier stay in the key ("v1.5x10cad" is not "1.5x10cad").
+        if (prefixStart > 0 && Character.isLetterOrDigit(text.codePointBefore(prefixStart))) {
+            prefixStart = runStart(text, prefixStart);
+        }
+        // Group separators are dropped from the key, as normalizeQuantities does: "1 234x10cad" is "1234x10cad".
+        StringBuilder spelled = new StringBuilder(start - prefixStart);
+        text.substring(prefixStart, start).chars().filter(c -> !isQuantitySpace((char) c))
+                .forEach(c -> spelled.append((char) c));
+        String prefix = spelled.toString().toLowerCase(Locale.ROOT);
+        if (!quantityPrefixAt(text, prefixStart)) {
+            return prefix;
+        }
+        int signAt = prefixStart - 1;
+        while (signAt > 0 && (Character.isWhitespace(text.charAt(signAt)) || Character.isSpaceChar(text.charAt(signAt)))) {
+            signAt--;
+        }
+        return text.charAt(signAt) + prefix;
+    }
+
+    /**
+     * The start of the whitespace run that ends at {@code end} when normalizeQuantities drops it as a thousands-group
+     * separator (a digit before it and three digits after it, "1 234"), or -1. Unrelated numbers ("12 34x") are not
+     * joined.
+     */
+    private static int groupSeparatorRunBefore(String text, int end) {
+        if (end + 3 > text.length() || !isAsciiDigit(text.charAt(end)) || !isAsciiDigit(text.charAt(end + 1))
+                || !isAsciiDigit(text.charAt(end + 2))) {
+            return -1;
+        }
+        int runStart = end;
+        while (runStart > 0 && isQuantitySpace(text.charAt(runStart - 1))) {
+            runStart--;
+        }
+        return runStart < end && runStart > 0 && isAsciiDigit(text.charAt(runStart - 1)) ? runStart : -1;
+    }
+
+    /** The whitespace normalizeQuantities collapses before joining digit groups. */
+    private static boolean isQuantitySpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\013' || c == '\f' || c == '\r' || c == '\u00a0'
+                || c == '\u2007' || c == '\u202f' || c == '\u2009';
+    }
+
+    /** Decimal and group separators that may sit inside a multiplier ("1.5x", "1,5x"), as {@link #quantityPrefixAt}. */
+    private static final String MULTIPLIER_SEPARATORS = ".,'\u2019\u00b7\u066b\u066c";
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     /** A digit-first quantity at {@code start} with a minus sign right before it, as {@code SIGNED_QUANTITY_PATTERN}. */
@@ -645,7 +758,7 @@ public final class DraftSafetyValidator {
             if (runsIntoLetter(text, matcher)) {
                 continue;
             }
-            tokens.add(quantityKey(matcher.group()));
+            tokens.add(groundingKey(text, matcher));
         }
         return tokens;
     }
@@ -709,6 +822,15 @@ public final class DraftSafetyValidator {
                 continue;
             }
             int start = runStart(text, termStart);
+            // Issue 456: a sign or separator before a multiplier prefix keeps the amount ("+2x55cad2e1").
+            if (quantityPrefixAt(text, start)) {
+                continue;
+            }
+            // Issue 456: a multiplier or hex prefix ("2x", "0x") is not part of the run it introduces.
+            Matcher prefix = LEADING_MULTIPLIER_PREFIX_PATTERN.matcher(text).region(start, termStart);
+            if (prefix.find()) {
+                start = prefix.end();
+            }
             int end = runEnd(text, termEnd);
             String run = text.substring(start, end);
             if (quantityPrefixAt(text, start) || !isHex(run)) {
@@ -723,8 +845,10 @@ public final class DraftSafetyValidator {
             if (run.length() < MIN_HEX_IDENTIFIER_LENGTH) {
                 continue;
             }
-            // Step 2: a common identifier length. Step 3: any longer hex run with a hex letter outside the code.
-            String outsideTerm = text.substring(start, termStart) + text.substring(termEnd, end);
+            // Step 2: a common identifier length. Step 3: any longer hex run with a hex letter outside the code, where
+            // another CAD code is no such letter ("55cad2cad" is two glued amounts, issue 456).
+            String outsideTerm = withoutHexCurrencyCodes(text.substring(start, termStart))
+                    + withoutHexCurrencyCodes(text.substring(termEnd, end));
             if (HEX_IDENTIFIER_LENGTHS.contains(run.length())
                     || outsideTerm.codePoints().anyMatch(Character::isLetter)) {
                 return true;
@@ -739,7 +863,9 @@ public final class DraftSafetyValidator {
      * as written ({@link #quantityPrefixAt}). The length is kept, so match positions stay comparable.
      */
     private static String maskUuidShapedSpans(String text) {
+        // A sign before a multiplier prefix ("-0x1a2b3c4d-4cad") signs the run it starts (issue 456).
         return UUID_SHAPED_PATTERN.matcher(text).replaceAll(match -> quantityPrefixAt(text, match.start())
+                || quantityPrefixAt(text, runStart(text, match.start()))
                 ? Matcher.quoteReplacement(match.group())
                 : match.group().replaceAll("[0-9a-f]", "x"));
     }
@@ -760,6 +886,10 @@ public final class DraftSafetyValidator {
             end = text.offsetByCodePoints(end, 1);
         }
         return end;
+    }
+
+    private static String withoutHexCurrencyCodes(String part) {
+        return part.replaceAll("(?i)" + HEX_CURRENCY_CODE, "");
     }
 
     private static boolean isHex(String run) {

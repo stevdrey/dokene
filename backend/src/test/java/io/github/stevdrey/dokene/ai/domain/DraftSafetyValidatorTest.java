@@ -973,6 +973,122 @@ class DraftSafetyValidatorTest {
                 null, cad)).isEmpty();
     }
 
+    /**
+     * Issue 456: a second CAD code is not the hex letter that makes a run an identifier ("55cad2cad"), and a
+     * compact multiplier or hex prefix ("2x", "0x") does not hide the amount after it: the run after the prefix is
+     * judged on its own, so "0x55cad2e1" is still an identifier while "0x55cad2" is a price, as "55cad2" is.
+     */
+    @Test
+    void compactCadFormsWithARepeatedCodeOrAMultiplierPrefixAreAmounts() {
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
+        for (String body : List.of("Paga 55cad2cad.", "Paga 2x55cad2.", "Paga 0x55cad2.", "Paga 55CAD2CAD.",
+                "Paga 2X55cad2.", "Paga 2x55cad.", "Paga 0x10cad.", "Paga 3x10usd.", "Paga 2x55c4d2.",
+                "Paga 1cad2cad3.", "Paga 2x55cad2cad.",
+                // A sign before the prefix keeps the amount, and a prefixed run of no identifier shape stays one.
+                "Paga +2x55cad2e1.", "Paga -0x1a2b3c4d-4cad.", "Paga 0x1234cad5678.")) {
+            Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
+                    draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding);
+            assertThat(violation).as("body | " + body).isPresent();
+            assertThat(violation.get().code()).as(body).isEqualTo(DraftSafetyViolation.HALLUCINATED_PRICE);
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", body.substring(5),
+                    "body", "Hola " + body), "es-419", grounding)).as("rendered | " + body).isPresent();
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", body), "es-419"))
+                    .as("fixed | " + body).isPresent();
+            // The same spelling in the context grounds it.
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), "Plan " + body))
+                    .as("grounded | " + body).isEmpty();
+        }
+
+        // Identifiers keep the issue 443 reading: a non-code hex letter, an identifier length, or a UUID shape,
+        // including after a prefix.
+        for (String name : List.of("Tienda 55cad2e1", "Tienda 0x55cad2e1", "Tienda 2x55cad2e1", "Tienda 5cad2cad",
+                "Tienda 0123cad4f5cad", "Tienda 0x1a2b3c4d-4cad", "Tienda 0x1f",
+                // A prefix inside a token is no prefix.
+                "Tienda a2x55cad2e1")) {
+            assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
+                    "Cliente: Ana.", grounding)).as("body | " + name).isEmpty();
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", name,
+                    "body", "Hola " + name + ", gracias por tu compra."), "es-419", grounding))
+                    .as("rendered | " + name).isEmpty();
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", name), "en-US"))
+                    .as("fixed | " + name).isEmpty();
+        }
+
+        // A tenant that does not operate in CAD keeps the issue 452 reading of glued CAD-like hex runs.
+        Currency usd = Currency.getInstance("USD");
+        for (String name : List.of("Tienda 55cad2cad", "Tienda 2x55cad2", "Tienda 0x55cad2",
+                "Tienda deadbeef0x55cad2")) {
+            assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", name), "en-US", usd))
+                    .as("usd | " + name).isEmpty();
+        }
+
+        // Percentages and qualified amounts after a prefix are read too: the qualifier must still match.
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 2x15%.", "es-419", List.of()), "Cliente: Ana.",
+                grounding)).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Pay 2x10 Australian dollars.", "en-US", List.of()),
+                "Plan 2x10 Canadian dollars")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Pay 2x10 Australian dollars.", "en-US", List.of()),
+                "Plan 2x10 Australian dollars")).isEmpty();
+        // Leetspeak spellings made only of hex characters are still folded ("0ff" is "off", "c057" is "cost").
+        for (String body : List.of("Get 10% 0ff today.", "It c057 25 now.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), "Plan 10%"))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("El c0570 es 25.", "es-419", List.of()), "Cliente: Ana."))
+                .isPresent();
+    }
+
+    /**
+     * Issue 456 review: an amount after a multiplier prefix is grounded only by the same spelling, sign and prefix
+     * included, so a sign change, another multiplier or a dropped prefix is not grounded by it.
+     */
+    @Test
+    void prefixedAmountsAreGroundedOnlyByTheSameSpelling() {
+        record Probe(String purchase, String amount, boolean grounded) { }
+        for (Probe probe : List.of(new Probe("Plan -2x10cad", "10cad", false),
+                new Probe("Plan 10cad", "-2x10cad", false), new Probe("Plan 2x55cad2", "3x55cad2", false),
+                new Probe("Plan 0x55cad2", "55cad2", false), new Probe("Plan 55cad2", "0x55cad2", false),
+                new Probe("Plan 2x10 Australian dollars", "-2x10 Australian dollars", false),
+                new Probe("Plan 2x55cad2", "2x55cad2", true), new Probe("Plan -2x10cad", "-2x10cad", true),
+                new Probe("Plan 10cad", "10cad", true),
+                // A decimal or grouped multiplier is keyed whole.
+                new Probe("Plan 1.5x10cad", "9.5x10cad", false), new Probe("Plan 1.2x10cad", ".2x10cad", false),
+                new Probe("Plan 11.2x55cad2", "101.2x55cad2", false), new Probe("Plan 1,5x10 cad", "2,5x10 cad", false),
+                new Probe("Plan 1.5x10cad", "1.5x10cad", true), new Probe("Plan v1.5x10cad", "1.5x10cad", false),
+                // A space-grouped multiplier is keyed whole, sign included, in the raw and normalized context alike;
+                // its group separator is dropped as for amounts, so "1 234x" is "1234x".
+                new Probe("Plan 1 234x10cad", "234x10cad", false),
+                new Probe("Plan 1\u00a0234x10cad", "234x10cad", false),
+                new Probe("Plan 1\u202f234x10cad", "234x10cad", false),
+                new Probe("Plan -1 234x10cad", "234x10cad", false),
+                new Probe("Plan -1 234x10cad", "1 234x10cad", false),
+                new Probe("Plan 1 234x10cad", "1 234x10cad", true), new Probe("Plan -1 234x10cad", "-1 234x10cad", true),
+                new Probe("Plan 1\u00a0234x10cad", "1\u00a0234x10cad", true),
+                new Probe("Plan 1 234x10cad", "1234x10cad", true), new Probe("Plan 1234x10cad", "1 234x10cad", true),
+                // A space before fewer than three digits is no group separator: the numbers stay apart.
+                new Probe("Plan 12 34x10cad", "34x10cad", true), new Probe("Plan 12 34x10cad", "1234x10cad", false))) {
+            var grounding = new DraftGroundingContext("Ana", null, List.of(probe.purchase()), List.of(), "DUE",
+                    "2026-09-29");
+            String body = "Paga " + probe.amount() + " hoy.";
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), probe.purchase(), grounding)
+                    .isEmpty()).as("draft | %s | %s", probe.purchase(), body).isEqualTo(probe.grounded());
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("body", body), "es-419", grounding)
+                    .isEmpty()).as("rendered | %s | %s", probe.purchase(), body).isEqualTo(probe.grounded());
+        }
+        // A prefixed context amount grounds no bare price-term number, and fixed text grounds nothing.
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Plan 2x10cad"), List.of(), "DUE",
+                "2026-09-29");
+        assertThat(DraftSafetyValidator.validate(draftWith("El precio es 10.", "es-419", List.of()), "Plan 2x10cad",
+                grounding)).isPresent();
+        for (String purchase : List.of("Plan 1.5x10cad", "Plan -1.5x10cad", "Plan 1,5x10 cad", "Plan 1.2x10usd")) {
+            var decimal = new DraftGroundingContext("Ana", null, List.of(purchase), List.of(), "DUE", "2026-09-29");
+            String multiplier = purchase.substring(5, purchase.indexOf('x')).replace("-", "");
+            assertThat(DraftSafetyValidator.validate(draftWith("Cuesta " + multiplier + ".", "es-419", List.of()),
+                    purchase, decimal)).as(purchase).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", "Paga 2x10cad."), "es-419")).isPresent();
+    }
+
     @Test
     void contextAmountsFollowedByUnitLettersStillGroundTheirDraftAmount() {
         assertThat(DraftSafetyValidator.validate(draftWith("Plan de $20 mensuales.", "es-419", List.of()),
