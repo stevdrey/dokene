@@ -675,16 +675,29 @@ public final class DraftSafetyValidator {
                 || prefixStart > 0 && Character.isLetterOrDigit(text.codePointBefore(prefixStart))) {
             return "";
         }
-        // The whole multiplier is kept, so "1.2x" is not "7.2x" or ".2x".
-        while (prefixStart > 0 && (isAsciiDigit(text.charAt(prefixStart - 1))
-                || MULTIPLIER_SEPARATORS.indexOf(text.charAt(prefixStart - 1)) >= 0)) {
-            prefixStart--;
+        // The whole multiplier is kept, so "1.2x" is not "7.2x" or ".2x", and a space-grouped one ("1 234x") is not
+        // cut at its group separator, which normalizeQuantities drops: the raw and normalized context agree.
+        while (prefixStart > 0) {
+            if (isAsciiDigit(text.charAt(prefixStart - 1))
+                    || MULTIPLIER_SEPARATORS.indexOf(text.charAt(prefixStart - 1)) >= 0) {
+                prefixStart--;
+            } else {
+                int groupRun = groupSeparatorRunBefore(text, prefixStart);
+                if (groupRun < 0) {
+                    break;
+                }
+                prefixStart = groupRun;
+            }
         }
         // Letters or digits glued before the multiplier stay in the key ("v1.5x10cad" is not "1.5x10cad").
         if (prefixStart > 0 && Character.isLetterOrDigit(text.codePointBefore(prefixStart))) {
             prefixStart = runStart(text, prefixStart);
         }
-        String prefix = text.substring(prefixStart, start).toLowerCase(Locale.ROOT);
+        // Group separators are dropped from the key, as normalizeQuantities does: "1 234x10cad" is "1234x10cad".
+        StringBuilder spelled = new StringBuilder(start - prefixStart);
+        text.substring(prefixStart, start).chars().filter(c -> !isQuantitySpace((char) c))
+                .forEach(c -> spelled.append((char) c));
+        String prefix = spelled.toString().toLowerCase(Locale.ROOT);
         if (!quantityPrefixAt(text, prefixStart)) {
             return prefix;
         }
@@ -693,6 +706,29 @@ public final class DraftSafetyValidator {
             signAt--;
         }
         return text.charAt(signAt) + prefix;
+    }
+
+    /**
+     * The start of the whitespace run that ends at {@code end} when normalizeQuantities drops it as a thousands-group
+     * separator (a digit before it and three digits after it, "1 234"), or -1. Unrelated numbers ("12 34x") are not
+     * joined.
+     */
+    private static int groupSeparatorRunBefore(String text, int end) {
+        if (end + 3 > text.length() || !isAsciiDigit(text.charAt(end)) || !isAsciiDigit(text.charAt(end + 1))
+                || !isAsciiDigit(text.charAt(end + 2))) {
+            return -1;
+        }
+        int runStart = end;
+        while (runStart > 0 && isQuantitySpace(text.charAt(runStart - 1))) {
+            runStart--;
+        }
+        return runStart < end && runStart > 0 && isAsciiDigit(text.charAt(runStart - 1)) ? runStart : -1;
+    }
+
+    /** The whitespace normalizeQuantities collapses before joining digit groups. */
+    private static boolean isQuantitySpace(char c) {
+        return c == ' ' || c == '\t' || c == '\n' || c == '\013' || c == '\f' || c == '\r' || c == '\u00a0'
+                || c == '\u2007' || c == '\u202f' || c == '\u2009';
     }
 
     /** Decimal and group separators that may sit inside a multiplier ("1.5x", "1,5x"), as {@link #quantityPrefixAt}. */

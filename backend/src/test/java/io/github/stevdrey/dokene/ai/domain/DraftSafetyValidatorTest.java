@@ -1054,7 +1054,19 @@ class DraftSafetyValidatorTest {
                 // A decimal or grouped multiplier is keyed whole.
                 new Probe("Plan 1.5x10cad", "9.5x10cad", false), new Probe("Plan 1.2x10cad", ".2x10cad", false),
                 new Probe("Plan 11.2x55cad2", "101.2x55cad2", false), new Probe("Plan 1,5x10 cad", "2,5x10 cad", false),
-                new Probe("Plan 1.5x10cad", "1.5x10cad", true), new Probe("Plan v1.5x10cad", "1.5x10cad", false))) {
+                new Probe("Plan 1.5x10cad", "1.5x10cad", true), new Probe("Plan v1.5x10cad", "1.5x10cad", false),
+                // A space-grouped multiplier is keyed whole, sign included, in the raw and normalized context alike;
+                // its group separator is dropped as for amounts, so "1 234x" is "1234x".
+                new Probe("Plan 1 234x10cad", "234x10cad", false),
+                new Probe("Plan 1\u00a0234x10cad", "234x10cad", false),
+                new Probe("Plan 1\u202f234x10cad", "234x10cad", false),
+                new Probe("Plan -1 234x10cad", "234x10cad", false),
+                new Probe("Plan -1 234x10cad", "1 234x10cad", false),
+                new Probe("Plan 1 234x10cad", "1 234x10cad", true), new Probe("Plan -1 234x10cad", "-1 234x10cad", true),
+                new Probe("Plan 1\u00a0234x10cad", "1\u00a0234x10cad", true),
+                new Probe("Plan 1 234x10cad", "1234x10cad", true), new Probe("Plan 1234x10cad", "1 234x10cad", true),
+                // A space before fewer than three digits is no group separator: the numbers stay apart.
+                new Probe("Plan 12 34x10cad", "34x10cad", true), new Probe("Plan 12 34x10cad", "1234x10cad", false))) {
             var grounding = new DraftGroundingContext("Ana", null, List.of(probe.purchase()), List.of(), "DUE",
                     "2026-09-29");
             String body = "Paga " + probe.amount() + " hoy.";
