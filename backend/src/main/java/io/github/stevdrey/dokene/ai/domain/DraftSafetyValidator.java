@@ -50,6 +50,8 @@ public final class DraftSafetyValidator {
      * Bounded, as Java requires in a lookbehind.
      */
     private static final String AFTER_MULTIPLIER_PREFIX = "(?<=(?<![\\p{L}\\p{N}])" + MULTIPLIER_PREFIX + ")";
+    /** Opens a grounding key that carries a multiplier prefix ({@code groundingKey}); no text key starts with it. */
+    private static final String PREFIXED_KEY_MARK = "\u27ea";
     /** Where a number-first quantity may start: a word boundary, or right after a multiplier prefix. */
     private static final String NUMBER_START = "(?:\\b|" + AFTER_MULTIPLIER_PREFIX + ")";
     private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad|jpy|cny|krw|inr";
@@ -480,8 +482,9 @@ public final class DraftSafetyValidator {
         List<String> contextViews = withLeetViews(maskUuidShapedSpans(normalizedContext));
         for (String contextView : contextViews) {
             // A signed context amount grounds only the same signed amount, never its unsigned magnitude.
-            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView, cadRuledOut));
-            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView, cadRuledOut));
+            // Percentages keep their bare key: a context "2x15%" grounds "15%" (accepted, issue 456).
+            contextPercentages.addAll(unsignedTokens(PERCENTAGE_PATTERN, contextView, cadRuledOut, false));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, contextView, cadRuledOut, true));
             contextQualified.addAll(extractTokens(QUALIFIED_AMOUNT_PATTERN, contextView));
             contextSigned.addAll(extractTokens(SIGNED_QUANTITY_PATTERN, contextView));
             for (Pattern priceTerm : vocabulary.priceTerms()) {
@@ -494,9 +497,13 @@ public final class DraftSafetyValidator {
         // The identifier check must see the context's separators as the draft does: normalizing drops a space-group
         // separator ("2 550cad2e1" -> "2550cad2e1"), which would read the amount the draft keeps as an identifier.
         for (String rawView : withLeetViews(maskUuidShapedSpans(offerContextLower))) {
-            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView, cadRuledOut));
+            contextAmounts.addAll(unsignedTokens(AMOUNT_PATTERN, rawView, cadRuledOut, true));
         }
         for (String amountToken : contextAmounts) {
+            // A prefixed amount ("2x10cad") grounds only the same spelling, never a bare price-term number.
+            if (amountToken.startsWith(PREFIXED_KEY_MARK)) {
+                continue;
+            }
             Matcher numberMatcher = NUMBER_PATTERN.matcher(amountToken);
             if (numberMatcher.find()) {
                 contextNumbers.add(normalizeQuantities(numberMatcher.group()));
@@ -518,7 +525,7 @@ public final class DraftSafetyValidator {
                     .entrySet()) {
                 Matcher draftExact = exact.getKey().matcher(view);
                 while (draftExact.find()) {
-                    if (!exact.getValue().contains(quantityKey(draftExact.group()))) {
+                    if (!exact.getValue().contains(groundingKey(view, draftExact))) {
                         return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                                 "Draft contains a qualified or signed amount not grounded in context: '"
                                         + draftExact.group().trim() + "'"));
@@ -530,7 +537,7 @@ public final class DraftSafetyValidator {
                 if (signedAt(view, draftAmtMatcher.start()) || insideIdentifier(view, draftAmtMatcher, cadRuledOut)) {
                     continue;
                 }
-                if (!contextAmounts.contains(quantityKey(draftAmtMatcher.group()))
+                if (!contextAmounts.contains(groundingKey(view, draftAmtMatcher))
                         && !isGroundedIdentifier(view, draftAmtMatcher, contextViews)) {
                     return Optional.of(DraftSafetyViolation.of(DraftSafetyViolation.HALLUCINATED_PRICE,
                             "Draft contains hallucinated price or monetary amount not grounded in context: '" + draftAmtMatcher.group().trim() + "'"));
@@ -624,8 +631,11 @@ public final class DraftSafetyValidator {
         return Optional.empty();
     }
 
-    /** The tokens of {@code pattern} not preceded by a sign ({@link #signedAt}), which are matched with it instead. */
-    private static Set<String> unsignedTokens(Pattern pattern, String text, boolean cadRuledOut) {
+    /**
+     * The tokens of {@code pattern} not preceded by a sign ({@link #signedAt}), which are matched with it instead. With
+     * {@code keepPrefix} each is keyed with the multiplier prefix it follows ({@link #groundingKey}).
+     */
+    private static Set<String> unsignedTokens(Pattern pattern, String text, boolean cadRuledOut, boolean keepPrefix) {
         if (text == null || text.isBlank()) {
             return Set.of();
         }
@@ -634,10 +644,62 @@ public final class DraftSafetyValidator {
         while (matcher.find()) {
             if (!runsIntoLetter(text, matcher) && !signedAt(text, matcher.start())
                     && !insideIdentifier(text, matcher, cadRuledOut)) {
-                tokens.add(quantityKey(matcher.group()));
+                tokens.add(keepPrefix ? groundingKey(text, matcher) : quantityKey(matcher.group()));
             }
         }
         return tokens;
+    }
+
+    /**
+     * Issue 456: the key a quantity is grounded by. A number-first quantity after a multiplier prefix keeps the prefix
+     * and any sign or separator before it ("-2x10cad"), so it grounds and is grounded only by the same spelling:
+     * "-2x10cad" is not "10cad", and "2x55cad2" is not "3x55cad2" or "55cad2".
+     */
+    private static String groundingKey(String text, Matcher quantity) {
+        String prefix = multiplierPrefixBefore(text, quantity.start());
+        return prefix.isEmpty() ? quantityKey(quantity.group()) : PREFIXED_KEY_MARK + prefix + quantityKey(quantity.group());
+    }
+
+    /** The multiplier prefix that starts its token right before a number at {@code start}, with its sign, or "". */
+    private static String multiplierPrefixBefore(String text, int start) {
+        if (start < 2 || start >= text.length() || !isAsciiDigit(text.charAt(start))
+                || Character.toLowerCase(text.charAt(start - 1)) != 'x') {
+            return "";
+        }
+        int prefixStart = start - 1;
+        while (prefixStart > 0 && isAsciiDigit(text.charAt(prefixStart - 1))) {
+            prefixStart--;
+        }
+        int digits = start - 1 - prefixStart;
+        if (digits < 1 || digits > 9
+                || prefixStart > 0 && Character.isLetterOrDigit(text.codePointBefore(prefixStart))) {
+            return "";
+        }
+        // The whole multiplier is kept, so "1.2x" is not "7.2x" or ".2x".
+        while (prefixStart > 0 && (isAsciiDigit(text.charAt(prefixStart - 1))
+                || MULTIPLIER_SEPARATORS.indexOf(text.charAt(prefixStart - 1)) >= 0)) {
+            prefixStart--;
+        }
+        // Letters or digits glued before the multiplier stay in the key ("v1.5x10cad" is not "1.5x10cad").
+        if (prefixStart > 0 && Character.isLetterOrDigit(text.codePointBefore(prefixStart))) {
+            prefixStart = runStart(text, prefixStart);
+        }
+        String prefix = text.substring(prefixStart, start).toLowerCase(Locale.ROOT);
+        if (!quantityPrefixAt(text, prefixStart)) {
+            return prefix;
+        }
+        int signAt = prefixStart - 1;
+        while (signAt > 0 && (Character.isWhitespace(text.charAt(signAt)) || Character.isSpaceChar(text.charAt(signAt)))) {
+            signAt--;
+        }
+        return text.charAt(signAt) + prefix;
+    }
+
+    /** Decimal and group separators that may sit inside a multiplier ("1.5x", "1,5x"), as {@link #quantityPrefixAt}. */
+    private static final String MULTIPLIER_SEPARATORS = ".,'\u2019\u00b7\u066b\u066c";
+
+    private static boolean isAsciiDigit(char c) {
+        return c >= '0' && c <= '9';
     }
 
     /** A digit-first quantity at {@code start} with a minus sign right before it, as {@code SIGNED_QUANTITY_PATTERN}. */
@@ -660,7 +722,7 @@ public final class DraftSafetyValidator {
             if (runsIntoLetter(text, matcher)) {
                 continue;
             }
-            tokens.add(quantityKey(matcher.group()));
+            tokens.add(groundingKey(text, matcher));
         }
         return tokens;
     }

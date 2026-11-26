@@ -1038,6 +1038,45 @@ class DraftSafetyValidatorTest {
                 .isPresent();
     }
 
+    /**
+     * Issue 456 review: an amount after a multiplier prefix is grounded only by the same spelling, sign and prefix
+     * included, so a sign change, another multiplier or a dropped prefix is not grounded by it.
+     */
+    @Test
+    void prefixedAmountsAreGroundedOnlyByTheSameSpelling() {
+        record Probe(String purchase, String amount, boolean grounded) { }
+        for (Probe probe : List.of(new Probe("Plan -2x10cad", "10cad", false),
+                new Probe("Plan 10cad", "-2x10cad", false), new Probe("Plan 2x55cad2", "3x55cad2", false),
+                new Probe("Plan 0x55cad2", "55cad2", false), new Probe("Plan 55cad2", "0x55cad2", false),
+                new Probe("Plan 2x10 Australian dollars", "-2x10 Australian dollars", false),
+                new Probe("Plan 2x55cad2", "2x55cad2", true), new Probe("Plan -2x10cad", "-2x10cad", true),
+                new Probe("Plan 10cad", "10cad", true),
+                // A decimal or grouped multiplier is keyed whole.
+                new Probe("Plan 1.5x10cad", "9.5x10cad", false), new Probe("Plan 1.2x10cad", ".2x10cad", false),
+                new Probe("Plan 11.2x55cad2", "101.2x55cad2", false), new Probe("Plan 1,5x10 cad", "2,5x10 cad", false),
+                new Probe("Plan 1.5x10cad", "1.5x10cad", true), new Probe("Plan v1.5x10cad", "1.5x10cad", false))) {
+            var grounding = new DraftGroundingContext("Ana", null, List.of(probe.purchase()), List.of(), "DUE",
+                    "2026-09-29");
+            String body = "Paga " + probe.amount() + " hoy.";
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "es-419", List.of()), probe.purchase(), grounding)
+                    .isEmpty()).as("draft | %s | %s", probe.purchase(), body).isEqualTo(probe.grounded());
+            assertThat(DraftSafetyValidator.validateRenderedText(Map.of("body", body), "es-419", grounding)
+                    .isEmpty()).as("rendered | %s | %s", probe.purchase(), body).isEqualTo(probe.grounded());
+        }
+        // A prefixed context amount grounds no bare price-term number, and fixed text grounds nothing.
+        var grounding = new DraftGroundingContext("Ana", null, List.of("Plan 2x10cad"), List.of(), "DUE",
+                "2026-09-29");
+        assertThat(DraftSafetyValidator.validate(draftWith("El precio es 10.", "es-419", List.of()), "Plan 2x10cad",
+                grounding)).isPresent();
+        for (String purchase : List.of("Plan 1.5x10cad", "Plan -1.5x10cad", "Plan 1,5x10 cad", "Plan 1.2x10usd")) {
+            var decimal = new DraftGroundingContext("Ana", null, List.of(purchase), List.of(), "DUE", "2026-09-29");
+            String multiplier = purchase.substring(5, purchase.indexOf('x')).replace("-", "");
+            assertThat(DraftSafetyValidator.validate(draftWith("Cuesta " + multiplier + ".", "es-419", List.of()),
+                    purchase, decimal)).as(purchase).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", "Paga 2x10cad."), "es-419")).isPresent();
+    }
+
     @Test
     void contextAmountsFollowedByUnitLettersStillGroundTheirDraftAmount() {
         assertThat(DraftSafetyValidator.validate(draftWith("Plan de $20 mensuales.", "es-419", List.of()),
