@@ -20,8 +20,12 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 public class JdbcFollowUpCandidateRepository implements FollowUpCandidateRepository {
-    private static final Comparator<FollowUpCandidate> DUE_ORDER = Comparator.comparing(FollowUpCandidate::dueDate)
-            .thenComparing(candidate -> candidate.customerId().value());
+    /**
+     * The SQL order {@code due_date, customer_id}. PostgreSQL orders UUIDs by unsigned bytes, while
+     * {@link UUID#compareTo} compares signed halves, so the halves are compared unsigned here.
+     */
+    static final Comparator<FollowUpCandidate> DUE_ORDER = Comparator.comparing(FollowUpCandidate::dueDate)
+            .thenComparing(candidate -> candidate.customerId().value(), JdbcFollowUpCandidateRepository::unsigned);
 
     private final JdbcTemplate jdbc;
 
@@ -72,6 +76,12 @@ public class JdbcFollowUpCandidateRepository implements FollowUpCandidateReposit
                 ORDER BY due_date ASC, customer_id ASC
                 LIMIT ?
                 """, this::map, tenantId.value(), limit);
+    }
+
+    static int unsigned(UUID left, UUID right) {
+        int high = Long.compareUnsigned(left.getMostSignificantBits(), right.getMostSignificantBits());
+        return high != 0 ? high : Long.compareUnsigned(left.getLeastSignificantBits(),
+                right.getLeastSignificantBits());
     }
 
     private FollowUpCandidate map(ResultSet row, int index) throws SQLException {
