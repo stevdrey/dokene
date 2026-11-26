@@ -983,7 +983,9 @@ class DraftSafetyValidatorTest {
         var grounding = new DraftGroundingContext("Ana", null, List.of("Café"), List.of(), "DUE", "2026-09-29");
         for (String body : List.of("Paga 55cad2cad.", "Paga 2x55cad2.", "Paga 0x55cad2.", "Paga 55CAD2CAD.",
                 "Paga 2X55cad2.", "Paga 2x55cad.", "Paga 0x10cad.", "Paga 3x10usd.", "Paga 2x55c4d2.",
-                "Paga 1cad2cad3.", "Paga 2x55cad2cad.")) {
+                "Paga 1cad2cad3.", "Paga 2x55cad2cad.",
+                // A sign before the prefix keeps the amount, and a prefixed run of no identifier shape stays one.
+                "Paga +2x55cad2e1.", "Paga -0x1a2b3c4d-4cad.", "Paga 0x1234cad5678.")) {
             Optional<DraftSafetyViolation> violation = DraftSafetyValidator.validate(
                     draftWith(body, "es-419", List.of()), "Cliente: Ana.", grounding);
             assertThat(violation).as("body | " + body).isPresent();
@@ -1000,7 +1002,9 @@ class DraftSafetyValidatorTest {
         // Identifiers keep the issue 443 reading: a non-code hex letter, an identifier length, or a UUID shape,
         // including after a prefix.
         for (String name : List.of("Tienda 55cad2e1", "Tienda 0x55cad2e1", "Tienda 2x55cad2e1", "Tienda 5cad2cad",
-                "Tienda 0123cad4f5cad", "Tienda 0x1a2b3c4d-4cad", "Tienda 0x1f")) {
+                "Tienda 0123cad4f5cad", "Tienda 0x1a2b3c4d-4cad", "Tienda 0x1f",
+                // A prefix inside a token is no prefix.
+                "Tienda a2x55cad2e1")) {
             assertThat(DraftSafetyValidator.validate(draftWith("Hola de parte de " + name + ".", "es-419", List.of()),
                     "Cliente: Ana.", grounding)).as("body | " + name).isEmpty();
             assertThat(DraftSafetyValidator.validateRenderedText(Map.of("customer_name", name,
@@ -1012,10 +1016,26 @@ class DraftSafetyValidatorTest {
 
         // A tenant that does not operate in CAD keeps the issue 452 reading of glued CAD-like hex runs.
         Currency usd = Currency.getInstance("USD");
-        for (String name : List.of("Tienda 55cad2cad", "Tienda 2x55cad2", "Tienda 0x55cad2")) {
+        for (String name : List.of("Tienda 55cad2cad", "Tienda 2x55cad2", "Tienda 0x55cad2",
+                "Tienda deadbeef0x55cad2")) {
             assertThat(DraftSafetyValidator.validateFixedText(Map.of("body", name), "en-US", usd))
                     .as("usd | " + name).isEmpty();
         }
+
+        // Percentages and qualified amounts after a prefix are read too: the qualifier must still match.
+        assertThat(DraftSafetyValidator.validate(draftWith("Paga 2x15%.", "es-419", List.of()), "Cliente: Ana.",
+                grounding)).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Pay 2x10 Australian dollars.", "en-US", List.of()),
+                "Plan 2x10 Canadian dollars")).isPresent();
+        assertThat(DraftSafetyValidator.validate(draftWith("Pay 2x10 Australian dollars.", "en-US", List.of()),
+                "Plan 2x10 Australian dollars")).isEmpty();
+        // Leetspeak spellings made only of hex characters are still folded ("0ff" is "off", "c057" is "cost").
+        for (String body : List.of("Get 10% 0ff today.", "It c057 25 now.")) {
+            assertThat(DraftSafetyValidator.validate(draftWith(body, "en-US", List.of()), "Plan 10%"))
+                    .as(body).isPresent();
+        }
+        assertThat(DraftSafetyValidator.validate(draftWith("El c0570 es 25.", "es-419", List.of()), "Cliente: Ana."))
+                .isPresent();
     }
 
     @Test

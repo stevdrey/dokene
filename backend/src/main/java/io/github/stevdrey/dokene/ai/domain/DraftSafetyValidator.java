@@ -38,6 +38,20 @@ public final class DraftSafetyValidator {
     /** Whitespace including NBSP, figure space, narrow NBSP and thin space (not matched by default {@code \\s}). */
     private static final String SP = "[\\s\\u00a0\\u2007\\u202f\\u2009]*";
     private static final String NUM = "\\d+(?:[.,]\\d+|[ \\u00a0\\u202f]\\d{3})*(?!\\d)";
+    /**
+     * A compact multiplier or hex prefix ("2x", "0x") before a number (issue 456). It does not hide the
+     * quantity after it: an amount may start right after it ("2x55cad2", "0x55cad2"), and the run after it is judged
+     * on its own as an identifier ("0x55cad2e1").
+     */
+    private static final String MULTIPLIER_PREFIX = "\\d{1,9}[xX]";
+    private static final Pattern LEADING_MULTIPLIER_PREFIX_PATTERN = Pattern.compile("^" + MULTIPLIER_PREFIX);
+    /**
+     * Right after a multiplier prefix that starts its token: "deadbeef0x55cad2" has none, so its run is judged whole.
+     * Bounded, as Java requires in a lookbehind.
+     */
+    private static final String AFTER_MULTIPLIER_PREFIX = "(?<=(?<![\\p{L}\\p{N}])" + MULTIPLIER_PREFIX + ")";
+    /** Where a number-first quantity may start: a word boundary, or right after a multiplier prefix. */
+    private static final String NUMBER_START = "(?:\\b|" + AFTER_MULTIPLIER_PREFIX + ")";
     private static final String CURRENCY_CODES = "usd|crc|eur|mxn|cop|ars|clp|pen|brl|gtq|hnl|nio|pab|gbp|cad|jpy|cny|krw|inr";
     /** Currency symbols recognised after NFKC folding (fullwidth forms such as {@code ＄} and {@code ￥} fold to these). */
     private static final String CURRENCY_SYMBOLS = "$₡€£¥₩₹₽₱₪฿₫₦₲₴₺¢";
@@ -123,7 +137,7 @@ public final class DraftSafetyValidator {
     private static final Pattern NUMBER_OF_CURRENCY_PATTERN = Pattern.compile(
             "(?<=\\d)((?:\\s+" + QUALIFIER_WORD + "){1,2}?)\\s+((?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?![\\p{L}]))");
     private static final Pattern QUALIFIED_AMOUNT_PATTERN = Pattern.compile(
-            "(?i)\\b" + NUM + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}) ⟦[^⟧]+⟧");
+            "(?i)" + NUMBER_START + NUM + SP + "(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}) ⟦[^⟧]+⟧");
     /** A minus sign directly before an amount or percentage ("-5 dollars", "negative five dollars" once rewritten). */
     private static final Pattern SIGNED_QUANTITY_PATTERN = Pattern.compile(
             "(?i)(?<![\\p{L}\\p{N}])[-−]" + NUM + SP + "(?:%|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))");
@@ -140,7 +154,7 @@ public final class DraftSafetyValidator {
      * (issue 443): it is an identifier, never an amount, wherever a currency code sits in it.
      */
     private static final Pattern UUID_SHAPED_PATTERN = Pattern.compile(
-            "(?:(?<![\\p{L}\\p{N}-])|(?<=\\d[xX]))[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
+            "(?:(?<![\\p{L}\\p{N}-])|" + AFTER_MULTIPLIER_PREFIX + ")[0-9a-f]{8}-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{4}(?:-[0-9a-f]{12})?)?)?"
                     + "(?![\\p{L}\\p{N}]|-[\\p{L}\\p{N}])");
     /** Shortest hex run read as an identifier without an exact shape (issue 443). */
     private static final int MIN_HEX_IDENTIFIER_LENGTH = 8;
@@ -152,15 +166,6 @@ public final class DraftSafetyValidator {
     private static final String HEX_CURRENCY_CODE = "CAD";
     private static final Pattern WHITESPACE_RUN_PATTERN = Pattern.compile("\\s+");
     private static final Pattern WORD_TOKEN_PATTERN = Pattern.compile("[\\p{L}\\p{N}@]+");
-    /**
-     * A compact multiplier or hex prefix ("2x", "0x") before a number (issue 456). It does not hide the
-     * quantity after it: an amount may start right after it ("2x55cad2", "0x55cad2"), and the run after it is judged
-     * on its own as an identifier ("0x55cad2e1").
-     */
-    private static final String MULTIPLIER_PREFIX = "\\d+[xX]";
-    private static final Pattern LEADING_MULTIPLIER_PREFIX_PATTERN = Pattern.compile("^" + MULTIPLIER_PREFIX);
-    /** Where a number-first amount may start: a word boundary, or right after a multiplier prefix. */
-    private static final String NUMBER_START = "(?:\\b|(?<=\\d[xX]))";
     /** Compact numeric promotions ("2x1") are offer vocabulary as written; folding them would hide them. */
     private static final Pattern COMPACT_PROMOTION_PATTERN = Pattern.compile("\\d+x\\d+");
 
@@ -197,7 +202,7 @@ public final class DraftSafetyValidator {
                     + NEGATION_MODIFIERS + "{0,2}" + NEGATABLE_OFFER_TERMS + ")*"
                     + "(?![\\p{L}\\p{N}])");
 
-    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)\\b" + NUM + SP + "%");
+    private static final Pattern PERCENTAGE_PATTERN = Pattern.compile("(?i)" + NUMBER_START + NUM + SP + "%");
     private static final Pattern AMOUNT_PATTERN = Pattern.compile(
             "(?i)(?:" + CURRENCY_SYMBOL_CLASS + "|\\b(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L}))" + SP + NUM
                     + "|" + NUMBER_START + NUM + SP + "(?:" + CURRENCY_SYMBOL_CLASS + "|(?:" + CURRENCY_CODES + "|" + CURRENCY_WORDS + ")(?!\\p{L})(?:" + NUM + ")?)"
@@ -719,6 +724,10 @@ public final class DraftSafetyValidator {
                 continue;
             }
             int start = runStart(text, termStart);
+            // Issue 456: a sign or separator before a multiplier prefix keeps the amount ("+2x55cad2e1").
+            if (quantityPrefixAt(text, start)) {
+                continue;
+            }
             // Issue 456: a multiplier or hex prefix ("2x", "0x") is not part of the run it introduces.
             Matcher prefix = LEADING_MULTIPLIER_PREFIX_PATTERN.matcher(text).region(start, termStart);
             if (prefix.find()) {
@@ -756,7 +765,9 @@ public final class DraftSafetyValidator {
      * as written ({@link #quantityPrefixAt}). The length is kept, so match positions stay comparable.
      */
     private static String maskUuidShapedSpans(String text) {
+        // A sign before a multiplier prefix ("-0x1a2b3c4d-4cad") signs the run it starts (issue 456).
         return UUID_SHAPED_PATTERN.matcher(text).replaceAll(match -> quantityPrefixAt(text, match.start())
+                || quantityPrefixAt(text, runStart(text, match.start()))
                 ? Matcher.quoteReplacement(match.group())
                 : match.group().replaceAll("[0-9a-f]", "x"));
     }

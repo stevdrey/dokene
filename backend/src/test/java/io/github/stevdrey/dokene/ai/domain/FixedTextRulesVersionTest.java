@@ -32,7 +32,7 @@ class FixedTextRulesVersionTest {
             // Issue 452: a glued CAD-like hex token is an identifier for a tenant that does not operate in CAD (V45).
             3, "bf9bf5df8b7bd147fbac8ce3c11dcb394b6c648e8d4d9bb9dfd817b93a292bf5",
             // Issue 456: a repeated CAD code or a multiplier prefix no longer hides an amount (V46).
-            4, "aaf82b8de908efaabc69f972be6e7d9c717c869c3553f50fc50b133fa8d75597");
+            4, "80f0ffd85fa690d482ef8e2265128cf5b45e07ae46e2413004ec24f2be97c82d");
 
     @Test
     void theRulesVersionChangesWhenTheRulesDo() throws Exception {
