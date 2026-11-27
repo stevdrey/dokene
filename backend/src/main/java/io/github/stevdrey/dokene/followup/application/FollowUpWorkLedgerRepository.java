@@ -13,8 +13,8 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The fenced methods match the item on its candidate id, state {@code CLAIMED}, the claim's attempt number and token,
- * and a lease that has not expired at {@code now}; when any of these differ they write nothing.
+ * The fenced methods match the item on its candidate id, customer, due date, state {@code CLAIMED}, the claim's attempt
+ * number and token, and a lease that has not expired at {@code now}; when any of these differ they write nothing.
  */
 public interface FollowUpWorkLedgerRepository {
 
@@ -39,6 +39,15 @@ public interface FollowUpWorkLedgerRepository {
     int collapseCovered(TenantId tenantId, Instant now, int limit);
 
     /**
+     * Resolves at most {@code limit} {@code PENDING} items, never claimed, that a finished item of the same customer
+     * covers (an enqueue that raced that item can leave one): each is recorded {@code COMPLETED}, collapsed into the
+     * covering item, so it is never worked as a separate follow-up and its customer's slot is released.
+     *
+     * @return how many items were resolved
+     */
+    int reconcileCovered(TenantId tenantId, Instant now, int limit);
+
+    /**
      * Marks {@code EXHAUSTED} at most {@code limit} items that may not be claimed again: expired claims and due retries
      * that already used {@code maxAttempts}.
      *
@@ -53,6 +62,13 @@ public interface FollowUpWorkLedgerRepository {
      */
     List<FollowUpWorkClaim> claim(TenantId tenantId, FollowUpWorkerId worker, Instant now, Instant leaseExpiresAt,
             int maxAttempts, int limit);
+
+    /**
+     * Locks the current claim's row, waiting for any other transaction that holds it, and returns its lease expiry;
+     * empty when the claim is no longer current once the lock is held. The caller judges the lease with a clock read
+     * after this call and passes that instant as {@code now} to the outcome in the same transaction.
+     */
+    Optional<Instant> lockClaim(FollowUpWorkClaim claim);
 
     /** Extends the current claim's lease to {@code leaseExpiresAt}, never shortening it; empty when stale. */
     Optional<Instant> renew(FollowUpWorkClaim claim, Instant now, Instant leaseExpiresAt);

@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import io.github.stevdrey.dokene.audit.testsupport.MutableClock;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkClaim;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkFailure;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -41,6 +43,12 @@ class FollowUpWorkLedgerTest {
             new FollowUpWorkProperties(5, Duration.ofSeconds(30), 3), mock(PlatformTransactionManager.class),
             Clock.fixed(NOW, ZoneOffset.UTC));
 
+    @BeforeEach
+    void currentClaimsHoldTheirLease() {
+        when(repository.lockClaim(any())).thenAnswer(
+                invocation -> Optional.of(invocation.<FollowUpWorkClaim>getArgument(0).leaseExpiresAt()));
+    }
+
     @Test
     void claimsUnderTheTenantScopeWithOneLeaseFromTheClockAfterExhaustingSpentItems() {
         AtomicReference<Optional<TenantId>> scope = new AtomicReference<>();
@@ -53,6 +61,7 @@ class FollowUpWorkLedgerTest {
         assertThat(ledger.claim(tenantId, WORKER, 2)).containsExactly(claim);
         assertThat(scope.get()).contains(tenantId);
         assertThat(contexts.currentTenantId()).isEmpty();
+        verify(repository).reconcileCovered(tenantId, NOW, 5);
         verify(repository).exhaustSpent(tenantId, NOW, 3, 5);
     }
 
@@ -144,6 +153,41 @@ class FollowUpWorkLedgerTest {
             assertThat(renewed.attempt()).isEqualTo(claim.attempt());
         });
         assertThat(ledger.renew(claim)).isEmpty();
+    }
+
+    @Test
+    void judgesTheLeaseAtTheInstantTheRowLockIsHeld() {
+        MutableClock clock = new MutableClock(NOW);
+        FollowUpWorkLedger waiting = new FollowUpWorkLedger(repository, contexts,
+                new FollowUpWorkProperties(5, Duration.ofSeconds(30), 3), mock(PlatformTransactionManager.class),
+                clock);
+        FollowUpWorkClaim claim = claim(1);
+        // The lock waits for another transaction until the lease has expired.
+        when(repository.lockClaim(claim)).thenAnswer(invocation -> {
+            clock.advance(Duration.ofSeconds(30));
+            return Optional.of(claim.leaseExpiresAt());
+        });
+
+        assertThat(waiting.complete(claim)).isEqualTo(FollowUpWorkTransition.STALE);
+        assertThat(waiting.renew(claim)).isEmpty();
+        assertThat(waiting.fail(claim, FollowUpWorkFailure.PROCESSING_ERROR, NOW.plusSeconds(120)))
+                .isEqualTo(FollowUpWorkTransition.STALE);
+        assertThat(waiting.requireRecovery(claim, FollowUpWorkFailure.OUTCOME_UNKNOWN))
+                .isEqualTo(FollowUpWorkTransition.STALE);
+        verify(repository, never()).complete(any(), any());
+        verify(repository, never()).renew(any(), any(), any());
+        verify(repository, never()).fail(any(), any(), any(), any(), anyInt());
+        verify(repository, never()).exhaust(any(), any(), any());
+        verify(repository, never()).collapseInto(any(), any(), anyInt());
+    }
+
+    @Test
+    void aClaimThatIsNoLongerCurrentOnceLockedIsStale() {
+        FollowUpWorkClaim claim = claim(1);
+        when(repository.lockClaim(claim)).thenReturn(Optional.empty());
+
+        assertThat(ledger.complete(claim)).isEqualTo(FollowUpWorkTransition.STALE);
+        verify(repository, never()).complete(any(), any());
     }
 
     @Test

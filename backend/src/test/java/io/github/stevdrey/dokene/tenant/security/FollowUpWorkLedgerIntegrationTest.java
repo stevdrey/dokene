@@ -7,6 +7,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
+import io.github.stevdrey.dokene.audit.testsupport.MutableClock;
 import io.github.stevdrey.dokene.customer.application.ContactPolicyService;
 import io.github.stevdrey.dokene.customer.application.CustomerService;
 import io.github.stevdrey.dokene.customer.application.CustomerService.PhoneInput;
@@ -46,6 +47,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Callable;
@@ -53,6 +55,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Function;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -392,6 +395,102 @@ class FollowUpWorkLedgerIntegrationTest {
     }
 
     @Test
+    void aClaimCarryingAnotherCustomersMetadataCannotTouchThatCustomer() throws Exception {
+        Customer first = consentedCustomer(contextA, "Fenced customer");
+        inContext(contextA, () -> followUps.configureCustomer(first.id(), 7, today.minusDays(2), 0));
+        Customer other = consentedCustomer(contextA, "Other customer");
+        inContext(contextA, () -> followUps.configureCustomer(other.id(), 7, today.minusDays(1), 0));
+        generate(tenantA);
+        FollowUpCandidate otherCycle = contexts.callWithTenantId(tenantA.id(),
+                () -> candidates.findCandidates(tenantA.id(), 10)).stream()
+                .filter(candidate -> candidate.customerId().equals(other.id())).findFirst().orElseThrow();
+        // A batch of one enqueues only the earlier due customer; the other customer's cycle has no item yet.
+        assertThat(ledger(now, 1, 3).enqueue(tenantA.id())).isEqualTo(1);
+        FollowUpWorkClaim claim = ledger(now, 5, 3).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+        assertThat(claim.customerId()).isEqualTo(first.id());
+
+        // The valid fence with another customer, or another due date, is not the current claim.
+        FollowUpWorkClaim otherCustomer = new FollowUpWorkClaim(claim.candidateId(), claim.tenantId(), other.id(),
+                claim.dueDate(), claim.worker(), claim.attempt(), claim.claimToken(), claim.claimedAt(),
+                claim.leaseExpiresAt());
+        FollowUpWorkClaim otherDate = new FollowUpWorkClaim(claim.candidateId(), claim.tenantId(),
+                claim.customerId(), claim.dueDate().minusDays(9), claim.worker(), claim.attempt(), claim.claimToken(),
+                claim.claimedAt(), claim.leaseExpiresAt());
+        FollowUpWorkLedger later = ledger(now.plusSeconds(1), 5, 3);
+        assertThat(later.complete(otherCustomer)).isEqualTo(FollowUpWorkTransition.STALE);
+        assertThat(later.renew(otherCustomer)).isEmpty();
+        assertThat(later.fail(otherCustomer, FollowUpWorkFailure.PROCESSING_ERROR, now.plusSeconds(60)))
+                .isEqualTo(FollowUpWorkTransition.STALE);
+        assertThat(later.requireRecovery(otherCustomer, FollowUpWorkFailure.OUTCOME_UNKNOWN))
+                .isEqualTo(FollowUpWorkTransition.STALE);
+        assertThat(later.complete(otherDate)).isEqualTo(FollowUpWorkTransition.STALE);
+
+        // Even after a valid completion, the collapse takes its customer from the completed item, not from the claim.
+        Instant completedAt = now.plusSeconds(2);
+        Integer collapsed = contexts.callWithTenantId(tenantA.id(), () -> new TransactionTemplate(transactionManager)
+                .execute(status -> repository.complete(claim, completedAt)
+                        ? repository.collapseInto(otherCustomer, completedAt, 100) : -1));
+        assertThat(collapsed).isZero();
+        // The schema refuses to collapse a candidate into another customer's candidate.
+        assertThatThrownBy(() -> contexts.callWithTenantId(tenantA.id(), () -> jdbc.update("""
+                INSERT INTO dokene.follow_up_work_items (candidate_id, tenant_id, customer_id, due_date, state,
+                    attempts, available_at, collapsed_into, enqueued_at, finished_at, updated_at)
+                VALUES (?, ?, ?, ?, 'COMPLETED', 0, now(), ?, now(), now(), now())
+                """, otherCycle.id(), tenantA.id().value(), other.id().value(), Date.valueOf(otherCycle.dueDate()),
+                claim.candidateId()))).isInstanceOf(RuntimeException.class);
+
+        // The other customer's cycle is untouched and becomes its own claimable work.
+        assertThat(items(tenantA)).singleElement()
+                .satisfies(item -> assertThat(item.customerId()).isEqualTo(first.id()));
+        assertThat(ledger(now.plusSeconds(3), 100, 3).enqueue(tenantA.id())).isEqualTo(1);
+        assertThat(ledger(now.plusSeconds(3), 5, 3).claim(tenantA.id(), INSTANCE_B, 5)).singleElement()
+                .satisfies(next -> assertThat(next.customerId()).isEqualTo(other.id()));
+    }
+
+    @Test
+    void anOutcomeThatWaitsForTheRowLockPastItsLeaseIsStale() throws Exception {
+        dueCustomers(contextA, tenantA, 5);
+        ledger(now, 100, 3).enqueue(tenantA.id());
+        List<FollowUpWorkClaim> claims = ledger(now, 5, 3).claim(tenantA.id(), INSTANCE_A, 5);
+        assertThat(claims).hasSize(5);
+        Instant retryAt = now.plusSeconds(600);
+        List<Function<FollowUpWorkLedger, Object>> outcomes = List.of(
+                ledger -> ledger.complete(claims.get(0)),
+                ledger -> ledger.renew(claims.get(1)),
+                ledger -> ledger.fail(claims.get(2), FollowUpWorkFailure.PROCESSING_ERROR, retryAt),
+                ledger -> ledger.requireRecovery(claims.get(3), FollowUpWorkFailure.OUTCOME_UNKNOWN));
+        List<Object> stale = List.of(FollowUpWorkTransition.STALE, Optional.empty(), FollowUpWorkTransition.STALE,
+                FollowUpWorkTransition.STALE);
+
+        for (int index = 0; index < outcomes.size(); index++) {
+            FollowUpWorkClaim claim = claims.get(index);
+            // Started while the lease is valid, the outcome waits for the lock until the lease has expired.
+            assertThat(outcomeAfterARowLock(claim, outcomes.get(index), Duration.ofSeconds(1), LEASE))
+                    .as("outcome %d", index).isEqualTo(stale.get(index));
+            assertThat(item(tenantA, claim.candidateId())).satisfies(item -> {
+                assertThat(item.state()).isEqualTo(FollowUpWorkState.CLAIMED);
+                assertThat(item.attempts()).isEqualTo(1);
+                assertThat(item.leaseExpiresAt()).contains(claim.leaseExpiresAt());
+                assertThat(item.lastFailure()).isEmpty();
+            });
+        }
+        assertThat(items(tenantA)).hasSize(5);
+        // Control: the same wait that ends before the lease expires lets the outcome through.
+        assertThat(outcomeAfterARowLock(claims.get(4), ledger -> ledger.complete(claims.get(4)), Duration.ofSeconds(1),
+                Duration.ofSeconds(5))).isEqualTo(FollowUpWorkTransition.COMPLETED);
+    }
+
+    @Test
+    void anEnqueueThatRacedASafelyExhaustedCoverIsResolvedBeforeAnyClaim() throws Exception {
+        raceAnEnqueueAgainstANewerCover(false);
+    }
+
+    @Test
+    void anEnqueueThatRacedACompletionBeyondTheCollapseBoundIsResolvedBeforeAnyClaim() throws Exception {
+        raceAnEnqueueAgainstANewerCover(true);
+    }
+
+    @Test
     void anItemThatNeedsRecoveryHoldsBackNewerWorkForItsCustomer() throws Exception {
         Customer customer = consentedCustomer(contextA, "Recovery customer");
         var policy = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(3), 0));
@@ -555,6 +654,144 @@ class FollowUpWorkLedgerIntegrationTest {
     private <T> T inContext(TenantContext context, Callable<T> operation) throws Exception {
         return auditExecution.callWithCorrelation(UUID.randomUUID(),
                 () -> contexts.callWithContext(context, operation::call));
+    }
+
+    /**
+     * Runs {@code outcome} with a ledger whose clock starts {@code startAfter} past {@link #now} while another
+     * transaction holds the claim's row lock, moves that clock by {@code waited} while the outcome is blocked, then
+     * releases the lock without changing the row.
+     */
+    private Object outcomeAfterARowLock(FollowUpWorkClaim claim, Function<FollowUpWorkLedger, Object> outcome,
+            Duration startAfter, Duration waited) throws Exception {
+        MutableClock clock = new MutableClock(now.plus(startAfter));
+        FollowUpWorkLedger ledger = new FollowUpWorkLedger(repository, contexts,
+                new FollowUpWorkProperties(5, LEASE, 3), transactionManager, clock);
+        try (Connection lock = TenantSecurityIntegrationFixture.migrationConnection();
+                var executor = Executors.newSingleThreadExecutor()) {
+            lock.setAutoCommit(false);
+            assertThat(TenantSecurityIntegrationFixture.queryInt(lock, """
+                    SELECT count(*) FROM (
+                        SELECT 1 FROM dokene.follow_up_work_items WHERE candidate_id = ? FOR UPDATE
+                    ) held
+                    """, claim.candidateId())).isEqualTo(1);
+            Future<Object> result = executor.submit(() -> outcome.apply(ledger));
+            awaitLockWaiter();
+            clock.advance(waited);
+            lock.commit();
+            return result.get(30, TimeUnit.SECONDS);
+        }
+    }
+
+    /**
+     * Holds an enqueue after its statement chose a candidate and before it inserts it (a test trigger waits on an
+     * advisory lock), while a newer cycle of the same customer is enqueued, claimed and finished, which covers the held
+     * candidate and releases the customer. Then lets the old enqueue insert its now covered candidate.
+     */
+    private void raceAnEnqueueAgainstANewerCover(boolean complete) throws Exception {
+        Customer customer = consentedCustomer(contextA, "Racing enqueue customer");
+        var oldest = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(5), 0));
+        generate(tenantA);
+        var held = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(3),
+                oldest.version()));
+        generate(tenantA);
+        UUID heldCandidate = contexts.callWithTenantId(tenantA.id(), () -> candidates.findCandidates(tenantA.id(), 10))
+                .stream().filter(candidate -> candidate.dueDate().equals(today.minusDays(3))).findFirst()
+                .orElseThrow().id();
+        long barrier = Math.floorMod(heldCandidate.getMostSignificantBits(), Long.MAX_VALUE);
+        try (Connection migration = TenantSecurityIntegrationFixture.migrationConnection();
+                var executor = Executors.newSingleThreadExecutor()) {
+            TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    CREATE FUNCTION dokene.test_hold_work_insert_%1$s() RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN
+                        IF NEW.candidate_id = '%2$s'::uuid AND NEW.state = 'PENDING' THEN
+                            PERFORM pg_advisory_lock(%3$d);
+                            PERFORM pg_advisory_unlock(%3$d);
+                        END IF;
+                        RETURN NEW;
+                    END $$
+                    """.formatted(suffix(heldCandidate), heldCandidate, barrier));
+            TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    CREATE TRIGGER test_hold_work_insert_%1$s BEFORE INSERT ON dokene.follow_up_work_items
+                    FOR EACH ROW EXECUTE FUNCTION dokene.test_hold_work_insert_%1$s()
+                    """.formatted(suffix(heldCandidate)));
+            try {
+                TenantSecurityIntegrationFixture.queryInt(migration,
+                        "SELECT count(*) FROM (SELECT pg_advisory_lock(?)) held", barrier);
+                Future<Integer> stale = executor.submit(() -> ledger(now, 100, 1).enqueue(tenantA.id()));
+                awaitLockWaiter();
+
+                // A newer cycle is enqueued, claimed and finished while the old enqueue is held.
+                inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, held.version()));
+                generate(tenantA);
+                assertThat(ledger(now, 100, 1).enqueue(tenantA.id())).isEqualTo(1);
+                FollowUpWorkClaim cover = ledger(now, 5, 1).claim(tenantA.id(), INSTANCE_B, 5).getFirst();
+                assertThat(cover.dueDate()).isEqualTo(today);
+                Instant finishedAt = now.plusSeconds(1);
+                if (complete) {
+                    // A collapse bound of one resolves only the oldest cycle and leaves the held one without an item.
+                    Integer collapsed = contexts.callWithTenantId(tenantA.id(),
+                            () -> new TransactionTemplate(transactionManager).execute(status ->
+                                    repository.complete(cover, finishedAt)
+                                            ? repository.collapseInto(cover, finishedAt, 1) : -1));
+                    assertThat(collapsed).isEqualTo(1);
+                } else {
+                    assertThat(ledger(finishedAt, 5, 1).fail(cover, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE,
+                            now.plusSeconds(60))).isEqualTo(FollowUpWorkTransition.EXHAUSTED);
+                }
+
+                TenantSecurityIntegrationFixture.queryInt(migration,
+                        "SELECT count(*) FROM (SELECT pg_advisory_unlock(?)) released", barrier);
+                assertThat(stale.get(30, TimeUnit.SECONDS)).isEqualTo(1);
+                assertThat(item(tenantA, heldCandidate).state()).isEqualTo(FollowUpWorkState.PENDING);
+
+                // The covered item is never claimable: the next claim resolves it into the cover first.
+                assertThat(ledger(now.plusSeconds(2), 5, 1).claim(tenantA.id(), INSTANCE_A, 5)).isEmpty();
+                assertThat(item(tenantA, heldCandidate)).satisfies(item -> {
+                    assertThat(item.state()).isEqualTo(FollowUpWorkState.COMPLETED);
+                    assertThat(item.collapsedInto()).contains(cover.candidateId());
+                    assertThat(item.attempts()).isZero();
+                });
+                assertThat(items(tenantA)).filteredOn(item -> item.state() == FollowUpWorkState.PENDING
+                        || item.state() == FollowUpWorkState.CLAIMED
+                        || item.state() == FollowUpWorkState.RETRY_DUE).isEmpty();
+            } finally {
+                TenantSecurityIntegrationFixture.executeUpdate(migration,
+                        "DROP TRIGGER test_hold_work_insert_%1$s ON dokene.follow_up_work_items"
+                                .formatted(suffix(heldCandidate)));
+                TenantSecurityIntegrationFixture.executeUpdate(migration,
+                        "DROP FUNCTION dokene.test_hold_work_insert_%1$s()".formatted(suffix(heldCandidate)));
+            }
+        }
+
+        // Genuinely newer work for the customer is not blocked by the reconciliation.
+        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(1),
+                followUps.customerPolicy(customer.id()).version()));
+        generate(tenantA);
+        assertThat(ledger(now.plusSeconds(3), 100, 1).enqueue(tenantA.id())).isEqualTo(1);
+        assertThat(ledger(now.plusSeconds(3), 5, 1).claim(tenantA.id(), INSTANCE_A, 5)).singleElement()
+                .satisfies(next -> assertThat(next.dueDate()).isEqualTo(today.minusDays(1)));
+    }
+
+    private static String suffix(UUID id) {
+        return id.toString().replace("-", "");
+    }
+
+    /**
+     * Waits until a backend blocks on a lock. {@code pg_locks} is read rather than {@code pg_stat_activity}, which
+     * hides other roles' wait events.
+     */
+    private static void awaitLockWaiter() throws Exception {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(15);
+        try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection()) {
+            while (System.nanoTime() < deadline) {
+                if (TenantSecurityIntegrationFixture.queryInt(connection,
+                        "SELECT count(*) FROM pg_locks WHERE NOT granted") > 0) {
+                    return;
+                }
+                Thread.sleep(20);
+            }
+        }
+        throw new AssertionError("No backend waited for the held lock");
     }
 
     private static void await(CountDownLatch latch) {

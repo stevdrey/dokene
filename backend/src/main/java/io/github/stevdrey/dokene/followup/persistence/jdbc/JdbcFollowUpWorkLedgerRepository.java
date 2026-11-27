@@ -10,6 +10,7 @@ import io.github.stevdrey.dokene.followup.domain.FollowUpWorkItem;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkState;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkerId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import java.sql.Date;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
@@ -23,25 +24,25 @@ import org.springframework.stereotype.Repository;
 
 /**
  * Claims lock their rows with {@code FOR UPDATE SKIP LOCKED}, so concurrent instances never wait on or claim the same
- * row, and PostgreSQL re-checks the claimable condition on a row that changed before it was locked. Outcomes match the
- * fencing identity and an unexpired lease in the same {@code UPDATE}, so a stale claimant writes nothing.
+ * row, and PostgreSQL re-checks the claimable condition on a row that changed before it was locked. Outcomes first lock
+ * the current claim's row ({@link #lockClaim}); the caller then judges the lease with a clock read after the lock, and
+ * the fenced {@code UPDATE} matches the fencing identity and that unexpired lease, so a stale claimant writes nothing.
  */
 @Repository
 public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepository {
-    /** The current claim, unexpired at the statement's {@code now}: tenant, candidate, attempt, token and now. */
+    /**
+     * The current claim's fencing identity and the metadata it was issued with: tenant, candidate, customer, due date,
+     * attempt and token. A claim whose customer or due date was altered matches nothing.
+     */
     private static final String CURRENT_CLAIM = """
-            tenant_id = ? AND candidate_id = ? AND state = 'CLAIMED' AND attempts = ? AND claim_token = ?
-              AND lease_expires_at > ?
+            tenant_id = ? AND candidate_id = ? AND customer_id = ? AND due_date = ? AND state = 'CLAIMED'
+              AND attempts = ? AND claim_token = ?
             """;
     /**
      * A finished, non-collapsed item of the candidate {@code c}'s customer whose latest claim the database recorded
      * after {@code c}: the candidate existed when that follow-up was worked, so it is covered by it.
      */
-    private static final String COVERING_ITEM = """
-            covering.tenant_id = c.tenant_id AND covering.customer_id = c.customer_id
-              AND covering.state IN ('COMPLETED', 'EXHAUSTED') AND covering.collapsed_into IS NULL
-              AND covering.claim_recorded_at >= c.recorded_at
-            """;
+    private static final String COVERING_ITEM = covering("c");
     private static final Comparator<FollowUpWorkClaim> DUE_ORDER = Comparator.comparing(FollowUpWorkClaim::dueDate)
             .thenComparing(claim -> claim.customerId().value(), JdbcFollowUpCandidateRepository::unsigned);
 
@@ -127,6 +128,41 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 """, at, at, at, at, tenantId.value(), limit);
     }
 
+    /**
+     * An enqueue whose statement snapshot predates a newer covering item can still insert a covered candidate as
+     * {@code PENDING} once that item has finished and released its customer. Any statement that sees such an item was
+     * itself started after the covering item finished, so this fresh read finds the cover and resolves the item, which
+     * releases the customer's slot again.
+     */
+    @Override
+    public int reconcileCovered(TenantId tenantId, Instant now, int limit) {
+        requirePositive(limit);
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                WITH covered AS (
+                    SELECT w.candidate_id, cover.candidate_id AS covering_id
+                    FROM dokene.follow_up_work_items w
+                    JOIN dokene.follow_up_candidates cand
+                      ON cand.tenant_id = w.tenant_id AND cand.id = w.candidate_id
+                    CROSS JOIN LATERAL (
+                        SELECT covering.candidate_id FROM dokene.follow_up_work_items covering
+                        WHERE
+                        """ + covering("cand") + """
+                        ORDER BY covering.claim_recorded_at DESC, covering.candidate_id ASC
+                        LIMIT 1
+                    ) cover
+                    WHERE w.tenant_id = ? AND w.state = 'PENDING' AND w.attempts = 0
+                    ORDER BY w.due_date ASC, w.customer_id ASC
+                    LIMIT ?
+                    FOR UPDATE OF w SKIP LOCKED
+                )
+                UPDATE dokene.follow_up_work_items w
+                SET state = 'COMPLETED', collapsed_into = covered.covering_id, finished_at = ?, updated_at = ?
+                FROM covered
+                WHERE w.tenant_id = ? AND w.candidate_id = covered.candidate_id
+                """, tenantId.value(), limit, at, at, tenantId.value());
+    }
+
     @Override
     public int exhaustSpent(TenantId tenantId, Instant now, int maxAttempts, int limit) {
         requirePositive(limit);
@@ -164,6 +200,12 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                       AND ((c.state IN ('PENDING', 'RETRY_DUE') AND c.available_at <= ?)
                            OR (c.state = 'CLAIMED' AND c.lease_expires_at <= ?))
                       AND EXISTS (SELECT 1 FROM dokene.tenants t WHERE t.id = ? AND t.status = 'ACTIVE')
+                      AND NOT (c.state = 'PENDING' AND c.attempts = 0 AND EXISTS (
+                          SELECT 1 FROM dokene.follow_up_candidates cand
+                          JOIN dokene.follow_up_work_items covering ON
+                          """ + covering("cand") + """
+                          WHERE cand.tenant_id = c.tenant_id AND cand.id = c.candidate_id
+                      ))
                     ORDER BY c.due_date ASC, c.customer_id ASC
                     LIMIT ?
                     FOR UPDATE OF c SKIP LOCKED
@@ -181,6 +223,16 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
     }
 
     @Override
+    public Optional<Instant> lockClaim(FollowUpWorkClaim claim) {
+        return jdbc.query("""
+                SELECT lease_expires_at FROM dokene.follow_up_work_items
+                WHERE
+                """ + CURRENT_CLAIM + """
+                FOR UPDATE
+                """, (row, index) -> instant(row, "lease_expires_at"), fence(claim)).stream().findFirst();
+    }
+
+    @Override
     public Optional<Instant> renew(FollowUpWorkClaim claim, Instant now, Instant leaseExpiresAt) {
         Timestamp at = Timestamp.from(now);
         return jdbc.query("""
@@ -188,10 +240,10 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 SET lease_expires_at = GREATEST(lease_expires_at, ?), updated_at = ?
                 WHERE
                 """ + CURRENT_CLAIM + """
+                  AND lease_expires_at > ?
                 RETURNING lease_expires_at
-                """, (row, index) -> instant(row, "lease_expires_at"), Timestamp.from(leaseExpiresAt), at,
-                claim.tenantId().value(), claim.candidateId(), claim.attempt(), claim.claimToken(), at)
-                .stream().findFirst();
+                """, (row, index) -> instant(row, "lease_expires_at"),
+                parameters(claim, at, Timestamp.from(leaseExpiresAt), at)).stream().findFirst();
     }
 
     @Override
@@ -201,10 +253,15 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 UPDATE dokene.follow_up_work_items
                 SET state = 'COMPLETED', finished_at = ?, updated_at = ?
                 WHERE
-                """ + CURRENT_CLAIM, at, at, claim.tenantId().value(), claim.candidateId(), claim.attempt(),
-                claim.claimToken(), at) == 1;
+                """ + CURRENT_CLAIM + """
+                  AND lease_expires_at > ?
+                """, parameters(claim, at, at, at)) == 1;
     }
 
+    /**
+     * The customer and the claim instant come from the completed item itself, never from {@code claim}, so a claim
+     * object with altered metadata cannot collapse another customer's candidates or candidates it never covered.
+     */
     @Override
     public int collapseInto(FollowUpWorkClaim claim, Instant now, int limit) {
         requirePositive(limit);
@@ -213,13 +270,14 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 INSERT INTO dokene.follow_up_work_items
                     (candidate_id, tenant_id, customer_id, due_date, state, attempts, available_at, collapsed_into,
                      enqueued_at, finished_at, updated_at)
-                SELECT c.id, c.tenant_id, c.customer_id, c.due_date, 'COMPLETED', 0, ?, ?, ?, ?, ?
-                FROM dokene.follow_up_candidates c
-                WHERE c.tenant_id = ? AND c.customer_id = ? AND c.id <> ?
-                  AND c.recorded_at <= (
-                      SELECT completed.claim_recorded_at FROM dokene.follow_up_work_items completed
-                      WHERE completed.tenant_id = ? AND completed.candidate_id = ?
-                  )
+                SELECT c.id, c.tenant_id, c.customer_id, c.due_date, 'COMPLETED', 0, ?, completed.candidate_id, ?, ?,
+                       ?
+                FROM dokene.follow_up_work_items completed
+                JOIN dokene.follow_up_candidates c
+                  ON c.tenant_id = completed.tenant_id AND c.customer_id = completed.customer_id
+                WHERE completed.tenant_id = ? AND completed.candidate_id = ? AND completed.state = 'COMPLETED'
+                  AND completed.collapsed_into IS NULL
+                  AND c.id <> completed.candidate_id AND c.recorded_at <= completed.claim_recorded_at
                   AND NOT EXISTS (
                       SELECT 1 FROM dokene.follow_up_work_items item
                       WHERE item.tenant_id = c.tenant_id AND item.candidate_id = c.id
@@ -227,8 +285,7 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 ORDER BY c.due_date ASC, c.id ASC
                 LIMIT ?
                 ON CONFLICT DO NOTHING
-                """, at, claim.candidateId(), at, at, at, claim.tenantId().value(), claim.customerId().value(),
-                claim.candidateId(), claim.tenantId().value(), claim.candidateId(), limit);
+                """, at, at, at, at, claim.tenantId().value(), claim.candidateId(), limit);
     }
 
     @Override
@@ -243,10 +300,11 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                     last_failure = ?, updated_at = ?
                 WHERE
                 """ + CURRENT_CLAIM + """
+                  AND lease_expires_at > ?
                 RETURNING state
-                """, (row, index) -> FollowUpWorkState.valueOf(row.getString("state")), maxAttempts, maxAttempts,
-                Timestamp.from(retryAt), maxAttempts, at, failure.name(), at, claim.tenantId().value(),
-                claim.candidateId(), claim.attempt(), claim.claimToken(), at).stream().findFirst();
+                """, (row, index) -> FollowUpWorkState.valueOf(row.getString("state")),
+                parameters(claim, at, maxAttempts, maxAttempts, Timestamp.from(retryAt), maxAttempts, at,
+                        failure.name(), at)).stream().findFirst();
     }
 
     @Override
@@ -256,8 +314,9 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 UPDATE dokene.follow_up_work_items
                 SET state = 'EXHAUSTED', last_failure = ?, finished_at = ?, updated_at = ?
                 WHERE
-                """ + CURRENT_CLAIM, failure.name(), at, at, claim.tenantId().value(), claim.candidateId(),
-                claim.attempt(), claim.claimToken(), at) == 1;
+                """ + CURRENT_CLAIM + """
+                  AND lease_expires_at > ?
+                """, parameters(claim, at, failure.name(), at, at)) == 1;
     }
 
     @Override
@@ -269,6 +328,33 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 ORDER BY due_date ASC, customer_id ASC, candidate_id ASC
                 LIMIT ?
                 """, this::mapItem, tenantId.value(), limit);
+    }
+
+    /**
+     * A finished, non-collapsed item of the candidate {@code alias}'s customer whose latest claim the database recorded
+     * after that candidate: the candidate existed when that follow-up was worked, so it is covered by it.
+     */
+    private static String covering(String alias) {
+        return """
+                covering.tenant_id = %1$s.tenant_id AND covering.customer_id = %1$s.customer_id
+                  AND covering.state IN ('COMPLETED', 'EXHAUSTED') AND covering.collapsed_into IS NULL
+                  AND covering.claim_recorded_at >= %1$s.recorded_at
+                """.formatted(alias);
+    }
+
+    private static Object[] fence(FollowUpWorkClaim claim) {
+        return new Object[] {claim.tenantId().value(), claim.candidateId(), claim.customerId().value(),
+                Date.valueOf(claim.dueDate()), claim.attempt(), claim.claimToken()};
+    }
+
+    /** The {@code SET} values, then the claim's fence, then the instant its lease must outlast. */
+    private static Object[] parameters(FollowUpWorkClaim claim, Timestamp leaseOutlasts, Object... values) {
+        Object[] fence = fence(claim);
+        Object[] all = new Object[values.length + fence.length + 1];
+        System.arraycopy(values, 0, all, 0, values.length);
+        System.arraycopy(fence, 0, all, values.length, fence.length);
+        all[all.length - 1] = leaseOutlasts;
+        return all;
     }
 
     private static void requirePositive(int limit) {

@@ -5,6 +5,9 @@
 -- ledger reference a candidate together with the customer and due date it copies, so the copies cannot drift.
 ALTER TABLE dokene.follow_up_candidates
     ADD CONSTRAINT uq_follow_up_candidates_work_identity UNIQUE (tenant_id, id, customer_id, due_date);
+-- Lets a collapsed item reference the candidate it was resolved with only within the same customer.
+ALTER TABLE dokene.follow_up_candidates
+    ADD CONSTRAINT uq_follow_up_candidates_customer_identity UNIQUE (tenant_id, id, customer_id);
 -- When the database recorded the candidate. The ledger compares it only with other database instants, because
 -- generated_at comes from the generating instance's clock (ADR 0037).
 ALTER TABLE dokene.follow_up_candidates
@@ -35,8 +38,8 @@ CREATE TABLE dokene.follow_up_work_items (
     CONSTRAINT uq_follow_up_work_items_tenant_candidate UNIQUE (tenant_id, candidate_id),
     CONSTRAINT fk_follow_up_work_items_candidate FOREIGN KEY (tenant_id, candidate_id, customer_id, due_date)
         REFERENCES dokene.follow_up_candidates (tenant_id, id, customer_id, due_date) ON DELETE RESTRICT,
-    CONSTRAINT fk_follow_up_work_items_collapsed_into FOREIGN KEY (tenant_id, collapsed_into)
-        REFERENCES dokene.follow_up_candidates (tenant_id, id) ON DELETE RESTRICT,
+    CONSTRAINT fk_follow_up_work_items_collapsed_into FOREIGN KEY (tenant_id, collapsed_into, customer_id)
+        REFERENCES dokene.follow_up_candidates (tenant_id, id, customer_id) ON DELETE RESTRICT,
     CONSTRAINT ck_follow_up_work_items_state CHECK (state IN (
         'PENDING', 'CLAIMED', 'COMPLETED', 'RETRY_DUE', 'EXHAUSTED')),
     CONSTRAINT ck_follow_up_work_items_attempts CHECK (attempts >= 0),

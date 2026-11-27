@@ -89,6 +89,11 @@ public class FollowUpWorkLedger {
         Instant leaseExpiresAt = now.plus(properties.leaseDuration());
         int maxAttempts = properties.maxAttempts();
         return inTenant(tenantId, () -> {
+            int reconciled = ledger.reconcileCovered(tenantId, now, properties.batchSize());
+            if (reconciled > 0) {
+                log.info("Covered follow-up work resolved before claiming; tenantId={}, resolved={}",
+                        tenantId.value(), reconciled);
+            }
             int exhausted = ledger.exhaustSpent(tenantId, now, maxAttempts, properties.batchSize());
             if (exhausted > 0) {
                 log.warn("Follow-up work exhausted with its attempts spent; tenantId={}, exhausted={}",
@@ -101,8 +106,8 @@ public class FollowUpWorkLedger {
     /** Extends a current claim by one lease duration from now; empty when the claim is stale. */
     public Optional<FollowUpWorkClaim> renew(FollowUpWorkClaim claim) {
         Objects.requireNonNull(claim, "Claim is required");
-        Instant now = clock.instant();
-        return inTenant(claim.tenantId(), () -> ledger.renew(claim, now, now.plus(properties.leaseDuration())))
+        return inTenant(claim.tenantId(), () -> lockedNow(claim)
+                .flatMap(now -> ledger.renew(claim, now, now.plus(properties.leaseDuration()))))
                 .map(claim::withLeaseExpiresAt);
     }
 
@@ -113,11 +118,12 @@ public class FollowUpWorkLedger {
      */
     public FollowUpWorkTransition complete(FollowUpWorkClaim claim) {
         Objects.requireNonNull(claim, "Claim is required");
-        Instant now = clock.instant();
         return inTenant(claim.tenantId(), () -> {
-            if (!ledger.complete(claim, now)) {
+            Optional<Instant> locked = lockedNow(claim);
+            if (locked.isEmpty() || !ledger.complete(claim, locked.get())) {
                 return stale(claim, "complete");
             }
+            Instant now = locked.get();
             ledger.collapseInto(claim, now, COLLAPSE_LIMIT);
             return FollowUpWorkTransition.COMPLETED;
         });
@@ -138,11 +144,11 @@ public class FollowUpWorkLedger {
         if (failure == FollowUpWorkFailure.OUTCOME_UNKNOWN || failure == FollowUpWorkFailure.LEASE_EXPIRED) {
             throw new IllegalArgumentException(failure + " is never retried; require recovery instead");
         }
-        Instant now = clock.instant();
-        if (retryAt.isBefore(now)) {
+        if (retryAt.isBefore(clock.instant())) {
             throw new IllegalArgumentException("Retry instant must not be in the past");
         }
-        return inTenant(claim.tenantId(), () -> ledger.fail(claim, failure, now, retryAt, properties.maxAttempts())
+        return inTenant(claim.tenantId(), () -> lockedNow(claim)
+                .flatMap(now -> ledger.fail(claim, failure, now, retryAt, properties.maxAttempts()))
                 .map(state -> state == FollowUpWorkState.EXHAUSTED ? FollowUpWorkTransition.EXHAUSTED
                         : FollowUpWorkTransition.RETRY_SCHEDULED)
                 .orElseGet(() -> stale(claim, "fail")));
@@ -156,15 +162,27 @@ public class FollowUpWorkLedger {
     public FollowUpWorkTransition requireRecovery(FollowUpWorkClaim claim, FollowUpWorkFailure failure) {
         Objects.requireNonNull(claim, "Claim is required");
         Objects.requireNonNull(failure, "Failure is required");
-        Instant now = clock.instant();
-        return inTenant(claim.tenantId(), () -> ledger.exhaust(claim, failure, now)
-                ? FollowUpWorkTransition.EXHAUSTED : stale(claim, "require recovery"));
+        return inTenant(claim.tenantId(), () -> lockedNow(claim)
+                .filter(now -> ledger.exhaust(claim, failure, now))
+                .map(now -> FollowUpWorkTransition.EXHAUSTED)
+                .orElseGet(() -> stale(claim, "require recovery")));
     }
 
     /** The tenant's oldest {@code limit} items, for diagnostics and tests. */
     public List<FollowUpWorkItem> items(TenantId tenantId, int limit) {
         Objects.requireNonNull(tenantId, "Tenant ID is required");
         return inTenant(tenantId, () -> ledger.findItems(tenantId, limit));
+    }
+
+    /**
+     * Locks the current claim's row, then reads the clock: an outcome that waited for another transaction holding the
+     * row is judged at the instant it got the lock, not at the instant it started. Empty when the claim is not current
+     * or its lease has expired by then.
+     */
+    private Optional<Instant> lockedNow(FollowUpWorkClaim claim) {
+        Optional<Instant> leaseExpiresAt = ledger.lockClaim(claim);
+        Instant now = clock.instant();
+        return leaseExpiresAt.filter(expiry -> expiry.isAfter(now)).map(expiry -> now);
     }
 
     private FollowUpWorkTransition stale(FollowUpWorkClaim claim, String action) {
