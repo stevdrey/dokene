@@ -16,10 +16,9 @@ ALTER TABLE dokene.follow_up_work_items
         AND (recovery_count = 0) = (last_recovery_action IS NULL)
         AND (last_recovery_action IS NULL) = (last_recovered_at IS NULL)
         AND (last_recovery_action IS NULL OR last_recovery_action IN ('REQUEUE', 'RESOLVE'))
-        AND (last_recovery_action IS NULL OR (last_failure IS NOT NULL AND collapsed_into IS NULL))
-        -- Only a failure known to have had no external effect is ever requeued (ADR 0038).
-        AND (last_recovery_action IS DISTINCT FROM 'REQUEUE'
-             OR last_failure IN ('PROCESSING_ERROR', 'DEPENDENCY_UNAVAILABLE', 'REJECTED'))),
+        -- Only a failure known to have had no external effect is ever requeued (ADR 0038). The requeue update itself
+        -- enforces that, because a requeued item's later attempts may still end with an unknown outcome.
+        AND (last_recovery_action IS NULL OR (last_failure IS NOT NULL AND collapsed_into IS NULL))),
     DROP CONSTRAINT ck_follow_up_work_items_failure,
     ADD CONSTRAINT ck_follow_up_work_items_failure CHECK (
         (state NOT IN ('RETRY_DUE', 'EXHAUSTED') OR last_failure IS NOT NULL)

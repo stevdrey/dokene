@@ -372,22 +372,59 @@ class FollowUpWorkRecoveryIntegrationTest {
     }
 
     @Test
-    void theSchemaRefusesARequeueOfAnUnknownOutcome() throws Exception {
+    void theRepositoryNeverRequeuesAnUnknownOutcome() throws Exception {
         oneItem();
         processor(now).process(tenantA.id(), INSTANCE_A, 5, lease -> new FollowUpWorkAttemptResult.OutcomeUnknown());
-        try (Connection migration = TenantSecurityIntegrationFixture.migrationConnection()) {
-            assertThatThrownBy(() -> TenantSecurityIntegrationFixture.executeUpdate(migration, """
-                    UPDATE dokene.follow_up_work_items SET state = 'RETRY_DUE', finished_at = NULL,
-                        recovery_count = 1, last_recovery_action = 'REQUEUE', last_recovered_at = now()
-                    WHERE tenant_id = ?
-                    """, tenantA.id().value())).hasMessageContaining("ck_follow_up_work_items_recovery");
-        }
-        // The repository never requeues it either: its update matches no row.
         UUID item = onlyItem(tenantA).candidateId();
         Boolean requeued = contexts.callWithTenantId(tenantA.id(), () -> new TransactionTemplate(transactionManager)
                 .execute(status -> repository.requeue(tenantA.id(), item, 0, now)));
         assertThat(requeued).isFalse();
         assertThat(onlyItem(tenantA).state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+    }
+
+    @Test
+    void aRequeuedItemMayStillEndWithAnUnknownOutcomeAndBeResolved() throws Exception {
+        UUID item = exhaustedBySafeFailures();
+        inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.REQUEUE, 0));
+
+        Instant later = now.plus(Duration.ofHours(1));
+        assertThat(processor(later).process(tenantA.id(), INSTANCE_A, 5, lease -> {
+            throw new IllegalStateException("the send may have reached the provider");
+        }).recoveryRequired()).isEqualTo(1);
+        assertThat(item(tenantA, item)).satisfies(work -> {
+            assertThat(work.state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+            assertThat(work.lastFailure()).contains(FollowUpWorkFailure.OUTCOME_UNKNOWN);
+        });
+
+        assertRefused(ownerA, item, FollowUpWorkRecoveryAction.REQUEUE, 1, Refusal.OUTCOME_UNKNOWN);
+        assertThat(inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.RESOLVE, 1))
+                .item().state()).isEqualTo(FollowUpWorkState.COMPLETED);
+    }
+
+    @Test
+    void aRequeuedItemWhoseLastAttemptCrashesNeedsRecoveryAgain() throws Exception {
+        UUID item = exhaustedBySafeFailures();
+        inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.REQUEUE, 0));
+
+        // Two more safe failures, then the third attempt of the new budget crashes.
+        Instant at = now.plus(Duration.ofHours(1));
+        for (int attempt = 0; attempt < 2; attempt++) {
+            processor(at).process(tenantA.id(), INSTANCE_A, 5, UNAVAILABLE);
+            at = at.plus(Duration.ofMinutes(10));
+        }
+        assertThat(ledger(at).claim(tenantA.id(), INSTANCE_A, 5)).singleElement()
+                .satisfies(claim -> assertThat(claim.attempt()).isEqualTo(6));
+        assertThat(ledger(at.plus(LEASE)).claim(tenantA.id(), INSTANCE_B, 5)).isEmpty();
+
+        assertThat(item(tenantA, item)).satisfies(work -> {
+            assertThat(work.state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+            assertThat(work.lastFailure()).contains(FollowUpWorkFailure.LEASE_EXPIRED);
+        });
+        assertThat(inContext(ownerA, () -> recovery.recoverable(10))).singleElement()
+                .satisfies(view -> assertThat(view.outcomeUnknown()).isTrue());
+        assertRefused(ownerA, item, FollowUpWorkRecoveryAction.REQUEUE, 1, Refusal.OUTCOME_UNKNOWN);
+        assertThat(inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.RESOLVE, 1)).applied())
+                .isTrue();
     }
 
     private void assertRefused(TenantContext member, UUID item, FollowUpWorkRecoveryAction action, int expected,
