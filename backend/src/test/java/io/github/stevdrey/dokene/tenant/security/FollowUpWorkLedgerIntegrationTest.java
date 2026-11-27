@@ -326,6 +326,41 @@ class FollowUpWorkLedgerIntegrationTest {
     }
 
     @Test
+    void candidatesBeyondTheCollapseBoundNeverReopenButANewerCycleDoes() throws Exception {
+        Customer customer = consentedCustomer(contextA, "Many cycles customer");
+        var first = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(5), 0));
+        generate(tenantA);
+        var second = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(3),
+                first.version()));
+        generate(tenantA);
+        var third = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, second.version()));
+        generate(tenantA);
+        assertThat(ledger(now, 100, 3).enqueue(tenantA.id())).isEqualTo(1);
+        FollowUpWorkClaim claim = ledger(now.plusSeconds(1), 5, 3).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+        assertThat(claim.dueDate()).isEqualTo(today);
+
+        // Complete with a collapse bound of one, so one older cycle is left without an item.
+        Instant completedAt = now.plusSeconds(2);
+        Integer collapsed = contexts.callWithTenantId(tenantA.id(), () -> new TransactionTemplate(transactionManager)
+                .execute(status -> repository.complete(claim, completedAt)
+                        ? repository.collapseInto(claim, completedAt, 1) : -1));
+        assertThat(collapsed).isEqualTo(1);
+        assertThat(items(tenantA)).hasSize(2);
+
+        // The completed claim covers the leftover cycle: enqueue never reopens it as another follow-up.
+        assertThat(ledger(now.plusSeconds(3), 100, 3).enqueue(tenantA.id())).isZero();
+        assertThat(ledger(now.plusSeconds(3), 5, 3).claim(tenantA.id(), INSTANCE_B, 5)).isEmpty();
+
+        // A cycle generated after the claim is new work and is enqueued.
+        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(1),
+                third.version()));
+        generateAt(tenantA, now.plusSeconds(10));
+        assertThat(ledger(now.plusSeconds(11), 100, 3).enqueue(tenantA.id())).isEqualTo(1);
+        assertThat(items(tenantA)).filteredOn(item -> item.state() == FollowUpWorkState.PENDING).singleElement()
+                .satisfies(item -> assertThat(item.dueDate()).isEqualTo(today.minusDays(1)));
+    }
+
+    @Test
     void anItemThatNeedsRecoveryHoldsBackNewerWorkForItsCustomer() throws Exception {
         Customer customer = consentedCustomer(contextA, "Recovery customer");
         var policy = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(3), 0));
@@ -451,8 +486,12 @@ class FollowUpWorkLedgerIntegrationTest {
     }
 
     private void generate(Tenant tenant) {
+        generateAt(tenant, now);
+    }
+
+    private void generateAt(Tenant tenant, Instant instant) {
         new FollowUpCandidateGenerator(candidates, tenants, contexts, new FollowUpCandidateProperties(100),
-                transactionManager, Clock.fixed(now, ZoneOffset.UTC)).generate(tenant.id());
+                transactionManager, Clock.fixed(instant, ZoneOffset.UTC)).generate(tenant.id());
     }
 
     private void dueCustomers(TenantContext context, Tenant tenant, int count) throws Exception {
