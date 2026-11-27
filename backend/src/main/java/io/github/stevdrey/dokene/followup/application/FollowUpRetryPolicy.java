@@ -1,4 +1,4 @@
-// ABOUTME: Capped exponential backoff with jitter for follow-up work retries (issue 461, ADR 0038). Pure arithmetic
+// ABOUTME: Capped exponential backoff with jitter for follow-up work retries (issue 461, ADR 0039). Pure arithmetic
 // ABOUTME: over an injected random source, so tests and instances agree on its bounds.
 package io.github.stevdrey.dokene.followup.application;
 

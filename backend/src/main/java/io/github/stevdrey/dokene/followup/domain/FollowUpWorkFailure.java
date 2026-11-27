@@ -8,7 +8,7 @@ public enum FollowUpWorkFailure {
     /** A dependency was unavailable before any external effect. */
     DEPENDENCY_UNAVAILABLE,
     /**
-     * The attempt was refused definitively before any external effect (issue 461, ADR 0038): retrying it unchanged
+     * The attempt was refused definitively before any external effect (issue 461, ADR 0039): retrying it unchanged
      * cannot succeed, so the item is exhausted at once and only an operator's recovery may requeue it.
      */
     REJECTED,

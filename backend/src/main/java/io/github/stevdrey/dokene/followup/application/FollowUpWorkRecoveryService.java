@@ -1,4 +1,4 @@
-// ABOUTME: Authorized, audited and idempotent recovery of exhausted follow-up work (issue 461, ADR 0038): list the items
+// ABOUTME: Authorized, audited and idempotent recovery of exhausted follow-up work (issue 461, ADR 0039): list the items
 // ABOUTME: awaiting a decision, then requeue a safe failure or resolve any item. Never sends or replays an unknown one.
 package io.github.stevdrey.dokene.followup.application;
 

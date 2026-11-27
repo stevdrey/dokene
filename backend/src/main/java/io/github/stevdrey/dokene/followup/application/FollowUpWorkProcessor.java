@@ -1,4 +1,4 @@
-// ABOUTME: Processes one bounded batch of a tenant's follow-up work (issue 461, ADR 0038): reads provider health,
+// ABOUTME: Processes one bounded batch of a tenant's follow-up work (issue 461, ADR 0039): reads provider health,
 // ABOUTME: claims, runs the handler, classifies its attempt and records a bounded retry, exhaustion or recovery.
 package io.github.stevdrey.dokene.followup.application;
 

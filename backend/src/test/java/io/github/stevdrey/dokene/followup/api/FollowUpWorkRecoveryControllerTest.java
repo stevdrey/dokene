@@ -1,4 +1,4 @@
-// ABOUTME: Pins the follow-up work recovery contract (issue 461, ADR 0038): strict body and If-Match, permissions before
+// ABOUTME: Pins the follow-up work recovery contract (issue 461, ADR 0039): strict body and If-Match, permissions before
 // ABOUTME: any write, 409 reasons for refused decisions, one audit row per applied decision and none for a replay.
 package io.github.stevdrey.dokene.followup.api;
 

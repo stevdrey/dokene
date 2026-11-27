@@ -1,4 +1,4 @@
-// ABOUTME: The decisions an authorized member may take on an exhausted follow-up work item (issue 461, ADR 0038).
+// ABOUTME: The decisions an authorized member may take on an exhausted follow-up work item (issue 461, ADR 0039).
 // ABOUTME: Neither sends anything; a requeue is refused when an external effect may already have happened.
 package io.github.stevdrey.dokene.followup.domain;
 

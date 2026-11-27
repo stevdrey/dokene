@@ -1,5 +1,5 @@
 // ABOUTME: Port to provider availability monitoring (Phase 4 B1, issue 469) as follow-up work processing reads it
-// ABOUTME: (issue 461, ADR 0038): no claim while unavailable, one probe claim while degraded or unknown.
+// ABOUTME: (issue 461, ADR 0039): no claim while unavailable, one probe claim while degraded or unknown.
 package io.github.stevdrey.dokene.followup.application;
 
 import io.github.stevdrey.dokene.tenant.domain.TenantId;

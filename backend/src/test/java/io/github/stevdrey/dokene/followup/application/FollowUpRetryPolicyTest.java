@@ -1,4 +1,4 @@
-// ABOUTME: Pins the follow-up retry backoff (issue 461, ADR 0038): exponential growth from the initial delay, the cap,
+// ABOUTME: Pins the follow-up retry backoff (issue 461, ADR 0039): exponential growth from the initial delay, the cap,
 // ABOUTME: the jitter bounds, and the configuration limits.
 package io.github.stevdrey.dokene.followup.application;
 

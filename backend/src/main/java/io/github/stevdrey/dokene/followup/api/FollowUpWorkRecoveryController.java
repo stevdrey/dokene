@@ -1,4 +1,4 @@
-// ABOUTME: Recovery of exhausted follow-up work (issue 461, ADR 0038): GET lists items awaiting a decision with
+// ABOUTME: Recovery of exhausted follow-up work (issue 461, ADR 0039): GET lists items awaiting a decision with
 // ABOUTME: FOLLOWUP_READ; POST applies REQUEUE or RESOLVE with FOLLOWUP_WRITE under If-Match on the recovery count.
 package io.github.stevdrey.dokene.followup.api;
 

@@ -1,5 +1,5 @@
 // ABOUTME: A read-only view of one exhausted follow-up work item awaiting an operator's recovery decision (issue 461,
-// ABOUTME: ADR 0038). Ids, safe categories, counts and instants only: no customer data, worker label or claim token.
+// ABOUTME: ADR 0039). Ids, safe categories, counts and instants only: no customer data, worker label or claim token.
 package io.github.stevdrey.dokene.followup.domain;
 
 import io.github.stevdrey.dokene.customer.domain.CustomerId;

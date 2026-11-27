@@ -1,4 +1,4 @@
-// ABOUTME: What one follow-up work attempt reported (issue 461, ADR 0038): completed, a transient or permanent failure
+// ABOUTME: What one follow-up work attempt reported (issue 461, ADR 0039): completed, a transient or permanent failure
 // ABOUTME: known to have had no external effect, or an unknown outcome that must never be replayed blindly.
 package io.github.stevdrey.dokene.followup.domain;
 

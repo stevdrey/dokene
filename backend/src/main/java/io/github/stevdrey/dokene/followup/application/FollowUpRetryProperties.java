@@ -1,4 +1,4 @@
-// ABOUTME: Bounds for follow-up work retries and recovery (issue 461, ADR 0038): capped exponential backoff with
+// ABOUTME: Bounds for follow-up work retries and recovery (issue 461, ADR 0039): capped exponential backoff with
 // ABOUTME: jitter, and how many times an operator may requeue one exhausted item.
 package io.github.stevdrey.dokene.followup.application;
 

@@ -1,4 +1,4 @@
-// ABOUTME: The work a follow-up claim holder performs (issue 461, ADR 0038), supplied by the scheduler wiring (issue
+// ABOUTME: The work a follow-up claim holder performs (issue 461, ADR 0039), supplied by the scheduler wiring (issue
 // ABOUTME: 463). It re-checks every last-moment gate, may renew its lease, and classifies its own attempt.
 package io.github.stevdrey.dokene.followup.application;
 

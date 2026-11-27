@@ -1,4 +1,4 @@
--- ABOUTME: Issue 461 (Phase 4 A3, ADR 0038): bounded retries and explicit recovery of follow-up work. Adds the REJECTED
+-- ABOUTME: Issue 461 (Phase 4 A3, ADR 0039): bounded retries and explicit recovery of follow-up work. Adds the REJECTED
 -- ABOUTME: failure, the attempt budget base and recovery columns, and the two audited recovery decisions.
 
 -- Expand only: a backend of the previous release never writes the new columns, whose defaults keep its rows valid, and
@@ -16,7 +16,7 @@ ALTER TABLE dokene.follow_up_work_items
         AND (recovery_count = 0) = (last_recovery_action IS NULL)
         AND (last_recovery_action IS NULL) = (last_recovered_at IS NULL)
         AND (last_recovery_action IS NULL OR last_recovery_action IN ('REQUEUE', 'RESOLVE'))
-        -- Only a failure known to have had no external effect is ever requeued (ADR 0038). The requeue update itself
+        -- Only a failure known to have had no external effect is ever requeued (ADR 0039). The requeue update itself
         -- enforces that, because a requeued item's later attempts may still end with an unknown outcome.
         AND (last_recovery_action IS NULL OR (last_failure IS NOT NULL AND collapsed_into IS NULL))),
     DROP CONSTRAINT ck_follow_up_work_items_failure,

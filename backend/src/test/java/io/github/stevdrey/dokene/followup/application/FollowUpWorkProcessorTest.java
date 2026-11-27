@@ -1,4 +1,4 @@
-// ABOUTME: Pins how follow-up work attempts are classified and recorded (issue 461, ADR 0038): health gating, backoff on
+// ABOUTME: Pins how follow-up work attempts are classified and recorded (issue 461, ADR 0039): health gating, backoff on
 // ABOUTME: transient failures, exhaustion on permanent ones, recovery on unknown outcomes and exceptions, stale claims.
 package io.github.stevdrey.dokene.followup.application;
 

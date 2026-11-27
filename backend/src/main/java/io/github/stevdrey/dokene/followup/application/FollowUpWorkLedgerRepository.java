@@ -15,7 +15,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Attempt limits count the claims made since the item was enqueued or last requeued by recovery (ADR 0038). The fenced
+ * Attempt limits count the claims made since the item was enqueued or last requeued by recovery (ADR 0039). The fenced
  * methods match the item on its candidate id, customer, due date, state {@code CLAIMED}, the claim's attempt
  * number and token, and a lease that has not expired at {@code now}; when any of these differ they write nothing.
  */
@@ -106,7 +106,7 @@ public interface FollowUpWorkLedgerRepository {
 
     /**
      * At most {@code limit} of the tenant's exhausted, non-collapsed items awaiting a recovery decision, oldest finish
-     * first (issue 461, ADR 0038).
+     * first (issue 461, ADR 0039).
      *
      * @throws IllegalArgumentException when {@code limit} is not positive
      */

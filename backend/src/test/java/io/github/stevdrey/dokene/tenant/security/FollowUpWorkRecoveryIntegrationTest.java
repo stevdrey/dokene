@@ -1,4 +1,4 @@
-// ABOUTME: Issue 461 (ADR 0038): bounded retries and explicit recovery of follow-up work against PostgreSQL with forced
+// ABOUTME: Issue 461 (ADR 0039): bounded retries and explicit recovery of follow-up work against PostgreSQL with forced
 // ABOUTME: RLS: transient, permanent and unknown outcomes, crash, exhaustion, stale claims and audited idempotent recovery.
 package io.github.stevdrey.dokene.tenant.security;
 
