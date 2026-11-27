@@ -27,3 +27,7 @@ Phase 4 adds a recurring scheduler. Its first step is to turn "this customer is 
 - An explicit next date set back to a date that already has a candidate reuses that candidate: that date is the same cycle.
 - A scan still evaluates every active customer of the tenant, as the due queue does; the batch bounds what one scan writes, not what it reads. Partitioning the read is a later optimization if tenants grow large.
 - Candidates are never deleted by the runtime. Retention and cleanup, if needed, are an operator or migration-role task to be decided with the ledger.
+
+## Extended by ADR 0037
+
+[ADR 0037](0037-durable-multi-instance-follow-up-work-claiming.md) adds the work ledger that claims candidates across instances. It keeps one open item per customer and resolves a customer's older candidates together with the completed one. V48 adds a unique key `(tenant_id, id, customer_id, due_date)` to `follow_up_candidates` so the ledger can reference it, and a `recorded_at` column that the database fills with its own clock on insert, so the ledger can order candidates against claims without relying on instance clocks; candidates are otherwise unchanged.
