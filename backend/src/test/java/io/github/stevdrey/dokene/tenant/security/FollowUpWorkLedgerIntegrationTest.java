@@ -714,10 +714,13 @@ class FollowUpWorkLedgerIntegrationTest {
                     CREATE TRIGGER test_hold_work_insert_%1$s BEFORE INSERT ON dokene.follow_up_work_items
                     FOR EACH ROW EXECUTE FUNCTION dokene.test_hold_work_insert_%1$s()
                     """.formatted(suffix(heldCandidate)));
+            boolean barrierHeld = false;
+            Future<Integer> stale = null;
             try {
                 TenantSecurityIntegrationFixture.queryInt(migration,
                         "SELECT count(*) FROM (SELECT pg_advisory_lock(?)) held", barrier);
-                Future<Integer> stale = executor.submit(() -> ledger(now, 100, 1).enqueue(tenantA.id()));
+                barrierHeld = true;
+                stale = executor.submit(() -> ledger(now, 100, 1).enqueue(tenantA.id()));
                 awaitLockWaiter();
 
                 // A newer cycle is enqueued, claimed and finished while the old enqueue is held.
@@ -741,6 +744,7 @@ class FollowUpWorkLedgerIntegrationTest {
 
                 TenantSecurityIntegrationFixture.queryInt(migration,
                         "SELECT count(*) FROM (SELECT pg_advisory_unlock(?)) released", barrier);
+                barrierHeld = false;
                 assertThat(stale.get(30, TimeUnit.SECONDS)).isEqualTo(1);
                 assertThat(item(tenantA, heldCandidate).state()).isEqualTo(FollowUpWorkState.PENDING);
 
@@ -755,6 +759,20 @@ class FollowUpWorkLedgerIntegrationTest {
                         || item.state() == FollowUpWorkState.CLAIMED
                         || item.state() == FollowUpWorkState.RETRY_DUE).isEmpty();
             } finally {
+                // After an early failure the held enqueue still waits on the barrier, and DROP TRIGGER would wait on
+                // that enqueue while this session holds the barrier: release it and let the enqueue end first, without
+                // hiding the original failure.
+                if (barrierHeld) {
+                    TenantSecurityIntegrationFixture.queryInt(migration,
+                            "SELECT count(*) FROM (SELECT pg_advisory_unlock(?)) released", barrier);
+                }
+                if (stale != null) {
+                    try {
+                        stale.get(30, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {
+                        // The test already failed or the assertion above reports the enqueue's result.
+                    }
+                }
                 TenantSecurityIntegrationFixture.executeUpdate(migration,
                         "DROP TRIGGER test_hold_work_insert_%1$s ON dokene.follow_up_work_items"
                                 .formatted(suffix(heldCandidate)));
