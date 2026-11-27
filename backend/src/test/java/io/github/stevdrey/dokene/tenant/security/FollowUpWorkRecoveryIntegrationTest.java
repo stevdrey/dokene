@@ -271,6 +271,33 @@ class FollowUpWorkRecoveryIntegrationTest {
     }
 
     @Test
+    void aClaimTakenOverWhileItWaitedInTheBatchIsNeverHandled() throws Exception {
+        dueCustomer("First in batch", today.minusDays(1));
+        dueCustomer("Second in batch", today);
+        generate(tenantA);
+        assertThat(ledger(now).enqueue(tenantA.id())).isEqualTo(2);
+        List<UUID> handled = new java.util.ArrayList<>();
+
+        // The first handler outlasts the batch's leases: meanwhile another instance takes over the waiting claim.
+        var summary = processor(now).process(tenantA.id(), INSTANCE_A, 5, lease -> {
+            handled.add(lease.claim().candidateId());
+            if (handled.size() == 1) {
+                assertThat(ledger(now.plus(LEASE)).claim(tenantA.id(), INSTANCE_B, 5)).hasSize(2);
+            }
+            return new FollowUpWorkAttemptResult.Completed();
+        });
+
+        assertThat(handled).hasSize(1);
+        assertThat(summary.stale()).isEqualTo(2);
+        assertThat(summary.completed()).isZero();
+        assertThat(contexts.callWithTenantId(tenantA.id(), () -> repository.findItems(tenantA.id(), 10)))
+                .allSatisfy(work -> {
+                    assertThat(work.state()).isEqualTo(FollowUpWorkState.CLAIMED);
+                    assertThat(work.claimedBy()).contains(INSTANCE_B);
+                });
+    }
+
+    @Test
     void recoveryIsIdempotentVersionCheckedAndBounded() throws Exception {
         UUID item = exhaustedBySafeFailures();
 

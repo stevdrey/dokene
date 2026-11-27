@@ -28,6 +28,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -40,6 +41,32 @@ class FollowUpWorkProcessorTest {
     private final TenantId tenantId = TenantId.random();
     private final FollowUpRetryPolicy retries = new FollowUpRetryPolicy(
             new FollowUpRetryProperties(Duration.ofMinutes(1), Duration.ofMinutes(10), 0.0, 3), () -> 0.0);
+
+    @BeforeEach
+    void currentClaimsRenew() {
+        when(ledger.renew(any())).thenAnswer(invocation -> Optional.of(invocation.<FollowUpWorkClaim>getArgument(0)));
+    }
+
+    @Test
+    void neverStartsAHandlerForAClaimThatWentStaleWhileItWaited() {
+        FollowUpWorkClaim first = claim(1);
+        FollowUpWorkClaim waiting = claim(1);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(first, waiting));
+        when(ledger.renew(waiting)).thenReturn(Optional.empty());
+        when(ledger.complete(first)).thenReturn(FollowUpWorkTransition.COMPLETED);
+        List<FollowUpWorkClaim> handled = new ArrayList<>();
+
+        var summary = processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5, lease -> {
+            handled.add(lease.claim());
+            return new FollowUpWorkAttemptResult.Completed();
+        });
+
+        assertThat(handled).containsExactly(first);
+        assertThat(summary.completed()).isEqualTo(1);
+        assertThat(summary.stale()).isEqualTo(1);
+        verify(ledger, never()).complete(waiting);
+        verify(ledger, never()).requireRecovery(any(), any());
+    }
 
     @Test
     void completesWhatTheHandlerFinished() {
@@ -168,14 +195,18 @@ class FollowUpWorkProcessorTest {
     @Test
     void theHandlerWorksWithItsRenewedClaimAndStopsOnceItIsStale() {
         FollowUpWorkClaim claim = claim(1);
+        FollowUpWorkClaim started = claim.withLeaseExpiresAt(NOW.plusSeconds(60));
         FollowUpWorkClaim renewed = claim.withLeaseExpiresAt(NOW.plusSeconds(90));
         when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(claim));
-        when(ledger.renew(claim)).thenReturn(Optional.of(renewed));
+        when(ledger.renew(claim)).thenReturn(Optional.of(started));
+        when(ledger.renew(started)).thenReturn(Optional.of(renewed));
         when(ledger.renew(renewed)).thenReturn(Optional.empty());
         when(ledger.complete(renewed)).thenReturn(FollowUpWorkTransition.STALE);
         List<Boolean> renewals = new ArrayList<>();
 
         var summary = processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5, lease -> {
+            // The handler starts with the lease renewed just before it.
+            assertThat(lease.claim()).isEqualTo(started);
             renewals.add(lease.renew());
             assertThat(lease.claim()).isEqualTo(renewed);
             renewals.add(lease.renew());
@@ -187,7 +218,7 @@ class FollowUpWorkProcessorTest {
         assertThat(summary.stale()).isEqualTo(1);
         verify(ledger).complete(renewed);
         // Once stale, the lease is not renewed again.
-        verify(ledger, times(2)).renew(any());
+        verify(ledger, times(3)).renew(any());
     }
 
     @Test

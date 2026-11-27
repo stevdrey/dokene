@@ -29,7 +29,9 @@ import org.springframework.stereotype.Service;
  *       attempted.</li>
  *   <li>A permanent failure exhausts the item at once. An unknown outcome, including any exception the handler throws,
  *       exhausts it for recovery and holds back newer work for its customer: it is never replayed automatically.</li>
- *   <li>A stale claim (lease expired or taken over) records nothing; the newer holder owns the item.</li>
+ *   <li>Each claim's lease is renewed just before its handler starts; a claim that expired or was taken over while it
+ *       waited in the batch is never handed to the handler. A stale claim records nothing; the newer holder owns the
+ *       item.</li>
  * </ul>
  */
 @Service
@@ -89,6 +91,12 @@ public class FollowUpWorkProcessor {
                 continue;
             }
             HeldLease lease = new HeldLease(claim);
+            // Claims wait in this loop while earlier handlers run: renew each one just before its handler starts, and
+            // never start a handler for a claim that expired or that another instance took over meanwhile.
+            if (!lease.renew()) {
+                tally.add(FollowUpWorkTransition.STALE, false);
+                continue;
+            }
             FollowUpWorkAttemptResult result = attempt(handler, lease);
             tally.add(record(lease.claim(), result), result instanceof FollowUpWorkAttemptResult.OutcomeUnknown);
             dependencyDown = result instanceof FollowUpWorkAttemptResult.Transient(var failure)
