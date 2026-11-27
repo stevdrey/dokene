@@ -122,6 +122,17 @@ dokene:
     min-contact-interval: ${DOKENE_MESSAGING_MIN_CONTACT_INTERVAL:24h}
     send-rate-per-tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
     send-timeout: ${DOKENE_MESSAGING_SEND_TIMEOUT:10s}
+    provider-health:
+      # Provider health tracking (ADR 0038). mode is enforce or observe; observe tracks the state and never refuses
+      # or probes a send. Values outside their bounds, or a probe-lease not longer than the Graph timeout, stop startup.
+      mode: ${DOKENE_MESSAGING_PROVIDER_HEALTH_MODE:enforce}
+      outage-threshold: ${DOKENE_MESSAGING_PROVIDER_HEALTH_OUTAGE_THRESHOLD:3}
+      outage-window: ${DOKENE_MESSAGING_PROVIDER_HEALTH_OUTAGE_WINDOW:2m}
+      recovery-successes: ${DOKENE_MESSAGING_PROVIDER_HEALTH_RECOVERY_SUCCESSES:2}
+      stale-after: ${DOKENE_MESSAGING_PROVIDER_HEALTH_STALE_AFTER:15m}
+      cool-down-initial: ${DOKENE_MESSAGING_PROVIDER_HEALTH_COOL_DOWN_INITIAL:30s}
+      cool-down-max: ${DOKENE_MESSAGING_PROVIDER_HEALTH_COOL_DOWN_MAX:5m}
+      probe-lease: ${DOKENE_MESSAGING_PROVIDER_HEALTH_PROBE_LEASE:10s}
     english:
       # Writing en-US messages (issue 268), off unless the deployment sets it. Turn it on only once every instance runs
       # this release: an earlier release cannot read an en-US row, so rolling back past this release is unsafe after.

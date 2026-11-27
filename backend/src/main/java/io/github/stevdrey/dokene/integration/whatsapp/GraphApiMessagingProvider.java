@@ -24,6 +24,7 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.Accepted;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.FailedTransiently;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.OutcomeUnknown;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.RejectedPermanently;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSignalKind;
 import io.github.stevdrey.dokene.template.domain.TemplateMapping;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -83,17 +84,27 @@ public class GraphApiMessagingProvider implements MessagingProvider {
 
     @Override
     public ProviderSendResult send(OutboundSendCommand command) {
+        return exchange(command).result();
+    }
+
+    /** Everything that fails before the POST is a local cause: it gives a result and no health signal (ADR 0038). */
+    @Override
+    public Exchange exchange(OutboundSendCommand command) {
         Preparation preparation;
         try {
             preparation = prepare(command);
         } catch (RuntimeException | Error failure) {
             // Nothing can have left yet. No exception detail crosses the port.
-            return new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE);
+            return unsignalled(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
         }
         return switch (preparation) {
-            case Refused refused -> refused.result();
+            case Refused refused -> unsignalled(refused.result());
             case Prepared prepared -> dispatch(prepared);
         };
+    }
+
+    private Exchange unsignalled(ProviderSendResult result) {
+        return new Exchange(result, Optional.empty());
     }
 
     /** Checks the command, the sender and the credential; resolving the secret is the last step, so none leaks. */
@@ -130,13 +141,35 @@ public class GraphApiMessagingProvider implements MessagingProvider {
     }
 
     /** The single POST; from here on any failure may follow a transmitted request, so it is uncertain. */
-    private ProviderSendResult dispatch(Prepared prepared) {
+    private Exchange dispatch(Prepared prepared) {
         try (ResolvedSecret secret = prepared.secret()) {
-            return classify(secret.withValue(
-                    token -> http.post(prepared.uri(), token, prepared.payload(), prepared.deadline())));
+            PostOutcome outcome = secret.withValue(
+                    token -> http.post(prepared.uri(), token, prepared.payload(), prepared.deadline()));
+            ProviderSendResult result = classify(outcome);
+            return new Exchange(result, signal(outcome, result));
         } catch (RuntimeException | Error failure) {
-            return new OutcomeUnknown(Optional.empty());
+            // The HTTP layer never throws for transport failures, so this is ours and says nothing about Meta.
+            return unsignalled(new OutcomeUnknown(Optional.empty()));
         }
+    }
+
+    /**
+     * What the exchange says about Meta, apart from what it means for the message. Any definitive answer shows Meta
+     * was there to give it, a tenant's own refusal included; only throttling, an unusable status or no answer count
+     * against it. A local cause, or our own deadline interrupting the call, says nothing.
+     */
+    private Optional<ProviderSignalKind> signal(PostOutcome outcome, ProviderSendResult result) {
+        return switch (outcome) {
+            case NotSent notSent -> notSent.connectionTried() ? Optional.of(ProviderSignalKind.OUTAGE)
+                    : Optional.empty();
+            case Unknown unknown -> unknown.interrupted() ? Optional.empty() : Optional.of(ProviderSignalKind.OUTAGE);
+            case Responded responded when responded.status() >= 200 && responded.status() < 300 ->
+                    Optional.of(ProviderSignalKind.SUCCESS);
+            case Responded responded when responded.status() >= 400 && responded.status() < 500 ->
+                    Optional.of(result.equals(new FailedTransiently(FailureCategory.RATE_LIMITED))
+                            ? ProviderSignalKind.THROTTLED : ProviderSignalKind.SUCCESS);
+            case Responded _ -> Optional.of(ProviderSignalKind.OUTAGE);
+        };
     }
 
     /** Re-checks the shape Meta accepts with the contract's own rules, so a malformed command is refused, not sent. */

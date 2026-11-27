@@ -14,9 +14,14 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Tag;
 import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
+import io.github.stevdrey.dokene.messaging.application.ProviderHealthReader;
+import io.github.stevdrey.dokene.messaging.domain.MessagingProviderKey;
 import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -48,10 +53,13 @@ import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -74,9 +82,12 @@ import tools.jackson.databind.json.JsonMapper;
  */
 @SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.outbound.enabled=true",
         "dokene.messaging.send-timeout=3s", "dokene.integration.whatsapp.graph.timeout=2s",
-        "dokene.integration.whatsapp.webhook.inbox.enabled=false"})
+        "dokene.integration.whatsapp.webhook.inbox.enabled=false",
+        // Provider health is only observed here (ADR 0038): the state is tracked and no send is refused or probed.
+        "dokene.messaging.provider-health.mode=observe"})
 // Close the context after the class, so nothing cached keeps pointing at the Graph stub once it stops.
 @DirtiesContext
+@ExtendWith(OutputCaptureExtension.class)
 class ApprovedSendJourneyIntegrationTest {
     /** The synthetic key of contracts/whatsapp/graph-webhook-events.json; never a real Meta app secret. */
     private static final char[] APP_SECRET = "SYNTHETIC-APP-SECRET-NOT-REAL-0001".toCharArray();
@@ -116,6 +127,8 @@ class ApprovedSendJourneyIntegrationTest {
     @Autowired TenantRepository tenants;
     @Autowired TenantMembershipRepository memberships;
     @Autowired TenantContextProvider contexts;
+    @Autowired ProviderHealthReader providerHealth;
+    @Autowired MeterRegistry meters;
 
     private MockMvc mvc;
     private Workspace workspace;
@@ -323,6 +336,144 @@ class ApprovedSendJourneyIntegrationTest {
                 .header("If-Match", "\"" + (other.policyVersion() - 1) + "\"")
                 .contentType(MediaType.APPLICATION_JSON).content(submitted), workspace.operator);
         assertProblem(stale, 409, "STALE_VERSION");
+    }
+
+    /** covers: spec 0023 AC-3, AC-12, AC-13, AC-17 (issue 471): the thread from a Graph answer to the shared row. */
+    @Test
+    void serverErrorsMoveTheSharedProviderStateToUnavailableAndBackWithoutRefusingASend(CapturedOutput output)
+            throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        storeProviderHealth("HEALTHY", "now()");
+        double tripsBefore = transitions("DEGRADED", "UNAVAILABLE");
+        List<Message> sent = new ArrayList<>();
+        List<Customer> customers = new ArrayList<>();
+        List<String> states = new ArrayList<>();
+
+        GRAPH.sendReply = GraphStub.Reply.SERVER_ERROR;
+        for (String name : List.of("Rosa Mena", "Iván Soto", "Lucía Paz", "Óscar Gil")) {
+            customers.add(dueCustomer(name));
+            sent.add(approvedManualMessage(customers.getLast()));
+            MockHttpServletResponse response = send(workspace.operator, sent.getLast(), "send-" + UUID.randomUUID());
+            // Never refused: the fourth send goes out although the state is already UNAVAILABLE.
+            assertThat(response.getStatus()).isEqualTo(201);
+            assertThat(body(response).path("outcomeUnknown").asBoolean()).isTrue();
+            states.add(providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name());
+        }
+        GRAPH.sendReply = GraphStub.Reply.ACCEPTED;
+        for (String name : List.of("Inés Lara", "Raúl Cano")) {
+            customers.add(dueCustomer(name));
+            sent.add(approvedManualMessage(customers.getLast()));
+            MockHttpServletResponse response = send(workspace.operator, sent.getLast(), "send-" + UUID.randomUUID());
+            assertThat(body(response).path("status").asString()).isEqualTo("SENT");
+            states.add(providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name());
+        }
+
+        // Three outages in a row trip the state; in observe mode an accepted send then stands in for the probe.
+        assertThat(states).containsExactly("DEGRADED", "DEGRADED", "UNAVAILABLE", "UNAVAILABLE", "DEGRADED",
+                "HEALTHY");
+        assertThat(GRAPH.sends(workspace)).isEqualTo(6);
+        assertThat(transitions("DEGRADED", "UNAVAILABLE") - tripsBefore).isEqualTo(1);
+        // An uncertain send stays uncertain through every health state: nothing here sent it again or resolved it.
+        for (Message uncertain : sent.subList(0, 4)) {
+            JsonNode detail = uncertain.read(this);
+            assertThat(detail.path("status").asString()).isEqualTo("SENDING");
+            assertThat(detail.path("outcomeUnknown").asBoolean()).isTrue();
+        }
+
+        // The row, the meters and the log lines carry closed values only.
+        List<String> identifiers = new ArrayList<>(List.of(workspace.tenant.id().value().toString(),
+                workspace.phoneNumberId(), workspace.wabaId(), token(workspace.tenant.id())));
+        sent.forEach(message -> identifiers.add(message.id.toString()));
+        customers.forEach(customer -> identifiers.add(customer.phone));
+        String row;
+        try (Connection connection = migrationConnection();
+                var result = connection.createStatement().executeQuery(
+                        "SELECT row_to_json(h)::text FROM dokene.provider_health h")) {
+            assertThat(result.next()).isTrue();
+            row = result.getString(1);
+        }
+        List<String> healthLogLines = output.getAll().lines()
+                .filter(line -> line.contains("Provider health")).toList();
+        assertThat(healthLogLines).filteredOn(line -> line.contains("to=UNAVAILABLE")).isNotEmpty()
+                .allSatisfy(line -> assertThat(line).contains("provider=META_WHATSAPP", "from=DEGRADED",
+                        "event=SIGNAL_OUTAGE"));
+        for (String identifier : identifiers) {
+            assertThat(row).doesNotContain(identifier);
+            assertThat(healthLogLines).noneMatch(line -> line.contains(identifier));
+        }
+        assertThat(meters.getMeters()).extracting(Meter::getId)
+                .filteredOn(id -> id.getName().startsWith("dokene.messaging.provider.health"))
+                .isNotEmpty().allSatisfy(id -> {
+                    assertThat(id.getTags()).extracting(Tag::getKey)
+                            .isSubsetOf("provider", "state", "kind", "from", "to", "operation");
+                    assertThat(id.getTag("provider")).isEqualTo("META_WHATSAPP");
+                });
+        assertThat(meters.find("dokene.messaging.provider.health.state").gauges()).hasSize(4);
+    }
+
+    /** covers: spec 0023 AC-14 (issue 471): a health write that cannot run never changes the send's outcome. */
+    @Test
+    void aBusyHealthRowLeavesAnAcceptedSendSentAndCountsTheLostSignal() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        storeProviderHealth("HEALTHY", "now()");
+        Message message = approvedManualMessage(dueCustomer("Nora Vidal"));
+        double failuresBefore = meters.counter("dokene.messaging.provider.health.store.failures", "provider",
+                "META_WHATSAPP", "operation", "RECORD").count();
+
+        try (Connection holder = migrationConnection()) {
+            holder.setAutoCommit(false);
+            holder.createStatement().execute("SELECT 1 FROM dokene.provider_health FOR UPDATE");
+
+            JsonNode sent = body(send(workspace.operator, message, "send-" + UUID.randomUUID()));
+
+            assertThat(sent.path("status").asString()).isEqualTo("SENT");
+            holder.rollback();
+        }
+        assertThat(meters.counter("dokene.messaging.provider.health.store.failures", "provider", "META_WHATSAPP",
+                "operation", "RECORD").count() - failuresBefore).isEqualTo(1);
+        assertThat(GRAPH.sends(workspace)).isEqualTo(1);
+    }
+
+    /** covers: spec 0023 AC-15 (issue 471) and the least privilege grant of the platform table. */
+    @Test
+    void aRowWithNoSignalForTheStalePeriodReadsAsUnknownAndTheRuntimeMayOnlyReadAndUpdateIt() throws Exception {
+        storeProviderHealth("DEGRADED", "now() - interval '14 minutes'");
+        ProviderHealthReader.ProviderHealthStatus recent = providerHealth.read(MessagingProviderKey.META_WHATSAPP);
+        assertThat(recent.state().name()).isEqualTo("DEGRADED");
+        assertThat(recent.lastSignalAt()).isPresent();
+        assertThat(recent.stateChangedAt()).isBeforeOrEqualTo(Instant.now().plusSeconds(5));
+
+        storeProviderHealth("DEGRADED", "now() - interval '15 minutes'");
+        assertThat(providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name()).isEqualTo("UNKNOWN");
+
+        try (Connection connection = migrationConnection();
+                var grants = connection.createStatement().executeQuery("""
+                        SELECT string_agg(privilege_type, ',' ORDER BY privilege_type)
+                        FROM information_schema.role_table_grants
+                        WHERE grantee = 'dokene_runtime' AND table_schema = 'dokene'
+                          AND table_name = 'provider_health'
+                        """)) {
+            assertThat(grants.next()).isTrue();
+            assertThat(grants.getString(1)).isEqualTo("SELECT,UPDATE");
+        }
+    }
+
+    /** Sets the one shared health row directly, as an operator would under the migration role. */
+    private void storeProviderHealth(String state, String lastSignalAt) throws Exception {
+        try (Connection connection = migrationConnection(); var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    UPDATE dokene.provider_health
+                    SET state = '%s', state_changed_at = now(), last_signal_at = %s, last_signal_kind = 'SUCCESS',
+                        consecutive_outage_signals = 0, first_outage_signal_at = NULL, consecutive_successes = 0,
+                        cool_down_until = NULL, cool_down_step = 0, probe_lease_until = NULL
+                    WHERE provider = 'META_WHATSAPP'
+                    """.formatted(state, lastSignalAt));
+        }
+    }
+
+    private double transitions(String from, String to) {
+        return meters.counter("dokene.messaging.provider.health.transitions", "provider", "META_WHATSAPP", "from",
+                from, "to", to).count();
     }
 
     // --- journey steps over the public API --------------------------------------------------------------------
