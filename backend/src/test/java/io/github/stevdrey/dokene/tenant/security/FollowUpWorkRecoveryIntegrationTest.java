@@ -48,6 +48,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
 import java.sql.Connection;
+import java.sql.Statement;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -57,6 +58,10 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -454,6 +459,207 @@ class FollowUpWorkRecoveryIntegrationTest {
         assertRefused(ownerA, item, FollowUpWorkRecoveryAction.REQUEUE, 0, Refusal.STALE_VERSION);
         assertThat(inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.RESOLVE, 1)).applied())
                 .isTrue();
+    }
+
+    @Test
+    void aRequeueRacingANewerCycleThatCompletesIsRefused() throws Exception {
+        requeueRacingANewerCycle(true);
+    }
+
+    @Test
+    void aRequeueRacingANewerCycleThatIsSafelyExhaustedIsRefused() throws Exception {
+        requeueRacingANewerCycle(false);
+    }
+
+    /**
+     * Pauses the requeue inside its UPDATE (after the statement's snapshot, before the row changes) with a test-only
+     * trigger and an advisory lock, then enqueues and finishes a newer cycle from other connections.
+     */
+    private void requeueRacingANewerCycle(boolean completeNewer) throws Exception {
+        Customer customer = dueCustomer("Racing customer", today.minusDays(2));
+        generate(tenantA);
+        ledger(now).enqueue(tenantA.id());
+        exhaust(now);
+        UUID exhausted = onlyItem(tenantA).candidateId();
+        ExecutorService requester = Executors.newSingleThreadExecutor();
+        try (Connection migration = TenantSecurityIntegrationFixture.migrationConnection();
+                Statement sql = migration.createStatement()) {
+            sql.execute("""
+                    CREATE FUNCTION dokene.test_requeue_barrier() RETURNS trigger LANGUAGE plpgsql AS $$
+                    BEGIN PERFORM pg_advisory_xact_lock(461001); RETURN NEW; END $$
+                    """);
+            sql.execute("GRANT EXECUTE ON FUNCTION dokene.test_requeue_barrier() TO PUBLIC");
+            sql.execute("""
+                    CREATE TRIGGER test_requeue_barrier BEFORE UPDATE ON dokene.follow_up_work_items FOR EACH ROW
+                    WHEN (OLD.state = 'EXHAUSTED' AND NEW.state = 'RETRY_DUE')
+                    EXECUTE FUNCTION dokene.test_requeue_barrier()
+                    """);
+            sql.execute("SELECT pg_advisory_lock(461001)");
+            try {
+                Future<?> requeue = requester.submit(
+                        () -> inContext(ownerA, () -> recovery.recover(exhausted, FollowUpWorkRecoveryAction.REQUEUE, 0)));
+                awaitBarrier(migration);
+
+                inContext(ownerA, () -> followUps.configureCustomer(customer.id(), 7, today,
+                        followUps.customerPolicy(customer.id()).version()));
+                generate(tenantA);
+                Instant newer = now.plus(Duration.ofHours(1));
+                assertThat(ledger(newer).enqueue(tenantA.id())).isEqualTo(1);
+                if (completeNewer) {
+                    assertThat(processor(newer).process(tenantA.id(), INSTANCE_B, 5, COMPLETES).completed())
+                            .isEqualTo(1);
+                } else {
+                    exhaust(newer);
+                }
+
+                sql.execute("SELECT pg_advisory_unlock(461001)");
+                assertThatThrownBy(requeue::get).isInstanceOf(ExecutionException.class).cause()
+                        .isInstanceOfSatisfying(FollowUpWorkRecoveryService.RecoveryRefusedException.class,
+                                refused -> assertThat(refused.refusal()).isEqualTo(Refusal.CUSTOMER_HAS_NEWER_WORK));
+            } finally {
+                sql.execute("SELECT pg_advisory_unlock_all()");
+                sql.execute("DROP TRIGGER IF EXISTS test_requeue_barrier ON dokene.follow_up_work_items");
+                sql.execute("DROP FUNCTION IF EXISTS dokene.test_requeue_barrier()");
+            }
+        } finally {
+            requester.shutdownNow();
+        }
+
+        // The superseded item stays exhausted with no recovery recorded, is never handed to a handler, and the
+        // customer's slot is not stranded: no item of the customer is open.
+        FollowUpWorkItem old = item(tenantA, exhausted);
+        assertThat(old.state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+        assertThat(auditRows(tenantA, "FOLLOW_UP_WORK_REQUEUED", customer.id().value())).isZero();
+        AtomicInteger handled = new AtomicInteger();
+        processor(now.plus(Duration.ofHours(3))).process(tenantA.id(), INSTANCE_A, 5, lease -> {
+            handled.incrementAndGet();
+            return new FollowUpWorkAttemptResult.Completed();
+        });
+        assertThat(handled).hasValue(0);
+        assertThat(contexts.callWithTenantId(tenantA.id(), () -> repository.findItems(tenantA.id(), 100)))
+                .noneMatch(work -> work.state() == FollowUpWorkState.PENDING
+                        || work.state() == FollowUpWorkState.CLAIMED || work.state() == FollowUpWorkState.RETRY_DUE);
+        assertThat(inContext(ownerA, () -> recovery.recover(exhausted, FollowUpWorkRecoveryAction.RESOLVE, 0))
+                .applied()).isTrue();
+    }
+
+    private static void awaitBarrier(Connection migration) throws Exception {
+        for (int poll = 0; poll < 500; poll++) {
+            if (TenantSecurityIntegrationFixture.queryInt(migration, """
+                    SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND objid = 461001 AND NOT granted
+                    """) > 0) {
+                return;
+            }
+            Thread.sleep(20);
+        }
+        throw new AssertionError("The requeue never reached the barrier");
+    }
+
+    @Test
+    void anAttemptThatBeganAnEffectIsNeverTakenOverOnceItsOutcomeIsLost() throws Exception {
+        UUID item = oneItem();
+        // Attempt 1 of 3 begins its effect, then the instance crashes before recording any outcome.
+        FollowUpWorkClaim claim = ledger(now).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+        assertThat(ledger(now).beginEffect(claim)).isPresent();
+
+        assertNeverRetriedAndAwaitingResolution(item, now.plus(LEASE).plusSeconds(1));
+    }
+
+    @Test
+    void anUnknownOutcomeWhoseRecoveryWriteFailsStillEndsInRecovery() throws Exception {
+        UUID item = oneItem();
+        FollowUpWorkProcessor failingWrites = new FollowUpWorkProcessor(failingRecovery(now), retries(),
+                health(FollowUpProviderHealth.Availability.HEALTHY), Clock.fixed(now, ZoneOffset.UTC));
+        AtomicInteger effects = new AtomicInteger();
+
+        var summary = failingWrites.process(tenantA.id(), INSTANCE_A, 5, lease -> {
+            assertThat(lease.beginEffect()).isTrue();
+            effects.incrementAndGet();
+            return new FollowUpWorkAttemptResult.OutcomeUnknown();
+        });
+
+        assertThat(summary.abandoned()).isEqualTo(1);
+        assertThat(effects).hasValue(1);
+        assertNeverRetriedAndAwaitingResolution(item, now.plus(LEASE).plusSeconds(1));
+    }
+
+    @Test
+    void aHandlerErrorAfterAnEffectWhoseRecoveryWriteFailsStillEndsInRecovery() throws Exception {
+        UUID item = oneItem();
+        FollowUpWorkProcessor failingWrites = new FollowUpWorkProcessor(failingRecovery(now), retries(),
+                health(FollowUpProviderHealth.Availability.HEALTHY), Clock.fixed(now, ZoneOffset.UTC));
+
+        assertThatThrownBy(() -> failingWrites.process(tenantA.id(), INSTANCE_A, 5, lease -> {
+            assertThat(lease.beginEffect()).isTrue();
+            throw new StackOverflowError();
+        })).isInstanceOf(StackOverflowError.class);
+
+        assertNeverRetriedAndAwaitingResolution(item, now.plus(LEASE).plusSeconds(1));
+    }
+
+    @Test
+    void aFailureReportedAfterAnEffectBeganIsRecordedAsAnUnknownOutcome() throws Exception {
+        UUID item = oneItem();
+
+        var summary = processor(now).process(tenantA.id(), INSTANCE_A, 5, lease -> {
+            assertThat(lease.beginEffect()).isTrue();
+            return new FollowUpWorkAttemptResult.Transient(FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE);
+        });
+
+        assertThat(summary.recoveryRequired()).isEqualTo(1);
+        assertThat(item(tenantA, item)).satisfies(work -> {
+            assertThat(work.state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+            assertThat(work.lastFailure()).contains(FollowUpWorkFailure.OUTCOME_UNKNOWN);
+        });
+    }
+
+    @Test
+    void anAttemptLostBeforeAnyEffectIsStillTakenOverAndRetried() throws Exception {
+        UUID item = oneItem();
+        ledger(now).claim(tenantA.id(), INSTANCE_A, 5);
+
+        // No effect began, so the takeover is safe: the second instance works the item on attempt 2.
+        AtomicInteger handled = new AtomicInteger();
+        var summary = processor(now.plus(LEASE).plusSeconds(1)).process(tenantA.id(), INSTANCE_B, 5, lease -> {
+            handled.incrementAndGet();
+            assertThat(lease.claim().attempt()).isEqualTo(2);
+            return new FollowUpWorkAttemptResult.Completed();
+        });
+
+        assertThat(handled).hasValue(1);
+        assertThat(summary.completed()).isEqualTo(1);
+        assertThat(item(tenantA, item).state()).isEqualTo(FollowUpWorkState.COMPLETED);
+    }
+
+    /** Past the lease, a second instance never runs the handler again; the item awaits a member's RESOLVE. */
+    private void assertNeverRetriedAndAwaitingResolution(UUID item, Instant afterLease) throws Exception {
+        AtomicInteger handled = new AtomicInteger();
+        processor(afterLease).process(tenantA.id(), INSTANCE_B, 5, lease -> {
+            handled.incrementAndGet();
+            return new FollowUpWorkAttemptResult.Completed();
+        });
+        assertThat(handled).hasValue(0);
+        assertThat(item(tenantA, item)).satisfies(work -> {
+            assertThat(work.state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+            assertThat(work.attempts()).isEqualTo(1);
+            assertThat(work.lastFailure()).contains(FollowUpWorkFailure.OUTCOME_UNKNOWN);
+        });
+        assertThat(inContext(ownerA, () -> recovery.recoverable(10))).singleElement()
+                .satisfies(view -> assertThat(view.outcomeUnknown()).isTrue());
+        assertRefused(ownerA, item, FollowUpWorkRecoveryAction.REQUEUE, 0, Refusal.OUTCOME_UNKNOWN);
+        assertThat(inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.RESOLVE, 0)).applied())
+                .isTrue();
+    }
+
+    /** A ledger whose recovery writes fail, as during a database outage after the handler acted. */
+    private FollowUpWorkLedger failingRecovery(Instant instant) {
+        return new FollowUpWorkLedger(repository, contexts, new FollowUpWorkProperties(20, LEASE, 3),
+                transactionManager, Clock.fixed(instant, ZoneOffset.UTC)) {
+            @Override
+            public FollowUpWorkTransition requireRecovery(FollowUpWorkClaim claim, FollowUpWorkFailure failure) {
+                throw new IllegalStateException("database unreachable");
+            }
+        };
     }
 
     private void assertRefused(TenantContext member, UUID item, FollowUpWorkRecoveryAction action, int expected,

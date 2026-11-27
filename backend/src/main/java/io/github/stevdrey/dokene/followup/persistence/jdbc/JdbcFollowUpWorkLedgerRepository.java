@@ -45,6 +45,25 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
      * after {@code c}: the candidate existed when that follow-up was worked, so it is covered by it.
      */
     private static final String COVERING_ITEM = covering("c");
+    /**
+     * Whether another item of {@code w}'s customer is open, holds the customer with an unknown outcome, or belongs to
+     * a cycle the database recorded after {@code w}'s (finished or not).
+     */
+    private static final String SUPERSEDED = """
+             EXISTS (
+                SELECT 1 FROM dokene.follow_up_work_items other
+                JOIN dokene.follow_up_candidates other_candidate
+                  ON other_candidate.tenant_id = other.tenant_id AND other_candidate.id = other.candidate_id
+                JOIN dokene.follow_up_candidates own
+                  ON own.tenant_id = w.tenant_id AND own.id = w.candidate_id
+                WHERE other.tenant_id = w.tenant_id AND other.customer_id = w.customer_id
+                  AND other.candidate_id <> w.candidate_id
+                  AND (other.state IN ('PENDING', 'CLAIMED', 'RETRY_DUE')
+                       OR (other.state = 'EXHAUSTED'
+                           AND other.last_failure IN ('OUTCOME_UNKNOWN', 'LEASE_EXPIRED'))
+                       OR (other.collapsed_into IS NULL AND other_candidate.recorded_at > own.recorded_at))
+            )
+            """;
     private static final Comparator<FollowUpWorkClaim> DUE_ORDER = Comparator.comparing(FollowUpWorkClaim::dueDate)
             .thenComparing(claim -> claim.customerId().value(), JdbcFollowUpCandidateRepository::unsigned);
 
@@ -172,19 +191,24 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
         return jdbc.update("""
                 WITH spent AS (
                     SELECT s.candidate_id FROM dokene.follow_up_work_items s
-                    WHERE s.tenant_id = ? AND s.attempts - s.attempt_base >= ?
-                      AND ((s.state = 'CLAIMED' AND s.lease_expires_at <= ?) OR s.state = 'RETRY_DUE')
+                    WHERE s.tenant_id = ?
+                      AND ((s.attempts - s.attempt_base >= ?
+                            AND ((s.state = 'CLAIMED' AND s.lease_expires_at <= ?) OR s.state = 'RETRY_DUE'))
+                           OR (s.state = 'CLAIMED' AND s.lease_expires_at <= ? AND s.effect_attempt = s.attempts))
                     ORDER BY s.due_date ASC, s.customer_id ASC
                     LIMIT ?
                     FOR UPDATE OF s SKIP LOCKED
                 )
                 UPDATE dokene.follow_up_work_items w
                 SET state = 'EXHAUSTED',
-                    last_failure = CASE WHEN w.state = 'CLAIMED' THEN 'LEASE_EXPIRED' ELSE w.last_failure END,
+                    last_failure = CASE
+                        WHEN w.state = 'CLAIMED' AND w.effect_attempt = w.attempts THEN 'OUTCOME_UNKNOWN'
+                        WHEN w.state = 'CLAIMED' THEN 'LEASE_EXPIRED'
+                        ELSE w.last_failure END,
                     finished_at = ?, updated_at = ?
                 FROM spent
                 WHERE w.tenant_id = ? AND w.candidate_id = spent.candidate_id
-                """, tenantId.value(), maxAttempts, at, limit, at, at, tenantId.value());
+                """, tenantId.value(), maxAttempts, at, at, limit, at, at, tenantId.value());
     }
 
     @Override
@@ -200,7 +224,8 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                     SELECT c.candidate_id FROM dokene.follow_up_work_items c
                     WHERE c.tenant_id = ? AND c.attempts - c.attempt_base < ?
                       AND ((c.state IN ('PENDING', 'RETRY_DUE') AND c.available_at <= ?)
-                           OR (c.state = 'CLAIMED' AND c.lease_expires_at <= ?))
+                           OR (c.state = 'CLAIMED' AND c.lease_expires_at <= ?
+                               AND c.effect_attempt IS DISTINCT FROM c.attempts))
                       AND EXISTS (SELECT 1 FROM dokene.tenants t WHERE t.id = ? AND t.status = 'ACTIVE')
                       AND NOT (c.state = 'PENDING' AND c.attempts = 0 AND EXISTS (
                           SELECT 1 FROM dokene.follow_up_candidates cand
@@ -240,6 +265,20 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
         return jdbc.query("""
                 UPDATE dokene.follow_up_work_items
                 SET lease_expires_at = GREATEST(lease_expires_at, ?), updated_at = ?
+                WHERE
+                """ + CURRENT_CLAIM + """
+                  AND lease_expires_at > ?
+                RETURNING lease_expires_at
+                """, (row, index) -> instant(row, "lease_expires_at"),
+                parameters(claim, at, Timestamp.from(leaseExpiresAt), at)).stream().findFirst();
+    }
+
+    @Override
+    public Optional<Instant> beginEffect(FollowUpWorkClaim claim, Instant now, Instant leaseExpiresAt) {
+        Timestamp at = Timestamp.from(now);
+        return jdbc.query("""
+                UPDATE dokene.follow_up_work_items
+                SET effect_attempt = attempts, lease_expires_at = GREATEST(lease_expires_at, ?), updated_at = ?
                 WHERE
                 """ + CURRENT_CLAIM + """
                   AND lease_expires_at > ?
@@ -300,7 +339,7 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                     available_at = CASE WHEN attempts - attempt_base >= ? THEN available_at ELSE ? END,
                     finished_at = CASE WHEN attempts - attempt_base >= ? THEN ?::timestamptz ELSE NULL END,
                     last_failure = ?, updated_at = ?
-                WHERE
+                WHERE effect_attempt IS DISTINCT FROM attempts AND
                 """ + CURRENT_CLAIM + """
                   AND lease_expires_at > ?
                 RETURNING state
@@ -357,11 +396,17 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
      * this one (a newer cycle, finished or not), block the requeue: a superseded cycle is never worked again. Both
      * compare database state only. The open-work part matches the partial unique index on open items; a concurrent
      * enqueue that wins the slot anyway makes this update fail on that index instead of opening a second item.
+     *
+     * <p>The update's {@code NOT EXISTS} reads the statement's snapshot, so a newer item that was enqueued and finished
+     * by another transaction while the update ran is invisible to it, and, no longer open, it does not conflict on the
+     * index either. A second statement therefore re-reads the customer's items with a fresh snapshot after the
+     * requeue. Any newer item enqueued after that read must insert an open row and waits on this item's open row
+     * through the unique index, so it can no longer supersede the requeue unseen.
      */
     @Override
     public boolean requeue(TenantId tenantId, UUID candidateId, int expectedRecoveryCount, Instant now) {
         Timestamp at = Timestamp.from(now);
-        return jdbc.update("""
+        boolean requeued = jdbc.update("""
                 UPDATE dokene.follow_up_work_items w
                 SET state = 'RETRY_DUE', available_at = ?, attempt_base = w.attempts, finished_at = NULL,
                     recovery_count = w.recovery_count + 1, last_recovery_action = 'REQUEUE', last_recovered_at = ?,
@@ -369,20 +414,13 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 WHERE w.tenant_id = ? AND w.candidate_id = ? AND w.state = 'EXHAUSTED' AND w.collapsed_into IS NULL
                   AND w.recovery_count = ?
                   AND w.last_failure IN ('PROCESSING_ERROR', 'DEPENDENCY_UNAVAILABLE', 'REJECTED')
-                  AND NOT EXISTS (
-                      SELECT 1 FROM dokene.follow_up_work_items other
-                      JOIN dokene.follow_up_candidates other_candidate
-                        ON other_candidate.tenant_id = other.tenant_id AND other_candidate.id = other.candidate_id
-                      JOIN dokene.follow_up_candidates own
-                        ON own.tenant_id = w.tenant_id AND own.id = w.candidate_id
-                      WHERE other.tenant_id = w.tenant_id AND other.customer_id = w.customer_id
-                        AND other.candidate_id <> w.candidate_id
-                        AND (other.state IN ('PENDING', 'CLAIMED', 'RETRY_DUE')
-                             OR (other.state = 'EXHAUSTED'
-                                 AND other.last_failure IN ('OUTCOME_UNKNOWN', 'LEASE_EXPIRED'))
-                             OR (other.collapsed_into IS NULL AND other_candidate.recorded_at > own.recorded_at))
-                  )
-                """, at, at, at, tenantId.value(), candidateId, expectedRecoveryCount) == 1;
+                  AND NOT""" + SUPERSEDED, at, at, at, tenantId.value(), candidateId, expectedRecoveryCount) == 1;
+        if (requeued && Boolean.TRUE.equals(jdbc.queryForObject(
+                "SELECT" + SUPERSEDED + "FROM dokene.follow_up_work_items w WHERE w.tenant_id = ? AND w.candidate_id = ?",
+                Boolean.class, tenantId.value(), candidateId))) {
+            throw new RequeueSupersededException();
+        }
+        return requeued;
     }
 
     @Override

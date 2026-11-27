@@ -27,5 +27,14 @@ public interface FollowUpWorkHandler {
          * at once and cause no external effect, because another instance may already hold the item.
          */
         boolean renew();
+
+        /**
+         * Must be called, and must return {@code true}, immediately before the first operation that may cause an
+         * external effect; it also renews the lease. It durably marks the attempt, so the attempt is never retried: a
+         * {@code Transient} or {@code Permanent} result is recorded as an unknown outcome, and if the outcome is never
+         * recorded (a crash, a failed write), the expired lease sends the item to recovery instead of to another
+         * instance. {@code false} means the claim is stale and the holder must cause no effect.
+         */
+        boolean beginEffect();
     }
 }

@@ -32,6 +32,9 @@ import org.springframework.stereotype.Service;
  *   <li>Each claim's lease is renewed just before its handler starts; a claim that expired or was taken over while it
  *       waited in the batch is never handed to the handler. A stale claim records nothing; the newer holder owns the
  *       item.</li>
+ *   <li>A handler calls {@code beginEffect} before any external effect. That attempt is never retried: a failure it
+ *       reports is recorded as an unknown outcome, and if no outcome is recorded at all, its expired lease sends the
+ *       item to recovery instead of to another instance.</li>
  *   <li>When a renewal or an outcome write fails, or a handler throws an {@link Error}, the claims not yet handed to a
  *       handler are released untried. An {@code Error} records an unknown outcome for its claim first and is then
  *       rethrown. A claim whose write cannot be made is left to its lease and counted as {@code abandoned}.</li>
@@ -123,6 +126,14 @@ public class FollowUpWorkProcessor {
                     releaseUntried(untried, tally);
                 }
                 throw fatal;
+            }
+            if (lease.effectBegun && !(result instanceof FollowUpWorkAttemptResult.Completed
+                    || result instanceof FollowUpWorkAttemptResult.OutcomeUnknown)) {
+                // A handler that began an external effect cannot report a failure without one: never retry it.
+                log.warn("Follow-up work handler reported a failure after beginning an external effect; recording an "
+                        + "unknown outcome; tenantId={}, candidateId={}, attempt={}", claim.tenantId().value(),
+                        claim.candidateId(), claim.attempt());
+                result = new FollowUpWorkAttemptResult.OutcomeUnknown();
             }
             try {
                 tally.add(record(lease.claim(), result), result instanceof FollowUpWorkAttemptResult.OutcomeUnknown);
@@ -219,6 +230,7 @@ public class FollowUpWorkProcessor {
     private final class HeldLease implements FollowUpWorkHandler.Lease {
         private FollowUpWorkClaim claim;
         private boolean stale;
+        private boolean effectBegun;
 
         private HeldLease(FollowUpWorkClaim claim) {
             this.claim = claim;
@@ -237,6 +249,18 @@ public class FollowUpWorkProcessor {
             Optional<FollowUpWorkClaim> renewed = ledger.renew(claim);
             renewed.ifPresentOrElse(current -> claim = current, () -> stale = true);
             return renewed.isPresent();
+        }
+
+        @Override
+        public boolean beginEffect() {
+            if (stale) {
+                return false;
+            }
+            // Set before the write: if the write throws, it may still have committed, so fail closed.
+            effectBegun = true;
+            Optional<FollowUpWorkClaim> begun = ledger.beginEffect(claim);
+            begun.ifPresentOrElse(current -> claim = current, () -> stale = true);
+            return begun.isPresent();
         }
     }
 

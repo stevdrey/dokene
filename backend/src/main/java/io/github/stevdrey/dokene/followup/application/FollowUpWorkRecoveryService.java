@@ -161,8 +161,9 @@ public class FollowUpWorkRecoveryService {
         boolean requeued;
         try {
             requeued = ledger.requeue(tenantId, item.candidateId(), item.recoveryCount(), clock.instant());
-        } catch (DuplicateKeyException concurrentEnqueue) {
-            // An enqueue opened newer work for the customer after the check; the transaction is rolled back.
+        } catch (DuplicateKeyException | FollowUpWorkLedgerRepository.RequeueSupersededException concurrentWork) {
+            // Newer work for the customer was enqueued, or enqueued and finished, while the requeue ran; the
+            // transaction is rolled back, so the item stays exhausted and no audit row is written.
             throw new RecoveryRefusedException(Refusal.CUSTOMER_HAS_NEWER_WORK);
         }
         if (!requeued) {

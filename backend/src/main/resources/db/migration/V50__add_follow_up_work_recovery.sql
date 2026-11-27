@@ -10,7 +10,12 @@ ALTER TABLE dokene.follow_up_work_items
     ADD COLUMN recovery_count INTEGER NOT NULL DEFAULT 0,
     ADD COLUMN last_recovery_action VARCHAR(16),
     ADD COLUMN last_recovered_at TIMESTAMPTZ,
+    -- The attempt that began an external effect, if any. A claim whose attempt began one is never retried or taken
+    -- over: when its lease expires it is exhausted as OUTCOME_UNKNOWN for recovery (ADR 0039).
+    ADD COLUMN effect_attempt INTEGER,
     ADD CONSTRAINT ck_follow_up_work_items_attempt_base CHECK (attempt_base >= 0 AND attempt_base <= attempts),
+    ADD CONSTRAINT ck_follow_up_work_items_effect_attempt CHECK (
+        effect_attempt IS NULL OR (effect_attempt >= 1 AND effect_attempt <= attempts)),
     ADD CONSTRAINT ck_follow_up_work_items_recovery CHECK (
         recovery_count >= 0
         AND (recovery_count = 0) = (last_recovery_action IS NULL)

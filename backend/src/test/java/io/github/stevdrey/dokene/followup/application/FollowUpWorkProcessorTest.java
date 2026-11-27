@@ -248,6 +248,41 @@ class FollowUpWorkProcessorTest {
     }
 
     @Test
+    void neverRetriesAFailureReportedAfterAnEffectBegan() {
+        FollowUpWorkClaim claim = claim(1);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(claim));
+        when(ledger.beginEffect(claim)).thenReturn(Optional.of(claim));
+        when(ledger.requireRecovery(claim, FollowUpWorkFailure.OUTCOME_UNKNOWN))
+                .thenReturn(FollowUpWorkTransition.EXHAUSTED);
+
+        var summary = processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5, lease -> {
+            assertThat(lease.beginEffect()).isTrue();
+            return new FollowUpWorkAttemptResult.Permanent(FollowUpWorkFailure.REJECTED);
+        });
+
+        assertThat(summary.recoveryRequired()).isEqualTo(1);
+        verify(ledger).requireRecovery(claim, FollowUpWorkFailure.OUTCOME_UNKNOWN);
+        verify(ledger, never()).fail(any(), any(), any());
+    }
+
+    @Test
+    void aStaleClaimCannotBeginAnEffect() {
+        FollowUpWorkClaim claim = claim(1);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(claim));
+        when(ledger.renew(claim)).thenReturn(Optional.of(claim), Optional.empty());
+        List<Boolean> begun = new ArrayList<>();
+
+        processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5, lease -> {
+            assertThat(lease.renew()).isFalse();
+            begun.add(lease.beginEffect());
+            return new FollowUpWorkAttemptResult.OutcomeUnknown();
+        });
+
+        assertThat(begun).containsExactly(false);
+        verify(ledger, never()).beginEffect(any());
+    }
+
+    @Test
     void claimsNothingWhileProvidersAreUnavailable() {
         var summary = processor(FollowUpProviderHealth.Availability.UNAVAILABLE)
                 .process(tenantId, WORKER, 5, lease -> new FollowUpWorkAttemptResult.Completed());
