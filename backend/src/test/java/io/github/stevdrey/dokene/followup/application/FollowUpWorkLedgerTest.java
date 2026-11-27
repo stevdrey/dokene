@@ -73,9 +73,11 @@ class FollowUpWorkLedgerTest {
     }
 
     @Test
-    void enqueuesOneBatchAtTheClockInstant() {
+    void enqueuesOneBatchAtTheClockInstantAfterRecordingCoveredCandidates() {
+        when(repository.collapseCovered(tenantId, NOW, 5)).thenReturn(2);
         when(repository.enqueue(tenantId, NOW, 5)).thenReturn(4);
         assertThat(ledger.enqueue(tenantId)).isEqualTo(4);
+        verify(repository).collapseCovered(tenantId, NOW, 5);
     }
 
     @Test

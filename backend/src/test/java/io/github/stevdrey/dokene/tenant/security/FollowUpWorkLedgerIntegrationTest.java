@@ -347,15 +347,46 @@ class FollowUpWorkLedgerIntegrationTest {
         assertThat(collapsed).isEqualTo(1);
         assertThat(items(tenantA)).hasSize(2);
 
-        // The completed claim covers the leftover cycle: enqueue never reopens it as another follow-up.
+        // The completed claim covers the leftover cycle: enqueue records it as collapsed and never reopens it.
         assertThat(ledger(now.plusSeconds(3), 100, 3).enqueue(tenantA.id())).isZero();
         assertThat(ledger(now.plusSeconds(3), 5, 3).claim(tenantA.id(), INSTANCE_B, 5)).isEmpty();
+        assertThat(items(tenantA)).hasSize(3).allSatisfy(
+                item -> assertThat(item.state()).isEqualTo(FollowUpWorkState.COMPLETED));
+        assertThat(items(tenantA)).filteredOn(item -> item.collapsedInto().isPresent())
+                .extracting(item -> item.collapsedInto().orElseThrow()).containsOnly(claim.candidateId());
 
-        // A cycle generated after the claim is new work and is enqueued.
+        // A cycle generated after the claim is new work and is enqueued, even when the generating instance's clock is
+        // a minute behind the claimant's: coverage compares database instants only.
         inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(1),
                 third.version()));
-        generateAt(tenantA, now.plusSeconds(10));
+        generateAt(tenantA, now.minusSeconds(60));
         assertThat(ledger(now.plusSeconds(11), 100, 3).enqueue(tenantA.id())).isEqualTo(1);
+        assertThat(items(tenantA)).filteredOn(item -> item.state() == FollowUpWorkState.PENDING).singleElement()
+                .satisfies(item -> assertThat(item.dueDate()).isEqualTo(today.minusDays(1)));
+    }
+
+    @Test
+    void aSafelyExhaustedItemReleasesItsCustomerForANewerCycle() throws Exception {
+        Customer customer = consentedCustomer(contextA, "Safely exhausted customer");
+        var first = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(3), 0));
+        generate(tenantA);
+        var second = inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today, first.version()));
+        generate(tenantA);
+        assertThat(ledger(now, 100, 1).enqueue(tenantA.id())).isEqualTo(1);
+        FollowUpWorkClaim claim = ledger(now, 5, 1).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+        assertThat(ledger(now.plusSeconds(1), 5, 1).fail(claim, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE,
+                now.plusSeconds(60))).isEqualTo(FollowUpWorkTransition.EXHAUSTED);
+
+        // The older cycle is covered by the exhausted attempt: it is recorded, not retried as another follow-up.
+        assertThat(ledger(now.plusSeconds(2), 100, 1).enqueue(tenantA.id())).isZero();
+        assertThat(items(tenantA)).hasSize(2).filteredOn(item -> item.collapsedInto().isPresent()).singleElement()
+                .satisfies(item -> assertThat(item.collapsedInto()).contains(claim.candidateId()));
+
+        // No external effect can have happened, so a newer cycle is not held back.
+        inContext(contextA, () -> followUps.configureCustomer(customer.id(), 7, today.minusDays(1),
+                second.version()));
+        generate(tenantA);
+        assertThat(ledger(now.plusSeconds(3), 100, 1).enqueue(tenantA.id())).isEqualTo(1);
         assertThat(items(tenantA)).filteredOn(item -> item.state() == FollowUpWorkState.PENDING).singleElement()
                 .satisfies(item -> assertThat(item.dueDate()).isEqualTo(today.minusDays(1)));
     }

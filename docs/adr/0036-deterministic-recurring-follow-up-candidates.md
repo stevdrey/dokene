@@ -30,4 +30,4 @@ Phase 4 adds a recurring scheduler. Its first step is to turn "this customer is 
 
 ## Extended by ADR 0037
 
-[ADR 0037](0037-durable-multi-instance-follow-up-work-claiming.md) adds the work ledger that claims candidates across instances. It keeps one open item per customer and resolves a customer's older candidates together with the completed one. V48 adds a unique key `(tenant_id, id, customer_id, due_date)` to `follow_up_candidates` so the ledger can reference it; candidates are otherwise unchanged.
+[ADR 0037](0037-durable-multi-instance-follow-up-work-claiming.md) adds the work ledger that claims candidates across instances. It keeps one open item per customer and resolves a customer's older candidates together with the completed one. V48 adds a unique key `(tenant_id, id, customer_id, due_date)` to `follow_up_candidates` so the ledger can reference it, and a `recorded_at` column that the database fills with its own clock on insert, so the ledger can order candidates against claims without relying on instance clocks; candidates are otherwise unchanged.
