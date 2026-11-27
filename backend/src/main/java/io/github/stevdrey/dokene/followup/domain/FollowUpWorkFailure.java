@@ -7,6 +7,11 @@ public enum FollowUpWorkFailure {
     PROCESSING_ERROR,
     /** A dependency was unavailable before any external effect. */
     DEPENDENCY_UNAVAILABLE,
+    /**
+     * The attempt was refused definitively before any external effect (issue 461, ADR 0038): retrying it unchanged
+     * cannot succeed, so the item is exhausted at once and only an operator's recovery may requeue it.
+     */
+    REJECTED,
     /** The claimant's lease expired on its last allowed attempt, so its outcome is unknown to the ledger. */
     LEASE_EXPIRED,
     /** An external effect may have happened; the item must never be replayed blindly. */

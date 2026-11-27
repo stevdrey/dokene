@@ -94,8 +94,8 @@ read a page that contains it. That gives each new event type a rollout boundary:
 - **During a mixed-version rollout,** an older instance's `AuditReader` can fail on such a page until it is replaced.
   The reader is internal (no HTTP endpoint), and this limitation is accepted.
 
-Audit rows are never deleted, rewritten or hidden to make a rollback possible. `TENANT_OPERATING_CURRENCY_CHANGED`
-(issue 452) is the latest event added under this rule. UUID references remain sensitive operational identifiers and require
+Audit rows are never deleted, rewritten or hidden to make a rollback possible. `FOLLOW_UP_WORK_REQUEUED` and
+`FOLLOW_UP_WORK_RESOLVED` (issue 461, ADR 0038) are the latest events added under this rule. UUID references remain sensitive operational identifiers and require
 access control. `FAILURE` is permitted only for `AI_INVOCATION_OUTCOME` with outcome `FAILED`; no
 general failure-payload entry point exists.
 

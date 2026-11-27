@@ -4,9 +4,11 @@ package io.github.stevdrey.dokene.followup.persistence.jdbc;
 
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.application.FollowUpWorkLedgerRepository;
+import io.github.stevdrey.dokene.followup.domain.FollowUpRecoverableWork;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkClaim;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkFailure;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkItem;
+import io.github.stevdrey.dokene.followup.domain.FollowUpWorkRecoveryAction;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkState;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkerId;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -170,7 +172,7 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
         return jdbc.update("""
                 WITH spent AS (
                     SELECT s.candidate_id FROM dokene.follow_up_work_items s
-                    WHERE s.tenant_id = ? AND s.attempts >= ?
+                    WHERE s.tenant_id = ? AND s.attempts - s.attempt_base >= ?
                       AND ((s.state = 'CLAIMED' AND s.lease_expires_at <= ?) OR s.state = 'RETRY_DUE')
                     ORDER BY s.due_date ASC, s.customer_id ASC
                     LIMIT ?
@@ -196,7 +198,7 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
         List<FollowUpWorkClaim> claims = jdbc.query("""
                 WITH claimable AS (
                     SELECT c.candidate_id FROM dokene.follow_up_work_items c
-                    WHERE c.tenant_id = ? AND c.attempts < ?
+                    WHERE c.tenant_id = ? AND c.attempts - c.attempt_base < ?
                       AND ((c.state IN ('PENDING', 'RETRY_DUE') AND c.available_at <= ?)
                            OR (c.state = 'CLAIMED' AND c.lease_expires_at <= ?))
                       AND EXISTS (SELECT 1 FROM dokene.tenants t WHERE t.id = ? AND t.status = 'ACTIVE')
@@ -294,9 +296,9 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
         Timestamp at = Timestamp.from(now);
         return jdbc.query("""
                 UPDATE dokene.follow_up_work_items
-                SET state = CASE WHEN attempts >= ? THEN 'EXHAUSTED' ELSE 'RETRY_DUE' END,
-                    available_at = CASE WHEN attempts >= ? THEN available_at ELSE ? END,
-                    finished_at = CASE WHEN attempts >= ? THEN ?::timestamptz ELSE NULL END,
+                SET state = CASE WHEN attempts - attempt_base >= ? THEN 'EXHAUSTED' ELSE 'RETRY_DUE' END,
+                    available_at = CASE WHEN attempts - attempt_base >= ? THEN available_at ELSE ? END,
+                    finished_at = CASE WHEN attempts - attempt_base >= ? THEN ?::timestamptz ELSE NULL END,
                     last_failure = ?, updated_at = ?
                 WHERE
                 """ + CURRENT_CLAIM + """
@@ -328,6 +330,71 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 ORDER BY due_date ASC, customer_id ASC, candidate_id ASC
                 LIMIT ?
                 """, this::mapItem, tenantId.value(), limit);
+    }
+
+    @Override
+    public List<FollowUpRecoverableWork> findRecoverable(TenantId tenantId, int limit) {
+        requirePositive(limit);
+        return jdbc.query("""
+                SELECT * FROM dokene.follow_up_work_items
+                WHERE tenant_id = ? AND state = 'EXHAUSTED' AND collapsed_into IS NULL
+                ORDER BY finished_at ASC, candidate_id ASC
+                LIMIT ?
+                """, this::mapRecoverable, tenantId.value(), limit);
+    }
+
+    @Override
+    public Optional<FollowUpRecoverableWork> lockRecoverable(TenantId tenantId, UUID candidateId) {
+        return jdbc.query("""
+                SELECT * FROM dokene.follow_up_work_items
+                WHERE tenant_id = ? AND candidate_id = ? AND collapsed_into IS NULL AND last_failure IS NOT NULL
+                FOR UPDATE
+                """, this::mapRecoverable, tenantId.value(), candidateId).stream().findFirst();
+    }
+
+    /**
+     * The customer's other open items, and its other non-collapsed items whose candidate the database recorded after
+     * this one (a newer cycle, finished or not), block the requeue: a superseded cycle is never worked again. Both
+     * compare database state only. The open-work part matches the partial unique index on open items; a concurrent
+     * enqueue that wins the slot anyway makes this update fail on that index instead of opening a second item.
+     */
+    @Override
+    public boolean requeue(TenantId tenantId, UUID candidateId, int expectedRecoveryCount, Instant now) {
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                UPDATE dokene.follow_up_work_items w
+                SET state = 'RETRY_DUE', available_at = ?, attempt_base = w.attempts, finished_at = NULL,
+                    recovery_count = w.recovery_count + 1, last_recovery_action = 'REQUEUE', last_recovered_at = ?,
+                    updated_at = ?
+                WHERE w.tenant_id = ? AND w.candidate_id = ? AND w.state = 'EXHAUSTED' AND w.collapsed_into IS NULL
+                  AND w.recovery_count = ?
+                  AND w.last_failure IN ('PROCESSING_ERROR', 'DEPENDENCY_UNAVAILABLE', 'REJECTED')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dokene.follow_up_work_items other
+                      JOIN dokene.follow_up_candidates other_candidate
+                        ON other_candidate.tenant_id = other.tenant_id AND other_candidate.id = other.candidate_id
+                      JOIN dokene.follow_up_candidates own
+                        ON own.tenant_id = w.tenant_id AND own.id = w.candidate_id
+                      WHERE other.tenant_id = w.tenant_id AND other.customer_id = w.customer_id
+                        AND other.candidate_id <> w.candidate_id
+                        AND (other.state IN ('PENDING', 'CLAIMED', 'RETRY_DUE')
+                             OR (other.state = 'EXHAUSTED'
+                                 AND other.last_failure IN ('OUTCOME_UNKNOWN', 'LEASE_EXPIRED'))
+                             OR (other.collapsed_into IS NULL AND other_candidate.recorded_at > own.recorded_at))
+                  )
+                """, at, at, at, tenantId.value(), candidateId, expectedRecoveryCount) == 1;
+    }
+
+    @Override
+    public boolean resolve(TenantId tenantId, UUID candidateId, int expectedRecoveryCount, Instant now) {
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                UPDATE dokene.follow_up_work_items
+                SET state = 'COMPLETED', finished_at = ?, recovery_count = recovery_count + 1,
+                    last_recovery_action = 'RESOLVE', last_recovered_at = ?, updated_at = ?
+                WHERE tenant_id = ? AND candidate_id = ? AND state = 'EXHAUSTED' AND collapsed_into IS NULL
+                  AND recovery_count = ?
+                """, at, at, at, tenantId.value(), candidateId, expectedRecoveryCount) == 1;
     }
 
     /**
@@ -383,6 +450,16 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 Optional.ofNullable(row.getString("last_failure")).map(FollowUpWorkFailure::valueOf),
                 Optional.ofNullable(row.getObject("collapsed_into", UUID.class)), instant(row, "enqueued_at"),
                 Optional.ofNullable(row.getTimestamp("finished_at")).map(Timestamp::toInstant));
+    }
+
+    private FollowUpRecoverableWork mapRecoverable(ResultSet row, int index) throws SQLException {
+        return new FollowUpRecoverableWork(row.getObject("candidate_id", UUID.class),
+                new CustomerId(row.getObject("customer_id", UUID.class)), row.getDate("due_date").toLocalDate(),
+                FollowUpWorkState.valueOf(row.getString("state")),
+                FollowUpWorkFailure.valueOf(row.getString("last_failure")), row.getInt("attempts"),
+                Optional.ofNullable(row.getTimestamp("finished_at")).map(Timestamp::toInstant),
+                row.getInt("recovery_count"),
+                Optional.ofNullable(row.getString("last_recovery_action")).map(FollowUpWorkRecoveryAction::valueOf));
     }
 
     private static Instant instant(ResultSet row, String column) throws SQLException {

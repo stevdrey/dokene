@@ -121,7 +121,8 @@ class JdbcAuditStore {
                     CUSTOMER_CONSENT_CHANGED, CUSTOMER_DO_NOT_CONTACT_CHANGED -> new AuditMetadata.CustomerMutation();
             case PURCHASE_RECORDED, PURCHASE_CORRECTED, PURCHASE_VOIDED -> new AuditMetadata.PurchaseMutation();
             case TENANT_FOLLOW_UP_POLICY_CHANGED, CUSTOMER_FOLLOW_UP_POLICY_CHANGED,
-                    FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED, FOLLOW_UP_DISMISSED -> new AuditMetadata.FollowUpMutation();
+                    FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED, FOLLOW_UP_DISMISSED,
+                    FOLLOW_UP_WORK_REQUEUED, FOLLOW_UP_WORK_RESOLVED -> new AuditMetadata.FollowUpMutation();
             case TENANT_OPERATING_CURRENCY_CHANGED -> new AuditMetadata.TenantSettingChange();
             case AI_INVOCATION_OUTCOME -> new AuditMetadata.AiInvocation(
                     AiAuditOperation.valueOf(row.getString("ai_operation")),

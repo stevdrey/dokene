@@ -102,7 +102,7 @@ public record AuditEvent(
                 }
             }
             case CUSTOMER_FOLLOW_UP_POLICY_CHANGED, FOLLOW_UP_SNOOZED, MANUAL_FOLLOW_UP_RECORDED,
-                    FOLLOW_UP_DISMISSED -> {
+                    FOLLOW_UP_DISMISSED, FOLLOW_UP_WORK_REQUEUED, FOLLOW_UP_WORK_RESOLVED -> {
                 if (outcome != AuditOutcome.SUCCESS || tenantId == null || target == null
                         || target.type() != AuditTarget.Type.CUSTOMER
                         || !(metadata instanceof AuditMetadata.FollowUpMutation)) {

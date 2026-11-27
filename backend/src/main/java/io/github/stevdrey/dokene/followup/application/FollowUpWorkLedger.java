@@ -134,14 +134,16 @@ public class FollowUpWorkLedger {
      * again at {@code retryAt}, or is exhausted when it has no attempts left; an item exhausted this way does not hold
      * back newer work for its customer.
      *
-     * @throws IllegalArgumentException when {@code failure} is {@link FollowUpWorkFailure#OUTCOME_UNKNOWN} or
-     *         {@link FollowUpWorkFailure#LEASE_EXPIRED}, or {@code retryAt} is before now
+     * @throws IllegalArgumentException when {@code failure} is {@link FollowUpWorkFailure#OUTCOME_UNKNOWN},
+     *         {@link FollowUpWorkFailure#LEASE_EXPIRED} or the permanent {@link FollowUpWorkFailure#REJECTED}, or
+     *         {@code retryAt} is before now
      */
     public FollowUpWorkTransition fail(FollowUpWorkClaim claim, FollowUpWorkFailure failure, Instant retryAt) {
         Objects.requireNonNull(claim, "Claim is required");
         Objects.requireNonNull(failure, "Failure is required");
         Objects.requireNonNull(retryAt, "Retry instant is required");
-        if (failure == FollowUpWorkFailure.OUTCOME_UNKNOWN || failure == FollowUpWorkFailure.LEASE_EXPIRED) {
+        if (failure == FollowUpWorkFailure.OUTCOME_UNKNOWN || failure == FollowUpWorkFailure.LEASE_EXPIRED
+                || failure == FollowUpWorkFailure.REJECTED) {
             throw new IllegalArgumentException(failure + " is never retried; require recovery instead");
         }
         if (retryAt.isBefore(clock.instant())) {
