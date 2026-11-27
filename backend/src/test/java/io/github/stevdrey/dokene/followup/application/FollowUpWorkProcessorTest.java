@@ -78,7 +78,7 @@ class FollowUpWorkProcessorTest {
                 .process(tenantId, WORKER, 5, lease -> new FollowUpWorkAttemptResult.Completed());
 
         assertThat(summary).isEqualTo(new FollowUpWorkProcessor.RunSummary(
-                FollowUpProviderHealth.Availability.HEALTHY, 1, 1, 0, 0, 0, 0));
+                FollowUpProviderHealth.Availability.HEALTHY, 1, 1, 0, 0, 0, 0, 0));
     }
 
     @Test
@@ -181,7 +181,7 @@ class FollowUpWorkProcessorTest {
         // The claim on its last attempt is exhausted as a safe, requeueable failure, never as an unknown outcome.
         assertThat(handled).containsExactly(first);
         assertThat(summary).isEqualTo(new FollowUpWorkProcessor.RunSummary(
-                FollowUpProviderHealth.Availability.HEALTHY, 3, 1, 1, 1, 0, 0));
+                FollowUpProviderHealth.Availability.HEALTHY, 3, 1, 1, 1, 0, 0, 0));
         verify(ledger, never()).renew(waiting);
         verify(ledger, never()).requireRecovery(any(), any());
     }
@@ -201,8 +201,50 @@ class FollowUpWorkProcessorTest {
 
         assertThat(summary.claimed()).isEqualTo(3);
         assertThat(summary.retryScheduled()).isEqualTo(2);
+        assertThat(summary.abandoned()).isEqualTo(1);
         verify(ledger).fail(waiting, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(1)));
         verify(ledger, never()).requireRecovery(any(), any());
+    }
+
+    @Test
+    void releasesTheRestOfTheBatchWhenAnOutcomeWriteFails() {
+        FollowUpWorkClaim first = claim(1);
+        FollowUpWorkClaim second = claim(1);
+        FollowUpWorkClaim third = claim(2);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(first, second, third));
+        when(ledger.complete(first)).thenThrow(new IllegalStateException("database unreachable"));
+        when(ledger.fail(any(), any(), any())).thenReturn(FollowUpWorkTransition.RETRY_SCHEDULED);
+        List<FollowUpWorkClaim> handled = new ArrayList<>();
+
+        var summary = processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5, lease -> {
+            handled.add(lease.claim());
+            return new FollowUpWorkAttemptResult.Completed();
+        });
+
+        assertThat(handled).containsExactly(first);
+        assertThat(summary).isEqualTo(new FollowUpWorkProcessor.RunSummary(
+                FollowUpProviderHealth.Availability.HEALTHY, 3, 0, 2, 0, 0, 0, 1));
+        verify(ledger).fail(second, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(1)));
+        verify(ledger).fail(third, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(2)));
+    }
+
+    @Test
+    void recordsAnUnknownOutcomeAndReleasesTheBatchWhenAHandlerThrowsAnError() {
+        FollowUpWorkClaim first = claim(1);
+        FollowUpWorkClaim waiting = claim(1);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(first, waiting));
+        when(ledger.requireRecovery(first, FollowUpWorkFailure.OUTCOME_UNKNOWN))
+                .thenReturn(FollowUpWorkTransition.EXHAUSTED);
+        when(ledger.fail(any(), any(), any())).thenReturn(FollowUpWorkTransition.RETRY_SCHEDULED);
+        FollowUpWorkProcessor processor = processor(FollowUpProviderHealth.Availability.HEALTHY);
+
+        assertThatThrownBy(() -> processor.process(tenantId, WORKER, 5, lease -> {
+            throw new StackOverflowError();
+        })).isInstanceOf(StackOverflowError.class);
+
+        verify(ledger).requireRecovery(first, FollowUpWorkFailure.OUTCOME_UNKNOWN);
+        verify(ledger).fail(waiting, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(1)));
+        verify(ledger, never()).renew(waiting);
     }
 
     @Test

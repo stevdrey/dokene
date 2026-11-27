@@ -32,6 +32,9 @@ import org.springframework.stereotype.Service;
  *   <li>Each claim's lease is renewed just before its handler starts; a claim that expired or was taken over while it
  *       waited in the batch is never handed to the handler. A stale claim records nothing; the newer holder owns the
  *       item.</li>
+ *   <li>When a renewal or an outcome write fails, or a handler throws an {@link Error}, the claims not yet handed to a
+ *       handler are released untried. An {@code Error} records an unknown outcome for its claim first and is then
+ *       rethrown. A claim whose write cannot be made is left to its lease and counted as {@code abandoned}.</li>
  * </ul>
  */
 @Service
@@ -53,10 +56,10 @@ public class FollowUpWorkProcessor {
 
     /** Counts of what one batch did; safe for logs and metrics (no ids or personal data). */
     public record RunSummary(FollowUpProviderHealth.Availability availability, int claimed, int completed,
-            int retryScheduled, int exhausted, int recoveryRequired, int stale) {
+            int retryScheduled, int exhausted, int recoveryRequired, int stale, int abandoned) {
 
         static RunSummary deferred(FollowUpProviderHealth.Availability availability) {
-            return new RunSummary(availability, 0, 0, 0, 0, 0, 0);
+            return new RunSummary(availability, 0, 0, 0, 0, 0, 0, 0);
         }
 
         /** Whether provider health kept the batch from claiming anything. */
@@ -83,7 +86,8 @@ public class FollowUpWorkProcessor {
         List<FollowUpWorkClaim> claims = ledger.claim(tenantId, worker, batch);
         Tally tally = new Tally();
         boolean dependencyDown = false;
-        for (FollowUpWorkClaim claim : claims) {
+        for (int index = 0; index < claims.size(); index++) {
+            FollowUpWorkClaim claim = claims.get(index);
             if (dependencyDown) {
                 releaseUntried(claim, tally);
                 continue;
@@ -108,18 +112,39 @@ public class FollowUpWorkProcessor {
                 tally.add(FollowUpWorkTransition.STALE, false);
                 continue;
             }
-            FollowUpWorkAttemptResult result = attempt(handler, lease);
-            tally.add(record(lease.claim(), result), result instanceof FollowUpWorkAttemptResult.OutcomeUnknown);
+            FollowUpWorkAttemptResult result;
+            try {
+                result = attempt(handler, lease);
+            } catch (Error fatal) {
+                // The handler may have acted: never replay it. Record an unknown outcome, spare the untried claims,
+                // then let the error end the run.
+                recordUnknownOutcome(lease.claim(), tally);
+                for (FollowUpWorkClaim untried : claims.subList(index + 1, claims.size())) {
+                    releaseUntried(untried, tally);
+                }
+                throw fatal;
+            }
+            try {
+                tally.add(record(lease.claim(), result), result instanceof FollowUpWorkAttemptResult.OutcomeUnknown);
+            } catch (RuntimeException failure) {
+                // The handler ran, so this claim is left to its lease; the claims after it never started.
+                log.warn("Follow-up work outcome could not be recorded; releasing the rest of the batch untried; "
+                        + "tenantId={}, candidateId={}, attempt={}, exceptionClass={}", claim.tenantId().value(),
+                        claim.candidateId(), claim.attempt(), failure.getClass().getName());
+                tally.abandoned++;
+                dependencyDown = true;
+                continue;
+            }
             dependencyDown = result instanceof FollowUpWorkAttemptResult.Transient(var failure)
                     && failure == FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE;
         }
         RunSummary summary = new RunSummary(availability, claims.size(), tally.completed, tally.retryScheduled,
-                tally.exhausted, tally.recoveryRequired, tally.stale);
+                tally.exhausted, tally.recoveryRequired, tally.stale, tally.abandoned);
         if (!claims.isEmpty()) {
             log.info("Follow-up work batch processed; tenantId={}, availability={}, claimed={}, completed={}, "
-                    + "retryScheduled={}, exhausted={}, recoveryRequired={}, stale={}", tenantId.value(),
+                    + "retryScheduled={}, exhausted={}, recoveryRequired={}, stale={}, abandoned={}", tenantId.value(),
                     availability, summary.claimed(), summary.completed(), summary.retryScheduled(),
-                    summary.exhausted(), summary.recoveryRequired(), summary.stale());
+                    summary.exhausted(), summary.recoveryRequired(), summary.stale(), summary.abandoned());
         }
         return summary;
     }
@@ -151,6 +176,19 @@ public class FollowUpWorkProcessor {
             log.warn("Untried follow-up work claim could not be released; leaving it to lease expiry; tenantId={}, "
                     + "candidateId={}, attempt={}, exceptionClass={}", claim.tenantId().value(), claim.candidateId(),
                     claim.attempt(), failure.getClass().getName());
+            tally.abandoned++;
+        }
+    }
+
+    /** Best effort after a handler {@link Error}: a claim whose outcome cannot be written is left to its lease. */
+    private void recordUnknownOutcome(FollowUpWorkClaim claim, Tally tally) {
+        try {
+            tally.add(ledger.requireRecovery(claim, FollowUpWorkFailure.OUTCOME_UNKNOWN), true);
+        } catch (RuntimeException failure) {
+            log.warn("Unknown follow-up work outcome could not be recorded; leaving it to lease expiry; tenantId={}, "
+                    + "candidateId={}, attempt={}, exceptionClass={}", claim.tenantId().value(), claim.candidateId(),
+                    claim.attempt(), failure.getClass().getName());
+            tally.abandoned++;
         }
     }
 
@@ -208,6 +246,7 @@ public class FollowUpWorkProcessor {
         private int exhausted;
         private int recoveryRequired;
         private int stale;
+        private int abandoned;
 
         private void add(FollowUpWorkTransition transition, boolean outcomeUnknown) {
             switch (transition) {

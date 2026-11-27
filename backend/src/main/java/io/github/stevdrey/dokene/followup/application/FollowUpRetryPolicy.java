@@ -13,8 +13,9 @@ import org.springframework.stereotype.Component;
 
 /**
  * The delay after attempt {@code n} is {@code min(maxBackoff, initialBackoff * 2^(n-1))}, less a random share of at most
- * {@code jitter} of it, so instances that failed together do not retry together. A delay is never negative and never
- * exceeds {@code maxBackoff}.
+ * {@code jitter} of it, so instances that failed together do not retry together. A delay is never below one second
+ * ({@link FollowUpRetryProperties#MIN_BACKOFF}), so a retry instant is never already past when the ledger records it,
+ * and never exceeds {@code maxBackoff}.
  */
 @Component
 @EnableConfigurationProperties(FollowUpRetryProperties.class)
@@ -48,7 +49,8 @@ public class FollowUpRetryPolicy {
         int doublings = Math.min(attempt - 1, 40);
         long capped = initial > (max >> doublings) ? max : Math.min(max, initial << doublings);
         double share = Math.clamp(random.getAsDouble(), 0.0, 1.0) * properties.jitter();
-        return Duration.ofMillis(capped - (long) (capped * share));
+        long jittered = capped - (long) (capped * share);
+        return Duration.ofMillis(Math.max(FollowUpRetryProperties.MIN_BACKOFF.toMillis(), jittered));
     }
 
     /** When an item that failed on {@code attempt} at {@code now} may be claimed again. */

@@ -450,6 +450,8 @@ class FollowUpWorkRecoveryIntegrationTest {
         assertThat(inContext(ownerA, () -> recovery.recoverable(10))).singleElement()
                 .satisfies(view -> assertThat(view.outcomeUnknown()).isTrue());
         assertRefused(ownerA, item, FollowUpWorkRecoveryAction.REQUEUE, 1, Refusal.OUTCOME_UNKNOWN);
+        // The first requeue is no longer what the item shows, so repeating it is stale, not a replay.
+        assertRefused(ownerA, item, FollowUpWorkRecoveryAction.REQUEUE, 0, Refusal.STALE_VERSION);
         assertThat(inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.RESOLVE, 1)).applied())
                 .isTrue();
     }

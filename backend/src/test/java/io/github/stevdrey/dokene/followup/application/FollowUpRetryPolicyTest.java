@@ -39,6 +39,15 @@ class FollowUpRetryPolicyTest {
     }
 
     @Test
+    void aDelayNeverDropsBelowOneSecondSoARetryIsNeverAlreadyPast() {
+        FollowUpRetryPolicy fullJitter = new FollowUpRetryPolicy(
+                new FollowUpRetryProperties(Duration.ofSeconds(1), Duration.ofMinutes(10), 1.0, 3), () -> 0.999_999);
+
+        assertThat(fullJitter.backoff(1)).isEqualTo(Duration.ofSeconds(1));
+        assertThat(fullJitter.backoff(3)).isEqualTo(Duration.ofSeconds(1));
+    }
+
+    @Test
     void theDefaultRandomSourceStaysWithinTheBounds() {
         FollowUpRetryPolicy policy = new FollowUpRetryPolicy(PROPERTIES);
         for (int attempt = 1; attempt <= 8; attempt++) {

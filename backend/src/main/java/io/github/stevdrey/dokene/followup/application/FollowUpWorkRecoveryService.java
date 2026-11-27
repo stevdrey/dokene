@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.audit.domain.AuditEventType;
 import io.github.stevdrey.dokene.audit.domain.AuditTarget;
 import io.github.stevdrey.dokene.followup.domain.FollowUpRecoverableWork;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkRecoveryAction;
+import io.github.stevdrey.dokene.followup.domain.FollowUpWorkState;
 import io.github.stevdrey.dokene.tenant.application.TenantAuthorizationService;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
@@ -115,7 +116,8 @@ public class FollowUpWorkRecoveryService {
         TenantId tenantId = tenant();
         FollowUpRecoverableWork item = ledger.lockRecoverable(tenantId, candidateId)
                 .orElseThrow(RecoverableWorkNotFoundException::new);
-        if (item.recoveryCount() == expectedRecoveryCount + 1 && item.lastRecoveryAction().filter(action::equals).isPresent()) {
+        if (item.recoveryCount() == expectedRecoveryCount + 1
+                && item.lastRecoveryAction().filter(action::equals).isPresent() && stillShows(item, action)) {
             return new Recovery(item, false);
         }
         if (item.recoveryCount() != expectedRecoveryCount) {
@@ -138,6 +140,15 @@ public class FollowUpWorkRecoveryService {
         log.info("Follow-up work recovered; tenantId={}, candidateId={}, action={}, lastFailure={}",
                 tenantId.value(), candidateId, action, item.lastFailure());
         return new Recovery(ledger.lockRecoverable(tenantId, candidateId).orElseThrow(), true);
+    }
+
+    /** Whether the item still shows the result of {@code action}, so a repeat of it is a replay and not a new request. */
+    private static boolean stillShows(FollowUpRecoverableWork item, FollowUpWorkRecoveryAction action) {
+        return switch (action) {
+            case REQUEUE -> item.state() == FollowUpWorkState.PENDING || item.state() == FollowUpWorkState.CLAIMED
+                    || item.state() == FollowUpWorkState.RETRY_DUE;
+            case RESOLVE -> item.state() == FollowUpWorkState.COMPLETED;
+        };
     }
 
     private void requeue(TenantId tenantId, FollowUpRecoverableWork item) {
