@@ -8,10 +8,12 @@ import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.application.FollowUpTouchRecorder;
 import io.github.stevdrey.dokene.messaging.domain.MessageEventType;
 import io.github.stevdrey.dokene.messaging.domain.MessageOperation;
+import io.github.stevdrey.dokene.messaging.domain.MessagingProviderKey;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.messaging.domain.OutboundMessage;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSignalKind;
 import io.github.stevdrey.dokene.messaging.domain.RequestFingerprint;
 import io.github.stevdrey.dokene.messaging.domain.SendAttempt;
 import io.github.stevdrey.dokene.messaging.domain.Transition;
@@ -56,14 +58,15 @@ public class OutboundDispatchService {
     private final CurrentMembershipAuthorizer members;
     private final TenantContextProvider contexts;
     private final MessageAuditPort audit;
+    private final ProviderHealthRecorder health;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
     public OutboundDispatchService(OutboundMessageRepository messages, MessageIdempotencyStore idempotency,
             CustomerRepository customers, SendPolicyGate gate, MessagingProvider provider,
             FollowUpTouchRecorder touches, MessageCommandSupport support, CurrentMembershipAuthorizer members,
-            TenantContextProvider contexts, MessageAuditPort audit, PlatformTransactionManager transactionManager,
-            Clock clock) {
+            TenantContextProvider contexts, MessageAuditPort audit, ProviderHealthRecorder health,
+            PlatformTransactionManager transactionManager, Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
@@ -74,6 +77,7 @@ public class OutboundDispatchService {
         this.members = Objects.requireNonNull(members);
         this.contexts = Objects.requireNonNull(contexts);
         this.audit = Objects.requireNonNull(audit);
+        this.health = Objects.requireNonNull(health);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
         this.clock = Objects.requireNonNull(clock);
     }
@@ -100,7 +104,9 @@ public class OutboundDispatchService {
         Claim.Started started = (Claim.Started) claim;
         ProviderCall call = call(started);
         try {
-            return transactions.execute(status -> record(started, call.result()));
+            CommandResult recorded = transactions.execute(status -> record(started, call.result()));
+            recordHealthSignal(call.signal());
+            return recorded;
         } catch (RuntimeException exception) {
             // The provider may have accepted; the STARTED attempt stays as the record of that, blocking any resend.
             log.error("Send outcome not recorded; sending halted for the message; messageId={}, tenantId={}, "
@@ -125,8 +131,32 @@ public class OutboundDispatchService {
         }
     }
 
-    /** The provider's answer, and whether the waiting thread was interrupted (restored after recording). */
-    private record ProviderCall(ProviderSendResult result, boolean interrupted) {
+    /**
+     * The provider's answer, what the exchange said about the provider's health (empty when the call missed the
+     * dispatch deadline, raised or tried no connection), and whether the waiting thread was interrupted (restored
+     * after recording).
+     */
+    private record ProviderCall(ProviderSendResult result, Optional<ProviderSignalKind> signal,
+            boolean interrupted) {
+        static ProviderCall unknown(boolean interrupted) {
+            return new ProviderCall(new ProviderSendResult.OutcomeUnknown(Optional.empty()), Optional.empty(),
+                    interrupted);
+        }
+    }
+
+    /**
+     * Reported only once the send's own outcome is committed, outside the dispatch deadline and every send lock
+     * (ADR 0038). The outcome above is final: a signal that cannot be stored never changes it.
+     */
+    private void recordHealthSignal(Optional<ProviderSignalKind> signal) {
+        if (signal.isEmpty()) {
+            return;
+        }
+        try {
+            health.record(MessagingProviderKey.META_WHATSAPP, signal.get());
+        } catch (RuntimeException failure) {
+            log.warn("Provider health signal not recorded; errorType={}", failure.getClass().getSimpleName());
+        }
     }
 
     /** One transaction: idempotency, customer then message lock, the full send policy, T6, T7 and the attempt row. */
@@ -188,19 +218,20 @@ public class OutboundDispatchService {
      */
     private ProviderCall call(Claim.Started started) {
         UUID messageId = started.message().id();
-        CompletableFuture<ProviderSendResult> answer = new CompletableFuture<>();
+        CompletableFuture<MessagingProvider.Exchange> answer = new CompletableFuture<>();
         Thread caller = Thread.ofVirtual().name("dokene-send-" + messageId).start(() -> {
             try {
-                answer.complete(contexts.callWithContext(started.member(), () -> provider.send(started.command())));
+                answer.complete(contexts.callWithContext(started.member(),
+                        () -> provider.exchange(started.command())));
             } catch (Throwable failure) {
                 // Errors too: otherwise the future never completes and the request waits out the whole deadline.
                 answer.completeExceptionally(failure);
             }
         });
         try {
-            ProviderSendResult result = answer.get(gate.sendTimeout().toNanos(), TimeUnit.NANOSECONDS);
-            if (result != null) {
-                return new ProviderCall(result, false);
+            MessagingProvider.Exchange exchange = answer.get(gate.sendTimeout().toNanos(), TimeUnit.NANOSECONDS);
+            if (exchange != null) {
+                return new ProviderCall(exchange.result(), exchange.signal(), false);
             }
         } catch (TimeoutException timeout) {
             caller.interrupt();
@@ -211,9 +242,9 @@ public class OutboundDispatchService {
         } catch (InterruptedException interrupted) {
             caller.interrupt();
             log.warn("Dispatch interrupted while the provider call ran; outcome unknown; messageId={}", messageId);
-            return new ProviderCall(new ProviderSendResult.OutcomeUnknown(Optional.empty()), true);
+            return ProviderCall.unknown(true);
         }
-        return new ProviderCall(new ProviderSendResult.OutcomeUnknown(Optional.empty()), false);
+        return ProviderCall.unknown(false);
     }
 
     /** T8 to T11 under the customer then message locks, the same order delivery reports use. */

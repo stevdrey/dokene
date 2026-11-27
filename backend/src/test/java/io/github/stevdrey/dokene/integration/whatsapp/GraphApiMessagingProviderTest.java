@@ -20,6 +20,7 @@ import io.github.stevdrey.dokene.integration.application.WhatsAppIntegrationRepo
 import io.github.stevdrey.dokene.integration.application.WhatsAppOutboundSafetyControl;
 import io.github.stevdrey.dokene.integration.domain.WhatsAppIntegration;
 import io.github.stevdrey.dokene.integration.testsupport.SecretCanaries;
+import io.github.stevdrey.dokene.messaging.application.MessagingProvider;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
 import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.ParameterFormat;
 import io.github.stevdrey.dokene.messaging.domain.FailureCategory;
@@ -28,6 +29,7 @@ import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.Accepted;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.FailedTransiently;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.OutcomeUnknown;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult.RejectedPermanently;
+import io.github.stevdrey.dokene.messaging.domain.ProviderSignalKind;
 import io.github.stevdrey.dokene.template.domain.TemplateParameterValues;
 import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
@@ -610,6 +612,69 @@ class GraphApiMessagingProviderTest {
             assertThat(result.toString()).doesNotContain(leaked);
             assertThat(output.getAll()).doesNotContain(leaked);
         }
+    }
+
+    // --- provider health signal (ADR 0038) -----------------------------------------------------------------------
+
+    /** covers: spec 0023 AC-2, AC-17. Any definitive answer is SUCCESS; only throttling and unusable ones differ. */
+    @ParameterizedTest
+    @CsvSource(nullValues = "-", value = {"200,-,SUCCESS", "400,131026,SUCCESS", "401,190,SUCCESS", "404,-,SUCCESS",
+            "408,-,SUCCESS", "425,-,SUCCESS", "429,-,THROTTLED", "400,130429,THROTTLED", "400,131056,THROTTLED",
+            "302,-,OUTAGE", "500,-,OUTAGE", "503,130429,OUTAGE"})
+    void anAnsweredExchangeSignalsByItsStatusAndThrottleCode(int answered, Integer code, ProviderSignalKind signal) {
+        status = answered;
+        body = code == null ? messageWithId("wamid.SYNTHETIC-0001")
+                : ("{\"error\":{\"code\":" + code + "}}").getBytes(StandardCharsets.UTF_8);
+
+        assertThat(provider.exchange(command(List.of("Ana"))).signal()).contains(signal);
+        assertThat(requests).hasValue(1);
+    }
+
+    @Test
+    void aReadTimeoutAndARefusedConnectionSignalAnOutage() throws Exception {
+        delayMillis = 800;
+        MessagingProvider.Exchange timedOut = provider.exchange(command(List.of("Ana")));
+        assertThat(timedOut.result()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        assertThat(timedOut.signal()).contains(ProviderSignalKind.OUTAGE);
+
+        int closedPort;
+        try (ServerSocket closed = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            closedPort = closed.getLocalPort();
+        }
+        MessagingProvider.Exchange refused = providerFor(closedPort).exchange(command(List.of("Ana")));
+        assertThat(refused.result()).isEqualTo(new FailedTransiently(FailureCategory.PROVIDER_UNAVAILABLE));
+        assertThat(refused.signal()).contains(ProviderSignalKind.OUTAGE);
+    }
+
+    @Test
+    void aFailureBeforeAnyConnectionGivesNoSignal() {
+        when(resolver.resolve(any(), any())).thenThrow(new IllegalStateException("unresolvable"));
+        assertThat(provider.exchange(command(List.of("Ana"))).signal()).isEmpty();
+
+        when(integrations.findByTenant(tenantId)).thenReturn(Optional.empty());
+        assertThat(provider.exchange(command(List.of("Ana"))).signal()).isEmpty();
+
+        when(integrations.findByTenant(tenantId)).thenThrow(new IllegalStateException("database down"));
+        assertThat(provider.exchange(command(List.of("Ana"))).signal()).isEmpty();
+        assertThat(requests).hasValue(0);
+    }
+
+    @Test
+    void anExchangeCutShortByTheCallersOwnDeadlineGivesNoSignal() throws Exception {
+        delayMillis = 400;
+        AtomicReference<MessagingProvider.Exchange> answer = new AtomicReference<>();
+        Thread caller = Thread.ofVirtual().start(() -> answer.set(provider.exchange(command(List.of("Ana")))));
+        long giveUp = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+        while (requests.get() == 0 && System.nanoTime() < giveUp) {
+            Thread.sleep(5);
+        }
+
+        caller.interrupt();
+        caller.join(Duration.ofSeconds(5));
+
+        assertThat(requests).hasValue(1);
+        assertThat(answer.get().result()).isEqualTo(new OutcomeUnknown(Optional.empty()));
+        assertThat(answer.get().signal()).isEmpty();
     }
 
     private ProviderSendResult send() {

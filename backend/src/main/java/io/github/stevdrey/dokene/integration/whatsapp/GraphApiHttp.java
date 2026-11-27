@@ -79,16 +79,23 @@ final class GraphApiHttp {
     sealed interface PostOutcome {
     }
 
-    /** The request provably never left: the deadline had passed or no connection was established. */
-    record NotSent() implements PostOutcome {
+    /**
+     * The request provably never left. {@code connectionTried} tells a provider that could not be reached (refused,
+     * connect timeout, failed TLS handshake) from a local cause that tried no connection at all (the deadline had
+     * passed, or the request could not be built).
+     */
+    record NotSent(boolean connectionTried) implements PostOutcome {
     }
 
     /** The provider answered; {@code body} is null when it exceeded the size or time bound. */
     record Responded(int status, byte[] body) implements PostOutcome {
     }
 
-    /** The request may have been received but no status arrived: a timeout or I/O failure after sending. */
-    record Unknown() implements PostOutcome {
+    /**
+     * The request may have been received but no status arrived: a timeout or I/O failure after sending, or, when
+     * {@code interrupted}, the caller's own deadline cutting the exchange short.
+     */
+    record Unknown(boolean interrupted) implements PostOutcome {
     }
 
     /**
@@ -98,7 +105,7 @@ final class GraphApiHttp {
     PostOutcome post(URI uri, char[] token, byte[] json, long deadline) {
         long remaining = deadline - System.nanoTime();
         if (remaining <= 0) {
-            return new NotSent();
+            return new NotSent(false);
         }
         HttpRequest request;
         try {
@@ -106,20 +113,20 @@ final class GraphApiHttp {
                     .POST(HttpRequest.BodyPublishers.ofByteArray(json)).build();
         } catch (IllegalArgumentException unusable) {
             // Building the request writes nothing, so an unusable one provably never left.
-            return new NotSent();
+            return new NotSent(false);
         }
         try {
             HttpResponse<InputStream> response = http.send(request, HttpResponse.BodyHandlers.ofInputStream());
             return new Responded(response.statusCode(), readBody(response, deadline));
         } catch (HttpConnectTimeoutException | ConnectException | SSLHandshakeException notConnected) {
             // No connection, or no completed TLS handshake: the HTTP request is written only after both.
-            return new NotSent();
+            return new NotSent(true);
         } catch (IOException | RuntimeException afterSending) {
             // Anything else, including a malformed response header, may follow a transmitted request.
-            return new Unknown();
+            return new Unknown(false);
         } catch (InterruptedException interrupted) {
             Thread.currentThread().interrupt();
-            return new Unknown();
+            return new Unknown(true);
         }
     }
 

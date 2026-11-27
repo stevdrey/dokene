@@ -154,6 +154,21 @@ Send policy bounds:
 | `dokene.messaging.send-timeout` | 10s | Past the deadline the provider call is interrupted and its outcome is unknown |
 | `dokene.messaging.outbound.enabled` | false | `OUTBOUND_DISABLED_GLOBALLY` for every tenant while off; bound once at startup, so a change needs a restart (spec 0008) |
 
+Provider health tracking ([ADR 0038](../adr/0038-provider-health-gate.md), issue 471). Each finished Graph send exchange gives one signal (`SUCCESS`, `THROTTLED` or `OUTAGE`), recorded after the send's own outcome is committed into the one shared row `dokene.provider_health`. The row holds a state (`HEALTHY`, `DEGRADED`, `UNAVAILABLE`, `UNKNOWN`), counters and times, and no tenant or message data. Sends are not refused or probed yet; that arrives with issue 472. Until then the default `enforce` mode leaves the state at `UNKNOWN`, and `observe` lets send results move it.
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `dokene.messaging.provider-health.mode` | enforce | `enforce` or `observe`. `observe` tracks the state and never refuses or probes a send. |
+| `dokene.messaging.provider-health.outage-threshold` | 3 | `OUTAGE` signals in a row that give `UNAVAILABLE` (1 to 20). |
+| `dokene.messaging.provider-health.outage-window` | 2m | The run of outage signals must fit inside it (10s to 1h). |
+| `dokene.messaging.provider-health.recovery-successes` | 2 | Successes in a row that give `HEALTHY` (1 to 10). |
+| `dokene.messaging.provider-health.stale-after` | 15m | A `HEALTHY` or `DEGRADED` row with no signal for this long reads as `UNKNOWN` (1m to 24h, longer than `outage-window`). |
+| `dokene.messaging.provider-health.cool-down-initial` | 30s | First cool down after a trip; it doubles each time up to `cool-down-max`. |
+| `dokene.messaging.provider-health.cool-down-max` | 5m | Cap of the cool down (up to 1h). |
+| `dokene.messaging.provider-health.probe-lease` | 10s | How long one probe holds the lease (at most 1m, and longer than `dokene.integration.whatsapp.graph.timeout`). |
+
+A value outside its bounds stops startup. Meters: `dokene.messaging.provider.health.state` (gauge, 1 for the current state), `.signals`, `.transitions` and `.store.failures`, tagged only with the provider key and closed enum values.
+
 A disable or revocation that commits after the claim cannot retract a call already in flight; it stops later sends only. Application duplicate suppression is not proof of exactly-once delivery by the provider. Live sending is off by default: the global switch `dokene.messaging.outbound.enabled` and each tenant's switch must both be on (see [Disabling and re enabling outbound sending](#disabling-and-re-enabling-outbound-sending)); the template schema check (#218) is in place.
 
 ## WhatsApp templates
