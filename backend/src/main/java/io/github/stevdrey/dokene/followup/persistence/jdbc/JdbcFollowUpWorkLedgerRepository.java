@@ -1,0 +1,253 @@
+// ABOUTME: PostgreSQL follow-up work ledger (issue 458, ADR 0037): bounded enqueue, atomic claims with FOR UPDATE SKIP
+// ABOUTME: LOCKED, and fenced lease renewals and outcomes, all naming the tenant explicitly under forced RLS.
+package io.github.stevdrey.dokene.followup.persistence.jdbc;
+
+import io.github.stevdrey.dokene.customer.domain.CustomerId;
+import io.github.stevdrey.dokene.followup.application.FollowUpWorkLedgerRepository;
+import io.github.stevdrey.dokene.followup.domain.FollowUpWorkClaim;
+import io.github.stevdrey.dokene.followup.domain.FollowUpWorkFailure;
+import io.github.stevdrey.dokene.followup.domain.FollowUpWorkItem;
+import io.github.stevdrey.dokene.followup.domain.FollowUpWorkState;
+import io.github.stevdrey.dokene.followup.domain.FollowUpWorkerId;
+import io.github.stevdrey.dokene.tenant.domain.TenantId;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.Comparator;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Repository;
+
+/**
+ * Claims lock their rows with {@code FOR UPDATE SKIP LOCKED}, so concurrent instances never wait on or claim the same
+ * row, and PostgreSQL re-checks the claimable condition on a row that changed before it was locked. Outcomes match the
+ * fencing identity and an unexpired lease in the same {@code UPDATE}, so a stale claimant writes nothing.
+ */
+@Repository
+public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepository {
+    /** The current claim, unexpired at the statement's {@code now}: tenant, candidate, attempt, token and now. */
+    private static final String CURRENT_CLAIM = """
+            tenant_id = ? AND candidate_id = ? AND state = 'CLAIMED' AND attempts = ? AND claim_token = ?
+              AND lease_expires_at > ?
+            """;
+    private static final String OPEN_STATES = "('PENDING', 'CLAIMED', 'RETRY_DUE', 'EXHAUSTED')";
+    private static final Comparator<FollowUpWorkClaim> DUE_ORDER = Comparator.comparing(FollowUpWorkClaim::dueDate)
+            .thenComparing(claim -> claim.customerId().value(), JdbcFollowUpCandidateRepository::unsigned);
+
+    private final JdbcTemplate jdbc;
+
+    public JdbcFollowUpWorkLedgerRepository(JdbcTemplate jdbc) {
+        this.jdbc = jdbc;
+    }
+
+    /**
+     * The open-item check skips customers that already have work; the partial unique index on open items makes a
+     * concurrent enqueue of the same customer skip it through ON CONFLICT instead of adding a second open item.
+     */
+    @Override
+    public int enqueue(TenantId tenantId, Instant now, int limit) {
+        requirePositive(limit);
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                INSERT INTO dokene.follow_up_work_items
+                    (candidate_id, tenant_id, customer_id, due_date, state, attempts, available_at, enqueued_at,
+                     updated_at)
+                SELECT latest.id, latest.tenant_id, latest.customer_id, latest.due_date, 'PENDING', 0, ?, ?, ?
+                FROM (
+                    SELECT DISTINCT ON (c.customer_id) c.id, c.tenant_id, c.customer_id, c.due_date
+                    FROM dokene.follow_up_candidates c
+                    WHERE c.tenant_id = ?
+                      AND NOT EXISTS (
+                          SELECT 1 FROM dokene.follow_up_work_items item
+                          WHERE item.tenant_id = c.tenant_id AND item.candidate_id = c.id
+                      )
+                      AND NOT EXISTS (
+                          SELECT 1 FROM dokene.follow_up_work_items open_item
+                          WHERE open_item.tenant_id = c.tenant_id AND open_item.customer_id = c.customer_id
+                            AND open_item.state IN
+                            """ + OPEN_STATES + """
+                      )
+                    ORDER BY c.customer_id, c.due_date DESC
+                ) latest
+                WHERE EXISTS (SELECT 1 FROM dokene.tenants t WHERE t.id = ? AND t.status = 'ACTIVE')
+                ORDER BY latest.due_date ASC, latest.customer_id ASC
+                LIMIT ?
+                ON CONFLICT DO NOTHING
+                """, at, at, at, tenantId.value(), tenantId.value(), limit);
+    }
+
+    @Override
+    public int exhaustSpent(TenantId tenantId, Instant now, int maxAttempts, int limit) {
+        requirePositive(limit);
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                WITH spent AS (
+                    SELECT s.candidate_id FROM dokene.follow_up_work_items s
+                    WHERE s.tenant_id = ? AND s.attempts >= ?
+                      AND ((s.state = 'CLAIMED' AND s.lease_expires_at <= ?) OR s.state = 'RETRY_DUE')
+                    ORDER BY s.due_date ASC, s.customer_id ASC
+                    LIMIT ?
+                    FOR UPDATE OF s SKIP LOCKED
+                )
+                UPDATE dokene.follow_up_work_items w
+                SET state = 'EXHAUSTED',
+                    last_failure = CASE WHEN w.state = 'CLAIMED' THEN 'LEASE_EXPIRED' ELSE w.last_failure END,
+                    finished_at = ?, updated_at = ?
+                FROM spent
+                WHERE w.tenant_id = ? AND w.candidate_id = spent.candidate_id
+                """, tenantId.value(), maxAttempts, at, limit, at, at, tenantId.value());
+    }
+
+    @Override
+    public List<FollowUpWorkClaim> claim(TenantId tenantId, FollowUpWorkerId worker, Instant now,
+            Instant leaseExpiresAt, int maxAttempts, int limit) {
+        requirePositive(limit);
+        if (!leaseExpiresAt.isAfter(now)) {
+            throw new IllegalArgumentException("A lease must expire after its claim");
+        }
+        Timestamp at = Timestamp.from(now);
+        List<FollowUpWorkClaim> claims = jdbc.query("""
+                WITH claimable AS (
+                    SELECT c.candidate_id FROM dokene.follow_up_work_items c
+                    WHERE c.tenant_id = ? AND c.attempts < ?
+                      AND ((c.state IN ('PENDING', 'RETRY_DUE') AND c.available_at <= ?)
+                           OR (c.state = 'CLAIMED' AND c.lease_expires_at <= ?))
+                      AND EXISTS (SELECT 1 FROM dokene.tenants t WHERE t.id = ? AND t.status = 'ACTIVE')
+                    ORDER BY c.due_date ASC, c.customer_id ASC
+                    LIMIT ?
+                    FOR UPDATE OF c SKIP LOCKED
+                )
+                UPDATE dokene.follow_up_work_items w
+                SET state = 'CLAIMED', attempts = w.attempts + 1, claim_token = gen_random_uuid(), claimed_by = ?,
+                    claimed_at = ?, lease_expires_at = ?, updated_at = ?
+                FROM claimable
+                WHERE w.tenant_id = ? AND w.candidate_id = claimable.candidate_id
+                RETURNING w.candidate_id, w.tenant_id, w.customer_id, w.due_date, w.attempts, w.claim_token,
+                    w.claimed_by, w.claimed_at, w.lease_expires_at
+                """, this::mapClaim, tenantId.value(), maxAttempts, at, at, tenantId.value(), limit, worker.value(),
+                at, Timestamp.from(leaseExpiresAt), at, tenantId.value());
+        return claims.stream().sorted(DUE_ORDER).toList();
+    }
+
+    @Override
+    public Optional<Instant> renew(FollowUpWorkClaim claim, Instant now, Instant leaseExpiresAt) {
+        Timestamp at = Timestamp.from(now);
+        return jdbc.query("""
+                UPDATE dokene.follow_up_work_items
+                SET lease_expires_at = GREATEST(lease_expires_at, ?), updated_at = ?
+                WHERE
+                """ + CURRENT_CLAIM + """
+                RETURNING lease_expires_at
+                """, (row, index) -> instant(row, "lease_expires_at"), Timestamp.from(leaseExpiresAt), at,
+                claim.tenantId().value(), claim.candidateId(), claim.attempt(), claim.claimToken(), at)
+                .stream().findFirst();
+    }
+
+    @Override
+    public boolean complete(FollowUpWorkClaim claim, Instant now) {
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                UPDATE dokene.follow_up_work_items
+                SET state = 'COMPLETED', finished_at = ?, updated_at = ?
+                WHERE
+                """ + CURRENT_CLAIM, at, at, claim.tenantId().value(), claim.candidateId(), claim.attempt(),
+                claim.claimToken(), at) == 1;
+    }
+
+    @Override
+    public int collapseInto(FollowUpWorkClaim claim, Instant now, int limit) {
+        requirePositive(limit);
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                INSERT INTO dokene.follow_up_work_items
+                    (candidate_id, tenant_id, customer_id, due_date, state, attempts, available_at, collapsed_into,
+                     enqueued_at, finished_at, updated_at)
+                SELECT c.id, c.tenant_id, c.customer_id, c.due_date, 'COMPLETED', 0, ?, ?, ?, ?, ?
+                FROM dokene.follow_up_candidates c
+                WHERE c.tenant_id = ? AND c.customer_id = ? AND c.id <> ? AND c.generated_at <= ?
+                  AND NOT EXISTS (
+                      SELECT 1 FROM dokene.follow_up_work_items item
+                      WHERE item.tenant_id = c.tenant_id AND item.candidate_id = c.id
+                  )
+                ORDER BY c.due_date ASC, c.id ASC
+                LIMIT ?
+                ON CONFLICT DO NOTHING
+                """, at, claim.candidateId(), at, at, at, claim.tenantId().value(), claim.customerId().value(),
+                claim.candidateId(), Timestamp.from(claim.claimedAt()), limit);
+    }
+
+    @Override
+    public Optional<FollowUpWorkState> fail(FollowUpWorkClaim claim, FollowUpWorkFailure failure, Instant now,
+            Instant retryAt, int maxAttempts) {
+        Timestamp at = Timestamp.from(now);
+        return jdbc.query("""
+                UPDATE dokene.follow_up_work_items
+                SET state = CASE WHEN attempts >= ? THEN 'EXHAUSTED' ELSE 'RETRY_DUE' END,
+                    available_at = CASE WHEN attempts >= ? THEN available_at ELSE ? END,
+                    finished_at = CASE WHEN attempts >= ? THEN ?::timestamptz ELSE NULL END,
+                    last_failure = ?, updated_at = ?
+                WHERE
+                """ + CURRENT_CLAIM + """
+                RETURNING state
+                """, (row, index) -> FollowUpWorkState.valueOf(row.getString("state")), maxAttempts, maxAttempts,
+                Timestamp.from(retryAt), maxAttempts, at, failure.name(), at, claim.tenantId().value(),
+                claim.candidateId(), claim.attempt(), claim.claimToken(), at).stream().findFirst();
+    }
+
+    @Override
+    public boolean exhaust(FollowUpWorkClaim claim, FollowUpWorkFailure failure, Instant now) {
+        Timestamp at = Timestamp.from(now);
+        return jdbc.update("""
+                UPDATE dokene.follow_up_work_items
+                SET state = 'EXHAUSTED', last_failure = ?, finished_at = ?, updated_at = ?
+                WHERE
+                """ + CURRENT_CLAIM, failure.name(), at, at, claim.tenantId().value(), claim.candidateId(),
+                claim.attempt(), claim.claimToken(), at) == 1;
+    }
+
+    @Override
+    public List<FollowUpWorkItem> findItems(TenantId tenantId, int limit) {
+        requirePositive(limit);
+        return jdbc.query("""
+                SELECT * FROM dokene.follow_up_work_items
+                WHERE tenant_id = ?
+                ORDER BY due_date ASC, customer_id ASC, candidate_id ASC
+                LIMIT ?
+                """, this::mapItem, tenantId.value(), limit);
+    }
+
+    private static void requirePositive(int limit) {
+        if (limit < 1) {
+            throw new IllegalArgumentException("Work limit must be positive");
+        }
+    }
+
+    private FollowUpWorkClaim mapClaim(ResultSet row, int index) throws SQLException {
+        return new FollowUpWorkClaim(row.getObject("candidate_id", UUID.class),
+                new TenantId(row.getObject("tenant_id", UUID.class)),
+                new CustomerId(row.getObject("customer_id", UUID.class)), row.getDate("due_date").toLocalDate(),
+                new FollowUpWorkerId(row.getString("claimed_by")), row.getInt("attempts"),
+                row.getObject("claim_token", UUID.class), instant(row, "claimed_at"),
+                instant(row, "lease_expires_at"));
+    }
+
+    private FollowUpWorkItem mapItem(ResultSet row, int index) throws SQLException {
+        return new FollowUpWorkItem(row.getObject("candidate_id", UUID.class),
+                new TenantId(row.getObject("tenant_id", UUID.class)),
+                new CustomerId(row.getObject("customer_id", UUID.class)), row.getDate("due_date").toLocalDate(),
+                FollowUpWorkState.valueOf(row.getString("state")), row.getInt("attempts"),
+                instant(row, "available_at"),
+                Optional.ofNullable(row.getString("claimed_by")).map(FollowUpWorkerId::new),
+                Optional.ofNullable(row.getTimestamp("lease_expires_at")).map(Timestamp::toInstant),
+                Optional.ofNullable(row.getString("last_failure")).map(FollowUpWorkFailure::valueOf),
+                Optional.ofNullable(row.getObject("collapsed_into", UUID.class)), instant(row, "enqueued_at"),
+                Optional.ofNullable(row.getTimestamp("finished_at")).map(Timestamp::toInstant));
+    }
+
+    private static Instant instant(ResultSet row, String column) throws SQLException {
+        return row.getTimestamp(column).toInstant();
+    }
+}
