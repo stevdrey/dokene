@@ -160,6 +160,52 @@ class FollowUpWorkProcessorTest {
     }
 
     @Test
+    void releasesAClaimWhoseRenewalThrowsAndTheRestOfTheBatchUntried() {
+        FollowUpWorkClaim first = claim(1);
+        FollowUpWorkClaim unrenewable = claim(3);
+        FollowUpWorkClaim waiting = claim(2);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(first, unrenewable, waiting));
+        when(ledger.renew(unrenewable)).thenThrow(new IllegalStateException("database unreachable"));
+        when(ledger.complete(first)).thenReturn(FollowUpWorkTransition.COMPLETED);
+        when(ledger.fail(unrenewable, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(4))))
+                .thenReturn(FollowUpWorkTransition.EXHAUSTED);
+        when(ledger.fail(waiting, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(2))))
+                .thenReturn(FollowUpWorkTransition.RETRY_SCHEDULED);
+        List<FollowUpWorkClaim> handled = new ArrayList<>();
+
+        var summary = processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5, lease -> {
+            handled.add(lease.claim());
+            return new FollowUpWorkAttemptResult.Completed();
+        });
+
+        // The claim on its last attempt is exhausted as a safe, requeueable failure, never as an unknown outcome.
+        assertThat(handled).containsExactly(first);
+        assertThat(summary).isEqualTo(new FollowUpWorkProcessor.RunSummary(
+                FollowUpProviderHealth.Availability.HEALTHY, 3, 1, 1, 1, 0, 0));
+        verify(ledger, never()).renew(waiting);
+        verify(ledger, never()).requireRecovery(any(), any());
+    }
+
+    @Test
+    void keepsReleasingTheBatchWhenOneUntriedReleaseFails() {
+        FollowUpWorkClaim first = claim(1);
+        FollowUpWorkClaim unreleasable = claim(1);
+        FollowUpWorkClaim waiting = claim(1);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(first, unreleasable, waiting));
+        when(ledger.fail(any(), any(), any())).thenReturn(FollowUpWorkTransition.RETRY_SCHEDULED);
+        when(ledger.fail(unreleasable, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(1))))
+                .thenThrow(new IllegalStateException("database unreachable"));
+
+        var summary = processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5,
+                lease -> new FollowUpWorkAttemptResult.Transient(FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE));
+
+        assertThat(summary.claimed()).isEqualTo(3);
+        assertThat(summary.retryScheduled()).isEqualTo(2);
+        verify(ledger).fail(waiting, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(1)));
+        verify(ledger, never()).requireRecovery(any(), any());
+    }
+
+    @Test
     void claimsNothingWhileProvidersAreUnavailable() {
         var summary = processor(FollowUpProviderHealth.Availability.UNAVAILABLE)
                 .process(tenantId, WORKER, 5, lease -> new FollowUpWorkAttemptResult.Completed());

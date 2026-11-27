@@ -85,15 +85,26 @@ public class FollowUpWorkProcessor {
         boolean dependencyDown = false;
         for (FollowUpWorkClaim claim : claims) {
             if (dependencyDown) {
-                // Not attempted, so nothing external happened; spare the dependency until the backoff passes.
-                tally.add(ledger.fail(claim, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE,
-                        retries.retryAt(clock.instant(), claim.attempt())), false);
+                releaseUntried(claim, tally);
                 continue;
             }
             HeldLease lease = new HeldLease(claim);
             // Claims wait in this loop while earlier handlers run: renew each one just before its handler starts, and
             // never start a handler for a claim that expired or that another instance took over meanwhile.
-            if (!lease.renew()) {
+            boolean held;
+            try {
+                held = lease.renew();
+            } catch (RuntimeException failure) {
+                // No handler started, so nothing external happened: release this claim and the rest of the batch as a
+                // safe transient failure instead of leaving them to expire as unknown outcomes.
+                log.warn("Follow-up work claim could not be renewed before its handler; releasing the batch untried; "
+                        + "tenantId={}, candidateId={}, attempt={}, exceptionClass={}", claim.tenantId().value(),
+                        claim.candidateId(), claim.attempt(), failure.getClass().getName());
+                dependencyDown = true;
+                releaseUntried(claim, tally);
+                continue;
+            }
+            if (!held) {
                 tally.add(FollowUpWorkTransition.STALE, false);
                 continue;
             }
@@ -125,6 +136,21 @@ public class FollowUpWorkProcessor {
             log.warn("Provider health could not be read; treating it as unknown; exceptionClass={}",
                     failure.getClass().getName());
             return FollowUpProviderHealth.Availability.UNKNOWN;
+        }
+    }
+
+    /**
+     * Releases a claim whose handler never started: nothing external happened, so it is a safe transient failure that
+     * spares the dependency until the backoff passes. A release that cannot be written leaves the claim to its lease.
+     */
+    private void releaseUntried(FollowUpWorkClaim claim, Tally tally) {
+        try {
+            tally.add(ledger.fail(claim, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE,
+                    retries.retryAt(clock.instant(), claim.attempt())), false);
+        } catch (RuntimeException failure) {
+            log.warn("Untried follow-up work claim could not be released; leaving it to lease expiry; tenantId={}, "
+                    + "candidateId={}, attempt={}, exceptionClass={}", claim.tenantId().value(), claim.candidateId(),
+                    claim.attempt(), failure.getClass().getName());
         }
     }
 

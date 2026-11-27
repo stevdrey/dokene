@@ -31,4 +31,4 @@ Candidates (A1) record that a customer's cycle is due. Several backend instances
 
 ## Extended by ADR 0039
 
-[ADR 0039](0039-bounded-follow-up-retries-and-explicit-recovery.md) adds attempt classification, capped jittered backoff, provider health gating and authorized, audited recovery. V49 adds the safe `REJECTED` failure, which `fail` refuses like the unknown categories. It also adds `attempt_base`: the attempt limit counts the claims made since the latest requeue, while the attempt number keeps growing. Recovery may requeue only a safe failure and may resolve any exhausted item; an unknown outcome is never requeued.
+[ADR 0039](0039-bounded-follow-up-retries-and-explicit-recovery.md) adds attempt classification, capped jittered backoff, provider health gating and authorized, audited recovery. V50 adds the safe `REJECTED` failure, which `fail` refuses like the unknown categories. It also adds `attempt_base`: the attempt limit counts the claims made since the latest requeue, while the attempt number keeps growing. Recovery may requeue only a safe failure and may resolve any exhausted item; an unknown outcome is never requeued.
