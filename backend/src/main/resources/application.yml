@@ -157,6 +157,7 @@ dokene:
     # tenant-per-day below tenant-per-minute, stops startup. Nothing calls the budget from the send path yet.
     send:
       # The same variable as dokene.messaging.send-rate-per-tenant-per-minute, so a deployment has one knob.
+      # A deployment that raised it above the tenant-per-day default must raise tenant-per-day too, or startup stops.
       tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
       tenant-per-day: ${DOKENE_ADMISSION_SEND_TENANT_PER_DAY:500}
       global-per-minute: ${DOKENE_ADMISSION_SEND_GLOBAL_PER_MINUTE:120}
@@ -164,7 +165,8 @@ dokene:
       # How long a tenant's sends pause after the provider throttled it.
       throttle-pause: ${DOKENE_ADMISSION_SEND_THROTTLE_PAUSE:60s}
     candidates:
-      # Off unless the deployment sets it to true: while off, no follow up candidate is admitted.
+      # Off unless the deployment sets it to true (on, yes and 1 also bind as true): while off, no follow up
+      # candidate is admitted.
       enabled: ${DOKENE_ADMISSION_CANDIDATES_ENABLED:false}
       tenant-per-day: ${DOKENE_ADMISSION_CANDIDATES_TENANT_PER_DAY:200}
     lock-timeout: ${DOKENE_ADMISSION_LOCK_TIMEOUT:1s}

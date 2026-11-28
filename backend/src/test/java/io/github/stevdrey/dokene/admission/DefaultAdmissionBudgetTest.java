@@ -98,7 +98,7 @@ class DefaultAdmissionBudgetTest {
         assertThat(store.rows(tenant, AdmissionKind.SEND)).hasSize(2);
         assertThat(store.platformRows).hasSize(2);
         assertThat(store.calls).doesNotContain("lockGlobalSends").endsWith("tenantUsage:SEND");
-        assertThat(logLines()).containsExactly("Admission denied; kind=SEND, reason=TENANT_MINUTE, suppressed=0");
+        assertThat(logLines()).containsExactly("Admission denied; kind=SEND, reason=TENANT_MINUTE, cause=none, suppressed=0");
         assertThat(logLines()).noneMatch(line -> line.contains(tenant.value().toString()));
         assertThat(decisions("SEND", "DENIED", "TENANT_MINUTE")).isEqualTo(1.0);
     }
@@ -229,6 +229,12 @@ class DefaultAdmissionBudgetTest {
         assertThat(candidate(budget(candidates(5)), tenant))
                 .isEqualTo(new Denied(AdmissionDenialReason.STATE_UNAVAILABLE, DATABASE_RETRY));
         assertThat(store.rows(tenant, AdmissionKind.SEND)).isEmpty();
+        assertThat(logLines()).containsExactly(
+                "Admission denied; kind=SEND, reason=STATE_UNAVAILABLE, cause=UncategorizedSQLException/55P03, "
+                        + "suppressed=0",
+                "Admission denied; kind=CANDIDATE, reason=STATE_UNAVAILABLE, cause=UncategorizedSQLException/55P03, "
+                        + "suppressed=0");
+        assertThat(meters.counter(AdmissionTelemetry.STORE_FAILURES, "operation", "SEND").count()).isEqualTo(1.0);
     }
 
     @Test

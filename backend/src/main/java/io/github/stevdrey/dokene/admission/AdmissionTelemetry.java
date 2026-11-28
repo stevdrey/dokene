@@ -4,6 +4,7 @@ package io.github.stevdrey.dokene.admission;
 
 import io.github.stevdrey.dokene.admission.AdmissionDecision.Denied;
 import io.micrometer.core.instrument.MeterRegistry;
+import java.sql.SQLException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -38,11 +39,19 @@ class AdmissionTelemetry {
     }
 
     void decided(AdmissionKind kind, AdmissionDecision decision) {
+        decided(kind, decision, null);
+    }
+
+    /** {@code cause} is the failure that led to a STATE_UNAVAILABLE answer, or null when the answer is a plain decision. */
+    void decided(AdmissionKind kind, AdmissionDecision decision, Throwable cause) {
         switch (decision) {
             case AdmissionDecision.Admitted _ -> count(kind, "ADMITTED", "NONE");
             case Denied denied -> {
                 count(kind, "DENIED", denied.reason().name());
-                logDenial(kind, denied.reason());
+                if (cause != null && registry != null) {
+                    registry.counter(STORE_FAILURES, "operation", kind.name()).increment();
+                }
+                logDenial(kind, denied.reason(), cause);
             }
         }
     }
@@ -62,7 +71,7 @@ class AdmissionTelemetry {
     }
 
     /** At most one line per kind and reason every ten seconds on this instance; the next line says how many it stands for. */
-    private void logDenial(AdmissionKind kind, AdmissionDenialReason reason) {
+    private void logDenial(AdmissionKind kind, AdmissionDenialReason reason, Throwable cause) {
         Instant now = clock.instant();
         long[] suppressedBefore = {-1};
         denialLines.compute(new DenialKey(kind, reason), (key, last) -> {
@@ -73,7 +82,24 @@ class AdmissionTelemetry {
             return new DenialLine(now, 0);
         });
         if (suppressedBefore[0] >= 0) {
-            log.info("Admission denied; kind={}, reason={}, suppressed={}", kind, reason, suppressedBefore[0]);
+            log.info("Admission denied; kind={}, reason={}, cause={}, suppressed={}", kind, reason,
+                    describe(cause), suppressedBefore[0]);
         }
+    }
+
+    /** The exception class and SQLSTATE only: driver messages can carry statements and identifiers. */
+    private static String describe(Throwable cause) {
+        if (cause == null) {
+            return "none";
+        }
+        String sqlState = null;
+        int depth = 0;
+        for (Throwable current = cause; current != null && sqlState == null && depth < 16;
+                current = current.getCause(), depth++) {
+            if (current instanceof SQLException sql) {
+                sqlState = sql.getSQLState();
+            }
+        }
+        return cause.getClass().getSimpleName() + (sqlState == null ? "" : "/" + sqlState);
     }
 }

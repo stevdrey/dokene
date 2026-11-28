@@ -125,27 +125,29 @@ class DefaultAdmissionBudget implements AdmissionBudget {
         }
     }
 
-    private AdmissionDecision admit(AdmissionKind kind, TenantId tenant, SavepointWork work) {
-        Objects.requireNonNull(tenant, "Tenant is required");
-        requireWritableTransaction();
-        AdmissionDecision decision = inContext(tenant) ? decide(work) : stateUnavailable();
-        telemetry.decided(kind, decision);
-        return decision;
-    }
-
     /**
      * The switch and the store can fail in ways that are not data access failures, so every runtime failure answers
      * no. A lost connection is the exception: it keeps its ADR 0029 answer and is raised.
      */
-    private AdmissionDecision decide(SavepointWork work) {
+    private AdmissionDecision admit(AdmissionKind kind, TenantId tenant, SavepointWork work) {
+        Objects.requireNonNull(tenant, "Tenant is required");
+        requireWritableTransaction();
+        if (!inContext(tenant)) {
+            return decided(kind, stateUnavailable(), null);
+        }
         try {
-            return store.underSavepoint(work);
+            return decided(kind, store.underSavepoint(work), null);
         } catch (RuntimeException failure) {
             if (database.isCause(failure)) {
                 throw failure;
             }
-            return stateUnavailable();
+            return decided(kind, stateUnavailable(), failure);
         }
+    }
+
+    private AdmissionDecision decided(AdmissionKind kind, AdmissionDecision decision, RuntimeException cause) {
+        telemetry.decided(kind, decision, cause);
+        return decision;
     }
 
     private Denied stateUnavailable() {

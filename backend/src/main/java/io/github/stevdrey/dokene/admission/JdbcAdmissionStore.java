@@ -3,6 +3,7 @@
 package io.github.stevdrey.dokene.admission;
 
 import io.github.stevdrey.dokene.admission.AdmissionDecision.Admitted;
+import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -16,6 +17,7 @@ import java.util.Objects;
 import java.util.Optional;
 import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.ConnectionProxy;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -25,12 +27,19 @@ import org.springframework.transaction.support.TransactionTemplate;
 class JdbcAdmissionStore implements AdmissionStore {
     private static final String ADVISORY_LOCK = "SELECT pg_advisory_xact_lock(hashtext(?), hashtext(?))";
 
+    /** SQLSTATE "connection does not exist": what a connection the pool already closed stands for. */
+    private static final String CONNECTION_DOES_NOT_EXIST = "08003";
+
     private final JdbcTemplate jdbc;
     private final TransactionTemplate ownTransaction;
+    private final DatabaseUnavailability database;
 
-    JdbcAdmissionStore(JdbcTemplate jdbc, PlatformTransactionManager transactionManager) {
+    JdbcAdmissionStore(JdbcTemplate jdbc, PlatformTransactionManager transactionManager,
+            DatabaseUnavailability database) {
         this.jdbc = Objects.requireNonNull(jdbc, "JDBC template is required");
-        this.ownTransaction = new TransactionTemplate(Objects.requireNonNull(transactionManager));
+        this.database = Objects.requireNonNull(database, "Database unavailability is required");
+        this.ownTransaction = new TransactionTemplate(
+                Objects.requireNonNull(transactionManager, "Transaction manager is required"));
         // The pause is written after the provider answered, never inside a claim transaction.
         this.ownTransaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
@@ -56,22 +65,62 @@ class JdbcAdmissionStore implements AdmissionStore {
                 undo(connection, savepoint, failure);
                 throw failure;
             }
-            connection.rollback(savepoint);
-            connection.releaseSavepoint(savepoint);
+            try {
+                connection.rollback(savepoint);
+                connection.releaseSavepoint(savepoint);
+            } catch (SQLException rollbackFailure) {
+                throw outageOr(connection, rollbackFailure, rollbackFailure);
+            }
             return decision;
         });
     }
 
     /**
-     * The first failure is the one raised. When the connection is lost the rollback fails as well, and the pool's
-     * "connection is closed" error carries no SQLSTATE, so raising it would hide the outage from the caller.
+     * Undoes the work after a failure. When the rollback fails as well, the connection is usually gone, and the
+     * caller must learn that: an outage is raised as an outage whichever of the two failures shows it. Otherwise
+     * the first failure stands and the rollback failure is attached to it.
      */
-    private static void undo(Connection connection, Savepoint savepoint, Exception failure) {
+    private void undo(Connection connection, Savepoint savepoint, Exception failure) throws SQLException {
         try {
             connection.rollback(savepoint);
             connection.releaseSavepoint(savepoint);
         } catch (SQLException rollbackFailure) {
-            failure.addSuppressed(rollbackFailure);
+            if (database.isCause(failure)) {
+                failure.addSuppressed(rollbackFailure);
+                return;
+            }
+            SQLException raised = outageOr(connection, rollbackFailure, null);
+            if (raised == null) {
+                failure.addSuppressed(rollbackFailure);
+                return;
+            }
+            raised.addSuppressed(failure);
+            throw raised;
+        }
+    }
+
+    /**
+     * The rollback failure when it shows an outage, a connection exception when the connection is closed (the
+     * pool's "connection is closed" error carries no SQLSTATE of its own), and {@code otherwise} in every other case.
+     */
+    private SQLException outageOr(Connection connection, SQLException rollbackFailure, SQLException otherwise) {
+        if (database.isCause(rollbackFailure)) {
+            return rollbackFailure;
+        }
+        if (closed(connection)) {
+            return new SQLException("Connection closed during an admission", CONNECTION_DOES_NOT_EXIST,
+                    rollbackFailure);
+        }
+        return otherwise;
+    }
+
+    /** Asks the pool's connection: the proxy JdbcTemplate hands to a callback always answers "not closed". */
+    private static boolean closed(Connection connection) {
+        try {
+            Connection pooled = connection instanceof ConnectionProxy proxy ? proxy.getTargetConnection() : connection;
+            return pooled.isClosed();
+        } catch (SQLException unknown) {
+            return true;
         }
     }
 

@@ -441,7 +441,26 @@ class AdmissionBudgetIntegrationTest {
         assertThat(send(budget, tenantA)).isEqualTo(ADMITTED);
     }
 
-    /** covers: AC-10. The connection is already gone when the admission opens its savepoint. */
+    /** covers: AC-10. The first failure is not an outage; the lost connection shows only when the savepoint is undone. */
+    @Test
+    void aSwitchFailureOnAConnectionThatWasLostIsRaisedAsADatabaseOutageAndNotDenied() {
+        sendSwitch = asked -> {
+            terminateBackend(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
+            throw new IllegalStateException("switch state missing");
+        };
+        AdmissionBudget budget = budget(settings(30, 500, 120, 25));
+
+        AtomicReference<AdmissionDecision> answered = new AtomicReference<>();
+        Throwable raised = raisedInsideATransaction(() -> {
+            answered.set(budget.admitSend(tenantA));
+            return answered.get();
+        });
+
+        assertThat(answered.get()).as("a lost connection must be raised, never answered").isNull();
+        assertThat(database.isCause(raised)).isTrue();
+    }
+
+
     @Test
     void aConnectionLostBeforeACandidateAdmissionIsRaisedAsADatabaseOutageAndNotDenied() throws SQLException {
         AdmissionBudget budget = budget(candidates(5));
@@ -498,6 +517,33 @@ class AdmissionBudgetIntegrationTest {
         assertThat(columns("tenant_budget_admissions")).containsExactly("id", "tenant_id", "kind", "admitted_at");
         assertThat(columns("platform_send_admissions")).containsExactly("id", "admitted_at");
         assertThat(columns("tenant_send_pauses")).containsExactly("tenant_id", "paused_until");
+    }
+
+    /** covers: AC-11, AC-12. The behaviour tests run as a role that does not own the tables, so the catalogue is pinned here. */
+    @Test
+    void theCatalogueHoldsForcedRowLevelSecurityTheExactPoliciesAndLeastPrivilegeGrants() throws SQLException {
+        assertThat(strings("SELECT c.relname || ':' || c.relrowsecurity || ':' || c.relforcerowsecurity "
+                + "FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = 'dokene' "
+                + "AND c.relname IN ('tenant_budget_admissions', 'platform_send_admissions', 'tenant_send_pauses') "
+                + "ORDER BY 1")).containsExactly("platform_send_admissions:false:false",
+                        "tenant_budget_admissions:true:true", "tenant_send_pauses:true:true");
+        assertThat(strings("SELECT policyname || ':' || cmd || ':' || array_to_string(roles, ',') FROM pg_policies "
+                + "WHERE schemaname = 'dokene' AND tablename IN ('tenant_budget_admissions', "
+                + "'platform_send_admissions', 'tenant_send_pauses') ORDER BY 1")).containsExactly(
+                        "tenant_budget_admissions_delete_policy:DELETE:dokene_runtime",
+                        "tenant_budget_admissions_insert_policy:INSERT:dokene_runtime",
+                        "tenant_budget_admissions_migration_policy:ALL:dokene_migration",
+                        "tenant_budget_admissions_select_policy:SELECT:dokene_runtime",
+                        "tenant_send_pauses_insert_policy:INSERT:dokene_runtime",
+                        "tenant_send_pauses_migration_policy:ALL:dokene_migration",
+                        "tenant_send_pauses_select_policy:SELECT:dokene_runtime",
+                        "tenant_send_pauses_update_policy:UPDATE:dokene_runtime");
+        assertThat(privileges("dokene_runtime", "tenant_budget_admissions")).isEqualTo("SELECT,INSERT,DELETE");
+        assertThat(privileges("dokene_runtime", "platform_send_admissions")).isEqualTo("SELECT,INSERT,DELETE");
+        assertThat(privileges("dokene_runtime", "tenant_send_pauses")).isEqualTo("SELECT,INSERT,UPDATE");
+        for (String table : List.of("tenant_budget_admissions", "platform_send_admissions", "tenant_send_pauses")) {
+            assertThat(privileges("public", table)).isEmpty();
+        }
     }
 
     @Test
@@ -672,6 +718,24 @@ class AdmissionBudgetIntegrationTest {
                 while (rows.next()) {
                     values.add(rows.getTimestamp(1).toInstant());
                 }
+            }
+        }
+        return values;
+    }
+
+    /** The privileges, of the seven a table has, that the role holds, in a fixed order. */
+    private static String privileges(String role, String table) throws SQLException {
+        return String.join(",", strings("SELECT p FROM unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', "
+                + "'TRUNCATE', 'REFERENCES', 'TRIGGER']) WITH ORDINALITY AS t(p, position) "
+                + "WHERE has_table_privilege('" + role + "', 'dokene." + table + "', p) ORDER BY position"));
+    }
+
+    private static List<String> strings(String sql) throws SQLException {
+        List<String> values = new ArrayList<>();
+        try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection();
+                Statement statement = connection.createStatement(); ResultSet rows = statement.executeQuery(sql)) {
+            while (rows.next()) {
+                values.add(rows.getString(1));
             }
         }
         return values;

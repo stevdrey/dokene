@@ -7,6 +7,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.util.Objects;
 import org.springframework.stereotype.Component;
 
+/** Bound by the SendSwitch contract: the control behind it must stay a JDBC read, with no write and no JPA flush. */
 @Component
 class OutboundSendSwitch implements SendSwitch {
     private final OutboundSafetyControl control;

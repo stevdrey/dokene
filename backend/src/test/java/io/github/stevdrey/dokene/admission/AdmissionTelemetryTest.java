@@ -13,6 +13,7 @@ import io.github.stevdrey.dokene.admission.AdmissionDecision.Denied;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import java.sql.SQLException;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -63,7 +64,7 @@ class AdmissionTelemetryTest {
     void aDenialWritesOneLineWithTheKindAndTheReason() {
         telemetry.decided(AdmissionKind.SEND, denied(AdmissionDenialReason.TENANT_MINUTE));
 
-        assertThat(lines()).containsExactly("Admission denied; kind=SEND, reason=TENANT_MINUTE, suppressed=0");
+        assertThat(lines()).containsExactly("Admission denied; kind=SEND, reason=TENANT_MINUTE, cause=none, suppressed=0");
     }
 
     @Test
@@ -87,10 +88,29 @@ class AdmissionTelemetryTest {
         clock.advance(Duration.ofSeconds(10));
         telemetry.decided(AdmissionKind.SEND, denied(AdmissionDenialReason.TENANT_MINUTE));
 
-        assertThat(lines()).containsExactly("Admission denied; kind=SEND, reason=TENANT_MINUTE, suppressed=0",
-                "Admission denied; kind=SEND, reason=TENANT_MINUTE, suppressed=4",
-                "Admission denied; kind=SEND, reason=TENANT_MINUTE, suppressed=0");
+        assertThat(lines()).containsExactly("Admission denied; kind=SEND, reason=TENANT_MINUTE, cause=none, suppressed=0",
+                "Admission denied; kind=SEND, reason=TENANT_MINUTE, cause=none, suppressed=4",
+                "Admission denied; kind=SEND, reason=TENANT_MINUTE, cause=none, suppressed=0");
         assertThat(count("SEND", "DENIED", "TENANT_MINUTE")).isEqualTo(7.0);
+    }
+
+    @Test
+    void aDenialCausedByAFailureNamesItsClassAndSqlStateAndCountsAStoreFailure() {
+        RuntimeException lockTimeout = new IllegalStateException("never logged: tenant 42",
+                new SQLException("canceling statement due to lock timeout", "55P03"));
+
+        telemetry.decided(AdmissionKind.CANDIDATE, denied(AdmissionDenialReason.STATE_UNAVAILABLE), lockTimeout);
+        telemetry.decided(AdmissionKind.SEND, denied(AdmissionDenialReason.STATE_UNAVAILABLE),
+                new IllegalArgumentException("never logged either"));
+
+        assertThat(lines()).containsExactly(
+                "Admission denied; kind=CANDIDATE, reason=STATE_UNAVAILABLE, cause=IllegalStateException/55P03, "
+                        + "suppressed=0",
+                "Admission denied; kind=SEND, reason=STATE_UNAVAILABLE, cause=IllegalArgumentException, "
+                        + "suppressed=0");
+        assertThat(meters.counter(AdmissionTelemetry.STORE_FAILURES, "operation", "CANDIDATE").count())
+                .isEqualTo(1.0);
+        assertThat(meters.counter(AdmissionTelemetry.STORE_FAILURES, "operation", "SEND").count()).isEqualTo(1.0);
     }
 
     @Test
