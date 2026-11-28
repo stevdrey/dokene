@@ -2,6 +2,7 @@
 // ABOUTME: and fenced lease renewal and outcomes. Every method runs in the caller's transaction under a tenant scope.
 package io.github.stevdrey.dokene.followup.application;
 
+import io.github.stevdrey.dokene.followup.domain.FollowUpRecoverableWork;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkClaim;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkFailure;
 import io.github.stevdrey.dokene.followup.domain.FollowUpWorkItem;
@@ -11,9 +12,11 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
- * The fenced methods match the item on its candidate id, customer, due date, state {@code CLAIMED}, the claim's attempt
+ * Attempt limits count the claims made since the item was enqueued or last requeued by recovery (ADR 0039). The fenced
+ * methods match the item on its candidate id, customer, due date, state {@code CLAIMED}, the claim's attempt
  * number and token, and a lease that has not expired at {@code now}; when any of these differ they write nothing.
  */
 public interface FollowUpWorkLedgerRepository {
@@ -49,7 +52,8 @@ public interface FollowUpWorkLedgerRepository {
 
     /**
      * Marks {@code EXHAUSTED} at most {@code limit} items that may not be claimed again: expired claims and due retries
-     * that already used {@code maxAttempts}.
+     * that already used {@code maxAttempts} ({@code LEASE_EXPIRED} for a claim), and expired claims whose attempt
+     * began an external effect ({@code OUTCOME_UNKNOWN}, whatever attempts remain).
      *
      * @return how many items were exhausted
      */
@@ -72,6 +76,14 @@ public interface FollowUpWorkLedgerRepository {
 
     /** Extends the current claim's lease to {@code leaseExpiresAt}, never shortening it; empty when stale. */
     Optional<Instant> renew(FollowUpWorkClaim claim, Instant now, Instant leaseExpiresAt);
+
+    /**
+     * Durably records that the current claim's attempt may now cause an external effect, and renews its lease like
+     * {@link #renew}; empty when stale. From then on the attempt is never retried: {@link #fail} matches nothing for it,
+     * and once its lease expires {@link #exhaustSpent} exhausts it as {@code OUTCOME_UNKNOWN} instead of letting
+     * {@link #claim} take it over (issue 461, ADR 0039).
+     */
+    Optional<Instant> beginEffect(FollowUpWorkClaim claim, Instant now, Instant leaseExpiresAt);
 
     /** Completes the current claim's item; {@code false} when stale. */
     boolean complete(FollowUpWorkClaim claim, Instant now);
@@ -100,4 +112,42 @@ public interface FollowUpWorkLedgerRepository {
      * @throws IllegalArgumentException when {@code limit} is not positive
      */
     List<FollowUpWorkItem> findItems(TenantId tenantId, int limit);
+
+    /**
+     * At most {@code limit} of the tenant's exhausted, non-collapsed items awaiting a recovery decision, oldest finish
+     * first (issue 461, ADR 0039).
+     *
+     * @throws IllegalArgumentException when {@code limit} is not positive
+     */
+    List<FollowUpRecoverableWork> findRecoverable(TenantId tenantId, int limit);
+
+    /**
+     * Locks the tenant's non-collapsed item that recorded a failure, waiting for any transaction that holds it, and
+     * returns its recovery view; empty when there is no such item.
+     */
+    Optional<FollowUpRecoverableWork> lockRecoverable(TenantId tenantId, UUID candidateId);
+
+    /**
+     * Makes an exhausted item at {@code expectedRecoveryCount} whose failure had no external effect claimable again
+     * from {@code now} with a fresh attempt budget; {@code false} when it does not match, its outcome is unknown, its
+     * latest attempt began an external effect (whatever failure the row records), or its
+     * customer has other open work or a newer cycle that was already enqueued (finished or not).
+     */
+    boolean requeue(TenantId tenantId, UUID candidateId, int expectedRecoveryCount, Instant now);
+
+    /**
+     * A newer item of the customer became visible only after the requeue was written. The requeue is already applied in
+     * the caller's transaction, which must roll back.
+     */
+    final class RequeueSupersededException extends RuntimeException {
+        public RequeueSupersededException() {
+            super("Follow-up work requeue was superseded by newer work");
+        }
+    }
+
+    /**
+     * Records an exhausted item at {@code expectedRecoveryCount} as completed without another attempt, releasing its
+     * customer; {@code false} when it does not match.
+     */
+    boolean resolve(TenantId tenantId, UUID candidateId, int expectedRecoveryCount, Instant now);
 }
