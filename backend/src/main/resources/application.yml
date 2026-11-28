@@ -149,6 +149,26 @@ dokene:
       claim-timeout: ${DOKENE_MESSAGING_RECOVERY_CLAIM_TIMEOUT:10m}
       batch-size: ${DOKENE_MESSAGING_RECOVERY_BATCH_SIZE:50}
       interval: ${DOKENE_MESSAGING_RECOVERY_INTERVAL:1m}
+  admission:
+    # Shared admission budget (ADR 0040): caps sends per tenant per minute and per rolling day, caps all tenants
+    # together per minute, and holds each tenant to tenant-share-percent of that global cap. The counts live in
+    # PostgreSQL, so every instance enforces against the same numbers, and state that cannot be read answers no.
+    # Read once at startup: a change needs a restart of every instance. A value outside its bounds, or a
+    # tenant-per-day below tenant-per-minute, stops startup. Nothing calls the budget from the send path yet.
+    send:
+      # The same variable as dokene.messaging.send-rate-per-tenant-per-minute, so a deployment has one knob.
+      tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
+      tenant-per-day: ${DOKENE_ADMISSION_SEND_TENANT_PER_DAY:500}
+      global-per-minute: ${DOKENE_ADMISSION_SEND_GLOBAL_PER_MINUTE:120}
+      tenant-share-percent: ${DOKENE_ADMISSION_SEND_TENANT_SHARE_PERCENT:25}
+      # How long a tenant's sends pause after the provider throttled it.
+      throttle-pause: ${DOKENE_ADMISSION_SEND_THROTTLE_PAUSE:60s}
+    candidates:
+      # Off unless the deployment sets it to true: while off, no follow up candidate is admitted.
+      enabled: ${DOKENE_ADMISSION_CANDIDATES_ENABLED:false}
+      tenant-per-day: ${DOKENE_ADMISSION_CANDIDATES_TENANT_PER_DAY:200}
+    lock-timeout: ${DOKENE_ADMISSION_LOCK_TIMEOUT:1s}
+    prune-batch: ${DOKENE_ADMISSION_PRUNE_BATCH:500}
   template:
     # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
     approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}

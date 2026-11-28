@@ -16,6 +16,7 @@ import com.tngtech.archunit.core.domain.properties.HasOwner;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
 import com.tngtech.archunit.lang.ArchRule;
+import io.github.stevdrey.dokene.admission.archfixture.AdmissionDependsOnMessagingFixture;
 import io.github.stevdrey.dokene.ai.application.AiDraftRequest;
 import io.github.stevdrey.dokene.ai.application.AiProvider;
 import io.github.stevdrey.dokene.ai.application.AiRecommendationRequest;
@@ -130,6 +131,20 @@ class ModuleDependencyArchitectureTest {
                                     && !javaClass.getPackageName().startsWith(ROOT + ".ratelimit")))
             .because("issue 208: the shared sliding window is used by followup and integration, so it depends on neither");
 
+    private static final ArchRule ADMISSION_DEPENDS_ONLY_ON_TENANT_AND_DATABASE = noClasses().that()
+            .resideInAPackage(ROOT + ".admission..")
+            .should().dependOnClassesThat(
+                    com.tngtech.archunit.base.DescribedPredicate.describe(
+                            "another Dokene module than tenant and database",
+                            javaClass -> javaClass.getPackageName().startsWith(ROOT + ".")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".admission")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".tenant")
+                                    && !javaClass.getPackageName().startsWith(ROOT + ".database")))
+            .orShould().dependOnClassesThat().resideInAnyPackage("org.springframework.web..",
+                    "org.springframework.http..", "jakarta.servlet..")
+            .because("ADR 0040: the admission budget is called by the send path and the scheduler, so it depends "
+                    + "on neither, makes no provider call and has no HTTP surface");
+
     private static final ArchRule HTTP_PRIMITIVES_STAY_NEUTRAL = noClasses().that()
             .resideInAPackage(ROOT + ".http..")
             .should().dependOnClassesThat(
@@ -224,6 +239,20 @@ class ModuleDependencyArchitectureTest {
     @Test
     void rateLimitPrimitivesDependOnNoModule() {
         RATE_LIMIT_PRIMITIVES_STAY_NEUTRAL.check(production);
+    }
+
+    @Test
+    void admissionDependsOnlyOnTenantAndDatabase() {
+        ADMISSION_DEPENDS_ONLY_ON_TENANT_AND_DATABASE.check(production);
+    }
+
+    /** Negative proof (ADR 0040): the package pattern really matches, so an admission class using messaging is reported. */
+    @Test
+    void anAdmissionClassThatDependsOnMessagingFailsTheAdmissionRule() {
+        JavaClasses fixture = new ClassFileImporter()
+                .importClasses(AdmissionDependsOnMessagingFixture.class, MessageStatus.class);
+
+        assertThat(ADMISSION_DEPENDS_ONLY_ON_TENANT_AND_DATABASE.evaluate(fixture).hasViolation()).isTrue();
     }
 
     @Test

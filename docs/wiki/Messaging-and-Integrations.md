@@ -178,6 +178,38 @@ A send that an earlier policy step refuses keeps its own code and never probes. 
 
 A value outside its bounds stops startup. Meters: `dokene.messaging.provider.health.state` (gauge, 1 for the current state), `.signals`, `.transitions`, `.store.failures` (`operation`: `READ`, `RECORD`, `LEASE`, `RESULT`), `.decisions` (`mode`, `decision`: `ALLOW`, `REFUSE`, `PROBE`), `.refusals` (`reason`: `COOL_DOWN`, `PROBE_IN_FLIGHT`, `PROBE_FAILED`, `NO_CREDENTIAL`, `REPROBE`, `STORE_UNAVAILABLE`) and `.probes` (`result`: `PASSED`, `PASSED_THROTTLED`, `FAILED`, `NO_RESULT`), tagged only with the provider key and closed enum values.
 
+### Admission budget (ADR 0040, issue 459)
+
+The shared admission budget ([ADR 0040](../adr/0040-shared-admission-budget.md)) is built and proven, and **nothing calls it yet**. Until the coordinated wiring change replaces `SendPolicyGate.requireRateBudget` with it, the per minute check above is the only send limit in force.
+
+`AdmissionBudget` (package `admission`) answers `Admitted` or `Denied(reason, retryAfter)`. A denial means "not attempted, try later"; it is never a failed attempt.
+
+| Call | Counted against | Denial reasons |
+| --- | --- | --- |
+| `admitSend(tenant)` | tenant per minute (the smaller of its own limit and its share of the global limit), tenant per rolling day, all tenants per minute | `SWITCH_OFF`, `TENANT_PAUSED`, `TENANT_MINUTE`, `TENANT_SHARE`, `TENANT_DAY`, `GLOBAL_MINUTE`, `STATE_UNAVAILABLE` |
+| `admitCandidate(tenant)` | the tenant's candidates per rolling day | `SWITCH_OFF`, `CANDIDATE_DAY`, `STATE_UNAVAILABLE` |
+| `recordProviderThrottle(tenant)` | nothing; it pauses that tenant's sends for `throttle-pause` | none, never throws |
+
+Caller contract for both admissions: an active read write transaction at `READ COMMITTED`, the tenant of the argument in the tenant context, one tenant per transaction, and no provider call before the commit. The rows an admission writes commit or roll back with the caller, so a rolled back send uses no budget. `recordProviderThrottle` is called after the provider answered, outside the claim transaction.
+
+The counts live in `tenant_budget_admissions`, `platform_send_admissions` and `tenant_send_pauses` (V51), so every instance enforces against the same numbers. A budget lock that cannot be taken within `lock-timeout`, or state that cannot be read or written, answers `STATE_UNAVAILABLE`.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `dokene.admission.send.tenant-per-minute` | 30 | The tenant's own limit per 60 seconds. Reads `DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE`, the same variable as the current check. |
+| `dokene.admission.send.tenant-per-day` | 500 | Per tenant per rolling 24 hours (at least `tenant-per-minute`). |
+| `dokene.admission.send.global-per-minute` | 120 | All tenants together per 60 seconds. |
+| `dokene.admission.send.tenant-share-percent` | 25 | The part of the global limit one tenant may use (1 to 100), rounded down, never below 1. |
+| `dokene.admission.send.throttle-pause` | 60s | How long a tenant's sends pause after a provider 429 (1s to 1h). A new signal moves the end; it never stacks. |
+| `dokene.admission.candidates.enabled` | false | Candidate admission is off unless this is `true`. |
+| `dokene.admission.candidates.tenant-per-day` | 200 | Candidates per tenant per rolling 24 hours. |
+| `dokene.admission.lock-timeout` | 1s | Longest wait for a budget lock (100ms to 5s). |
+| `dokene.admission.prune-batch` | 500 | Old rows deleted per admission (1 to 5000). |
+
+A value outside its bounds stops startup, and a change needs a restart of every instance. Meters: `dokene.admission.decisions` (`kind`: `SEND` or `CANDIDATE`, `outcome`: `ADMITTED` or `DENIED`, `reason`: the denial reason or `NONE`) and `dokene.admission.store.failures` (`operation`: `THROTTLE_SIGNAL`). A denial writes one log line with the kind and the reason, at most one per kind and reason every 10 seconds on an instance.
+
+For the wiring: show a tenant only `429 RATE_LIMITED` with `Retry-After` for every budget reason and for `STATE_UNAVAILABLE`, and keep the reason in counters and logs.
+
 A disable or revocation that commits after the claim cannot retract a call already in flight; it stops later sends only. Application duplicate suppression is not proof of exactly-once delivery by the provider. Live sending is off by default: the global switch `dokene.messaging.outbound.enabled` and each tenant's switch must both be on (see [Disabling and re enabling outbound sending](#disabling-and-re-enabling-outbound-sending)); the template schema check (#218) is in place.
 
 ## WhatsApp templates
