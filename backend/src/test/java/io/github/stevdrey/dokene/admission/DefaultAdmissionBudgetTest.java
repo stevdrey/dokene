@@ -39,6 +39,7 @@ class DefaultAdmissionBudgetTest {
     private final ListAppender<ILoggingEvent> logs = new ListAppender<>();
     private final Logger logger = (Logger) LoggerFactory.getLogger(AdmissionTelemetry.class);
     private SendSwitch sendSwitch = asked -> true;
+    private AdmissionTelemetry telemetryOverride;
 
     @BeforeEach
     void openATransaction() {
@@ -237,6 +238,28 @@ class DefaultAdmissionBudgetTest {
         assertThat(meters.counter(AdmissionTelemetry.STORE_FAILURES, "operation", "SEND").count()).isEqualTo(1.0);
     }
 
+    /** An admitted request holds its rows and locks to the commit, so it must never be reported as a denial. */
+    @Test
+    void aTelemetryFailureAfterAnAdmissionIsRaisedAndNotTurnedIntoADenial() {
+        telemetryOverride = new AdmissionTelemetry(meters, clock) {
+            private boolean failed;
+
+            @Override
+            void decided(AdmissionKind kind, AdmissionDecision decision, Throwable cause) {
+                if (!failed) {
+                    failed = true;
+                    throw new IllegalStateException("meter registry closed");
+                }
+                super.decided(kind, decision, cause);
+            }
+        };
+        AdmissionBudget budget = budget(settings(30, 500, 120, 25));
+
+        assertThatThrownBy(() -> send(budget, tenant)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("meter registry closed");
+        assertThat(store.rows(tenant, AdmissionKind.SEND)).hasSize(1);
+    }
+
     @Test
     void aLostDatabaseConnectionIsRaisedAndNotTurnedIntoADenial() {
         store.lockFailure = new SQLException("connection lost", "08006");
@@ -353,7 +376,7 @@ class DefaultAdmissionBudgetTest {
     private AdmissionBudget budget(AdmissionProperties settings, AdmissionStore backing) {
         return new DefaultAdmissionBudget(settings, new AdmissionPolicy(settings), backing,
                 asked -> sendSwitch.sendingAllowed(asked), contexts, new DatabaseUnavailability(DATABASE_RETRY),
-                new AdmissionTelemetry(meters, clock), clock);
+                telemetryOverride != null ? telemetryOverride : new AdmissionTelemetry(meters, clock), clock);
     }
 
     private static AdmissionProperties settings(int tenantPerMinute, int tenantPerDay, int globalPerMinute,

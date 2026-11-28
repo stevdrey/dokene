@@ -135,14 +135,19 @@ class DefaultAdmissionBudget implements AdmissionBudget {
         if (!inContext(tenant)) {
             return decided(kind, stateUnavailable(), null);
         }
+        AdmissionDecision decision;
+        RuntimeException cause = null;
         try {
-            return decided(kind, store.underSavepoint(work), null);
+            decision = store.underSavepoint(work);
         } catch (RuntimeException failure) {
             if (database.isCause(failure)) {
                 throw failure;
             }
-            return decided(kind, stateUnavailable(), failure);
+            decision = stateUnavailable();
+            cause = failure;
         }
+        // Outside the try: an admission that already holds its rows and locks must never be answered as a denial.
+        return decided(kind, decision, cause);
     }
 
     private AdmissionDecision decided(AdmissionKind kind, AdmissionDecision decision, RuntimeException cause) {

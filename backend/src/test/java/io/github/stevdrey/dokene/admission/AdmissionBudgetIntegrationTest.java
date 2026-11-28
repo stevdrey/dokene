@@ -460,7 +460,33 @@ class AdmissionBudgetIntegrationTest {
         assertThat(database.isCause(raised)).isTrue();
     }
 
+    /**
+     * covers: AC-10. The pool has already closed the connection when the savepoint is undone, so the rollback fails
+     * with an error that carries no SQLSTATE, and the first failure is not an outage either.
+     */
+    @Test
+    void aSwitchFailureOnAConnectionThePoolAlreadyClosedIsRaisedAsADatabaseOutageAndNotDenied() {
+        sendSwitch = asked -> {
+            terminateBackend(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
+            // The first statement on the dead session makes the pool close its connection.
+            assertThatThrownBy(() -> jdbc.queryForObject("SELECT 1", Integer.class))
+                    .isInstanceOf(DataAccessException.class);
+            throw new IllegalStateException("switch state missing");
+        };
+        AdmissionBudget budget = budget(settings(30, 500, 120, 25));
 
+        AtomicReference<AdmissionDecision> answered = new AtomicReference<>();
+        Throwable raised = raisedInsideATransaction(() -> {
+            answered.set(budget.admitSend(tenantA));
+            return answered.get();
+        });
+
+        assertThat(answered.get()).as("a lost connection must be raised, never answered").isNull();
+        assertThat(database.isCause(raised)).isTrue();
+        assertThat(raised).hasRootCauseMessage("Connection is closed");
+    }
+
+    /** covers: AC-10. The connection is already gone when the admission opens its savepoint. */
     @Test
     void aConnectionLostBeforeACandidateAdmissionIsRaisedAsADatabaseOutageAndNotDenied() throws SQLException {
         AdmissionBudget budget = budget(candidates(5));

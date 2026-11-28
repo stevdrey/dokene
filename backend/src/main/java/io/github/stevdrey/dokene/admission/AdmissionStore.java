@@ -14,7 +14,8 @@ interface AdmissionStore {
      * Opens a savepoint in the caller's transaction and runs {@code work} inside it. On {@code Admitted} the caller's
      * {@code lock_timeout} is put back and the savepoint is released, so the rows and the locks last to the commit.
      * On {@code Denied} or a failure the savepoint is rolled back, which undoes every write and the timeout change
-     * and frees the budget locks at once; a failure is then raised again.
+     * and frees the budget locks at once. A failure is then raised again, unless undoing the savepoint failed too and
+     * shows a lost connection that the first failure did not: then the lost connection is what is raised.
      */
     AdmissionDecision underSavepoint(SavepointWork work);
 
