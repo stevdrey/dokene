@@ -56,6 +56,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -271,6 +272,48 @@ class FollowUpSchedulerIntegrationTest {
                 .satisfies(item -> assertThat(item.state()).isEqualTo(FollowUpWorkState.PENDING));
         assertThat(items(tenantB)).singleElement()
                 .satisfies(item -> assertThat(item.state()).isEqualTo(FollowUpWorkState.COMPLETED));
+    }
+
+    @Test
+    void theRotationWalksEveryActiveTenantThroughTheRealFinderAndWraps() {
+        List<TenantId> all = allActiveTenants();
+        assertThat(all).hasSizeLessThan(500).contains(tenantA.id(), tenantB.id());
+        List<Optional<TenantId>> cursors = new ArrayList<>();
+        List<TenantId> listed = new ArrayList<>();
+        FollowUpSchedulingTenants recording = (after, limit) -> {
+            cursors.add(after);
+            List<TenantId> page = schedulingTenants.activeTenantsAfter(after, limit);
+            listed.addAll(page);
+            return page;
+        };
+        // Both stages off: each tick still rotates through the real V51 finder, cursor and limit included, but touches
+        // no tenant, so the other tenants of the shared database are left alone.
+        Clock clock = Clock.fixed(now, ZoneOffset.UTC);
+        FollowUpWorkLedger ledger = ledger(clock);
+        FollowUpSchedulingCoordinator coordinator = new FollowUpSchedulingCoordinator(recording, generator(clock),
+                ledger, new FollowUpWorkProcessor(ledger, retries,
+                        new StaticListableBeanFactory().getBeanProvider(FollowUpProviderHealth.class), clock),
+                new RecordOnlyFollowUpWorkHandler(),
+                new StaticListableBeanFactory().getBeanProvider(FollowUpWorkAdmission.class), contexts,
+                new FollowUpSchedulerProperties(true, false, false, null, 2, 5, null, null, "rotation"),
+                workProperties(), clock);
+
+        int visited = 0;
+        for (int tick = 0; tick < all.size() + 2 && listed.size() <= all.size(); tick++) {
+            TickSummary summary = coordinator.tick();
+            assertThat(summary.outcome()).isEqualTo(TickSummary.Outcome.RAN);
+            assertThat(summary.tenantsVisited()).isLessThanOrEqualTo(2);
+            visited += summary.tenantsVisited();
+        }
+
+        // Every active tenant once, in id order, then the rotation starts again from the first.
+        assertThat(listed.subList(0, all.size())).isEqualTo(all);
+        assertThat(listed.get(all.size())).isEqualTo(all.getFirst());
+        assertThat(visited).isEqualTo(listed.size());
+        assertThat(cursors.getFirst()).isEmpty();
+        assertThat(cursors).filteredOn(Optional::isEmpty).hasSize(2);
+        assertThat(contexts.callWithTenantId(tenantA.id(), () -> candidates.findCandidates(tenantA.id(), 10)))
+                .isEmpty();
     }
 
     private int tickRepeatedly(CountDownLatch start, FollowUpSchedulingCoordinator coordinator) throws Exception {
