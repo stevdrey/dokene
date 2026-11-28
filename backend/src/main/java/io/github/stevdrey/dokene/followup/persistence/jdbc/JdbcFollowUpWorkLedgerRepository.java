@@ -348,12 +348,18 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                         failure.name(), at)).stream().findFirst();
     }
 
+    /**
+     * The failure comes from the row's own effect marker before the caller's: an attempt that began an external effect
+     * is always exhausted as {@code OUTCOME_UNKNOWN}, so no caller can record it as a safe, requeueable failure.
+     */
     @Override
     public boolean exhaust(FollowUpWorkClaim claim, FollowUpWorkFailure failure, Instant now) {
         Timestamp at = Timestamp.from(now);
         return jdbc.update("""
                 UPDATE dokene.follow_up_work_items
-                SET state = 'EXHAUSTED', last_failure = ?, finished_at = ?, updated_at = ?
+                SET state = 'EXHAUSTED',
+                    last_failure = CASE WHEN effect_attempt = attempts THEN 'OUTCOME_UNKNOWN' ELSE ? END,
+                    finished_at = ?, updated_at = ?
                 WHERE
                 """ + CURRENT_CLAIM + """
                   AND lease_expires_at > ?
@@ -414,6 +420,7 @@ public class JdbcFollowUpWorkLedgerRepository implements FollowUpWorkLedgerRepos
                 WHERE w.tenant_id = ? AND w.candidate_id = ? AND w.state = 'EXHAUSTED' AND w.collapsed_into IS NULL
                   AND w.recovery_count = ?
                   AND w.last_failure IN ('PROCESSING_ERROR', 'DEPENDENCY_UNAVAILABLE', 'REJECTED')
+                  AND w.effect_attempt IS DISTINCT FROM w.attempts
                   AND NOT""" + SUPERSEDED, at, at, at, tenantId.value(), candidateId, expectedRecoveryCount) == 1;
         if (requeued && Boolean.TRUE.equals(jdbc.queryForObject(
                 "SELECT" + SUPERSEDED + "FROM dokene.follow_up_work_items w WHERE w.tenant_id = ? AND w.candidate_id = ?",

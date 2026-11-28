@@ -129,7 +129,8 @@ public interface FollowUpWorkLedgerRepository {
 
     /**
      * Makes an exhausted item at {@code expectedRecoveryCount} whose failure had no external effect claimable again
-     * from {@code now} with a fresh attempt budget; {@code false} when it does not match, its outcome is unknown, or its
+     * from {@code now} with a fresh attempt budget; {@code false} when it does not match, its outcome is unknown, its
+     * latest attempt began an external effect (whatever failure the row records), or its
      * customer has other open work or a newer cycle that was already enqueued (finished or not).
      */
     boolean requeue(TenantId tenantId, UUID candidateId, int expectedRecoveryCount, Instant now);

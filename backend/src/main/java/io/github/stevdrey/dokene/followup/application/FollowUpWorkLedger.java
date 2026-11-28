@@ -171,7 +171,9 @@ public class FollowUpWorkLedger {
     /**
      * Marks a current claim's item {@code EXHAUSTED} so it is never claimed again, for example when an external effect
      * may have happened. With {@link FollowUpWorkFailure#OUTCOME_UNKNOWN} or {@link FollowUpWorkFailure#LEASE_EXPIRED},
-     * newer work for the customer waits until recovery (issue 461) resolves the item.
+     * newer work for the customer waits until recovery (issue 461) resolves the item. When the claim's attempt began an
+     * external effect ({@link #beginEffect}), the item is exhausted as {@code OUTCOME_UNKNOWN} whatever
+     * {@code failure} says, so it can never be requeued.
      */
     public FollowUpWorkTransition requireRecovery(FollowUpWorkClaim claim, FollowUpWorkFailure failure) {
         Objects.requireNonNull(claim, "Claim is required");

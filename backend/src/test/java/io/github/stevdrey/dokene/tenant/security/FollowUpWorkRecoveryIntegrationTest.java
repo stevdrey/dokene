@@ -65,6 +65,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.support.StaticListableBeanFactory;
@@ -629,6 +631,82 @@ class FollowUpWorkRecoveryIntegrationTest {
         assertThat(handled).hasValue(1);
         assertThat(summary.completed()).isEqualTo(1);
         assertThat(item(tenantA, item).state()).isEqualTo(FollowUpWorkState.COMPLETED);
+    }
+
+    @ParameterizedTest
+    @EnumSource(value = FollowUpWorkFailure.class, names = {"PROCESSING_ERROR", "DEPENDENCY_UNAVAILABLE", "REJECTED"})
+    void aSafeFailureRecordedThroughTheLedgerAfterAnEffectBeganIsExhaustedAsAnUnknownOutcome(FollowUpWorkFailure safe)
+            throws Exception {
+        Customer customer = dueCustomer("Marked customer", today.minusDays(1));
+        generate(tenantA);
+        ledger(now).enqueue(tenantA.id());
+        UUID item = onlyItem(tenantA).candidateId();
+        FollowUpWorkClaim claim = ledger(now).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+        FollowUpWorkClaim marked = ledger(now).beginEffect(claim).orElseThrow();
+
+        // The public ledger API, not the processor: the row's marker decides the failure, never the caller.
+        assertThat(ledger(now).requireRecovery(marked, safe)).isEqualTo(FollowUpWorkTransition.EXHAUSTED);
+        assertThat(item(tenantA, item)).satisfies(work -> {
+            assertThat(work.state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+            assertThat(work.lastFailure()).contains(FollowUpWorkFailure.OUTCOME_UNKNOWN);
+            assertThat(work.attempts()).isEqualTo(marked.attempt());
+        });
+
+        // The customer's slot stays held: a newer cycle is neither enqueued nor claimed before resolution.
+        inContext(ownerA, () -> followUps.configureCustomer(customer.id(), 7, today,
+                followUps.customerPolicy(customer.id()).version()));
+        generate(tenantA);
+        assertThat(ledger(now.plusSeconds(1)).enqueue(tenantA.id())).isZero();
+        assertThat(ledger(now.plusSeconds(1)).claim(tenantA.id(), INSTANCE_B, 5)).isEmpty();
+
+        assertRefused(ownerA, item, FollowUpWorkRecoveryAction.REQUEUE, 0, Refusal.OUTCOME_UNKNOWN);
+        assertThat(inContext(ownerA, () -> recovery.recoverable(10))).singleElement()
+                .satisfies(view -> assertThat(view.recoveryCount()).isZero());
+        assertThat(auditRows(tenantA, "FOLLOW_UP_WORK_REQUEUED", customer.id().value())).isZero();
+
+        assertThat(inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.RESOLVE, 0)).applied())
+                .isTrue();
+        assertThat(auditRows(tenantA, "FOLLOW_UP_WORK_RESOLVED", customer.id().value())).isEqualTo(1);
+        assertThat(ledger(now.plusSeconds(2)).enqueue(tenantA.id())).isEqualTo(1);
+        assertThat(ledger(now.plusSeconds(2)).claim(tenantA.id(), INSTANCE_B, 5)).singleElement()
+                .satisfies(next -> assertThat(next.dueDate()).isEqualTo(today));
+    }
+
+    @Test
+    void theRepositoryNeverRequeuesAMarkedAttemptEvenWhenItsRowRecordsASafeFailure() throws Exception {
+        UUID item = oneItem();
+        FollowUpWorkClaim claim = ledger(now).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+        assertThat(ledger(now).beginEffect(claim)).isPresent();
+        // An inconsistent fixture: the marked attempt exhausted with a safe failure, written past every application path.
+        try (Connection migration = TenantSecurityIntegrationFixture.migrationConnection()) {
+            TenantSecurityIntegrationFixture.executeUpdate(migration, """
+                    UPDATE dokene.follow_up_work_items
+                    SET state = 'EXHAUSTED', last_failure = 'PROCESSING_ERROR', finished_at = now()
+                    WHERE tenant_id = ? AND candidate_id = ? AND effect_attempt = attempts
+                    """, tenantA.id().value(), item);
+        }
+
+        Boolean requeued = contexts.callWithTenantId(tenantA.id(), () -> new TransactionTemplate(transactionManager)
+                .execute(status -> repository.requeue(tenantA.id(), item, 0, now)));
+        assertThat(requeued).isFalse();
+        assertThat(item(tenantA, item).state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+    }
+
+    @Test
+    void aPermanentFailureBeforeAnyEffectStaysSafeAndRequeueable() throws Exception {
+        Customer customer = dueCustomer("Unmarked customer", today);
+        generate(tenantA);
+        ledger(now).enqueue(tenantA.id());
+        UUID item = onlyItem(tenantA).candidateId();
+        FollowUpWorkClaim claim = ledger(now).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+
+        assertThat(ledger(now).requireRecovery(claim, FollowUpWorkFailure.REJECTED))
+                .isEqualTo(FollowUpWorkTransition.EXHAUSTED);
+        assertThat(item(tenantA, item).lastFailure()).contains(FollowUpWorkFailure.REJECTED);
+        assertThat(inContext(ownerA, () -> recovery.recover(item, FollowUpWorkRecoveryAction.REQUEUE, 0)).applied())
+                .isTrue();
+        assertThat(item(tenantA, item).state()).isEqualTo(FollowUpWorkState.RETRY_DUE);
+        assertThat(auditRows(tenantA, "FOLLOW_UP_WORK_REQUEUED", customer.id().value())).isEqualTo(1);
     }
 
     /** Past the lease, a second instance never runs the handler again; the item awaits a member's RESOLVE. */
