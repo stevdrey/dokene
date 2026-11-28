@@ -291,7 +291,11 @@ describe('review actions', () => {
       server.on(sendsPath(approved.messageId), problem('PROVIDER_UNAVAILABLE'));
       click('Enviar');
       click('Confirmar envío', group('Confirmar envío'));
-      expect(await screen.findByText('El proveedor de mensajería no está disponible.')).toBeInTheDocument();
+      expect(
+        await screen.findByText(
+          'WhatsApp no está disponible en este momento. Tu mensaje no se envió y sigue aprobado. Inténtalo de nuevo en unos minutos.'
+        )
+      ).toBeInTheDocument();
       expect(server.count(detailPath(approved.messageId))).toBe(1);
     });
 

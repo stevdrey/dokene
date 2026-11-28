@@ -29,8 +29,12 @@ public final class ProviderHealthPolicy {
         }
     }
 
+    /**
+     * Why a send was refused, a closed set for meters. {@link #decide} gives only the first two; the gate adds the
+     * rest once a probe ran or the store could not be used.
+     */
     public enum RefusalReason {
-        COOL_DOWN, PROBE_IN_FLIGHT
+        COOL_DOWN, PROBE_IN_FLIGHT, PROBE_FAILED, NO_CREDENTIAL, REPROBE, STORE_UNAVAILABLE
     }
 
     /** The row after {@code event} at {@code now}. Every state change in the system is a result of this method. */
@@ -63,6 +67,30 @@ public final class ProviderHealthPolicy {
                     wholeSecondsUntil(row.probeLeaseUntil(), now));
         }
         return new Decision.Probe();
+    }
+
+    /**
+     * The row a request holds while it probes. A row that went stale becomes UNKNOWN first, and the lease runs until
+     * {@code now} plus {@code probeLease}. That exact time is also the lease token: a probe result applies only while
+     * the row still stores it.
+     */
+    public ProviderHealth lease(ProviderHealth row, Instant now) {
+        return apply(row, new WentStale(), now).withProbeLease(now.plus(settings.probeLease()));
+    }
+
+    /**
+     * How long a refused sender waits when no fresh decision says so: the cool down left, else the lease time left,
+     * else one second. After a failed probe this is the whole cool down that probe just started.
+     */
+    public Duration retryAfter(ProviderHealth row, Instant now) {
+        if (row.state() == ProviderHealthState.UNAVAILABLE && row.coolDownUntil() != null
+                && now.isBefore(row.coolDownUntil())) {
+            return wholeSecondsUntil(row.coolDownUntil(), now);
+        }
+        if (row.probeLeaseUntil() != null && now.isBefore(row.probeLeaseUntil())) {
+            return wholeSecondsUntil(row.probeLeaseUntil(), now);
+        }
+        return Duration.ofSeconds(1);
     }
 
     /** The cool down a trip or failed probe starts when the row's step is {@code step}. */

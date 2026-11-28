@@ -23,6 +23,7 @@ import io.github.stevdrey.dokene.tenant.domain.TenantId;
 import io.github.stevdrey.dokene.tenant.domain.TenantMembershipRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRepository;
 import io.github.stevdrey.dokene.tenant.domain.TenantRole;
+import java.sql.Connection;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetAddress;
@@ -124,6 +125,19 @@ class EnglishTemplateSendJourneyIntegrationTest {
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         GRAPH.helloBody = HELLO_BODY;
         GRAPH.helloFooter = HELLO_FOOTER;
+        // The one provider health row is shared by every test on the database (ADR 0038): start from a fresh HEALTHY
+        // state, so the gate lets these sends through whatever another suite left behind.
+        try (Connection connection = TenantSecurityIntegrationFixture.migrationConnection();
+                var statement = connection.createStatement()) {
+            statement.executeUpdate("""
+                    UPDATE dokene.provider_health
+                    SET state = 'HEALTHY', state_changed_at = now(), last_signal_at = now(),
+                        last_signal_kind = 'SUCCESS', consecutive_outage_signals = 0, first_outage_signal_at = NULL,
+                        consecutive_successes = 0, cool_down_until = NULL, cool_down_step = 0,
+                        probe_lease_until = NULL
+                    WHERE provider = 'META_WHATSAPP'
+                    """);
+        }
         workspace = workspace();
     }
 

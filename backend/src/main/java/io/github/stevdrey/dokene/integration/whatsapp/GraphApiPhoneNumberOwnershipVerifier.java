@@ -113,7 +113,12 @@ public class GraphApiPhoneNumberOwnershipVerifier implements PhoneNumberOwnershi
     }
 
     private URI pageUri(String businessAccountId, String cursor) {
-        String path = businessAccountId + "/phone_numbers?fields=id&limit=" + PAGE_SIZE;
+        String path = firstPage(businessAccountId);
         return http.uri(cursor == null ? path : path + "&after=" + URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+    }
+
+    /** The first page of the business account's numbers; the provider health probe reads this same page (ADR 0038). */
+    static String firstPage(String businessAccountId) {
+        return businessAccountId + "/phone_numbers?fields=id&limit=" + PAGE_SIZE;
     }
 }

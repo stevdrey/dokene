@@ -5,9 +5,13 @@ package io.github.stevdrey.dokene.messaging.application;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.stevdrey.dokene.messaging.application.ProviderHealthReader.ProviderHealthStatus;
+import io.github.stevdrey.dokene.messaging.application.ProviderHealthTelemetry.GateDecision;
 import io.github.stevdrey.dokene.messaging.application.ProviderHealthTelemetry.StoreOperation;
 import io.github.stevdrey.dokene.messaging.domain.MessagingProviderKey;
+import io.github.stevdrey.dokene.messaging.domain.ProviderHealthPolicy.RefusalReason;
+import io.github.stevdrey.dokene.messaging.domain.ProviderHealthSettings.Mode;
 import io.github.stevdrey.dokene.messaging.domain.ProviderHealthState;
+import io.github.stevdrey.dokene.messaging.domain.ProviderProbeResult;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSignalKind;
 import io.micrometer.core.instrument.Meter;
 import io.micrometer.core.instrument.Tag;
@@ -47,6 +51,29 @@ class ProviderHealthTelemetryTest {
         assertThat(registry.getMeters()).extracting(Meter::getId)
                 .allSatisfy(id -> assertThat(id.getTags()).extracting(Tag::getKey)
                         .isSubsetOf("provider", "kind", "from", "to", "operation"));
+    }
+
+    @Test
+    void gateCountersCarryOnlyTheProviderTheModeAndClosedValues() {
+        ProviderHealthTelemetry telemetry = new MicrometerProviderHealthTelemetry(registry);
+
+        telemetry.decision(META, Mode.OBSERVE, GateDecision.REFUSE);
+        telemetry.refusal(META, RefusalReason.PROBE_IN_FLIGHT);
+        telemetry.probe(META, ProviderProbeResult.PASSED_THROTTLED);
+        telemetry.storeFailure(META, StoreOperation.LEASE);
+        telemetry.storeFailure(META, StoreOperation.RESULT);
+
+        assertThat(registry.get("dokene.messaging.provider.health.decisions")
+                .tags("provider", "META_WHATSAPP", "mode", "observe", "decision", "REFUSE").counter().count())
+                .isEqualTo(1);
+        assertThat(registry.get("dokene.messaging.provider.health.refusals")
+                .tags("provider", "META_WHATSAPP", "reason", "PROBE_IN_FLIGHT").counter().count()).isEqualTo(1);
+        assertThat(registry.get("dokene.messaging.provider.health.probes")
+                .tags("provider", "META_WHATSAPP", "result", "PASSED_THROTTLED").counter().count()).isEqualTo(1);
+        assertThat(registry.get("dokene.messaging.provider.health.store.failures").counters()).hasSize(2);
+        assertThat(registry.getMeters()).extracting(Meter::getId)
+                .allSatisfy(id -> assertThat(id.getTags()).extracting(Tag::getKey)
+                        .isSubsetOf("provider", "mode", "decision", "reason", "result", "operation"));
     }
 
     @Test

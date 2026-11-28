@@ -339,6 +339,59 @@ class ProviderHealthPolicyTest {
         assertThat(enforce.decide(probing, LEASE)).isEqualTo(new Decision.Probe());
     }
 
+    // --- probe lease and retry delay ------------------------------------------------------------------------------
+
+    @Test
+    void takingTheLeaseStoresNowPlusTheLeaseTimeAndLeavesAClosedStateAlone() {
+        assertThat(enforce.lease(row(UNKNOWN), NOW)).isEqualTo(row(UNKNOWN).withProbeLease(NOW.plusSeconds(10)));
+        assertThat(enforce.lease(unavailable(2), NOW)).isEqualTo(unavailable(2).withProbeLease(NOW.plusSeconds(10)));
+    }
+
+    @Test
+    void takingTheLeaseOnAStaleRowWritesUnknownAndKeepsCountersAndStep() {
+        ProviderHealth quiet = row(DEGRADED).withLastSignal(SUCCESS, NOW.minus(Duration.ofMinutes(15)))
+                .withSuccesses(1).withCoolDown(null, 2);
+
+        assertThat(enforce.lease(quiet, NOW)).isEqualTo(new ProviderHealth(MessagingProviderKey.META_WHATSAPP,
+                UNKNOWN, NOW, quiet.lastSignalAt(), SUCCESS, 0, null, 1, null, 2, NOW.plusSeconds(10)));
+    }
+
+    @Test
+    void theRetryDelayIsTheCoolDownLeftThenTheLeaseLeftThenOneSecond() {
+        ProviderHealth cooling = unavailable(1).withCoolDown(NOW.plusSeconds(60), 2).withProbeLease(LEASE);
+
+        assertThat(enforce.retryAfter(cooling, NOW)).isEqualTo(Duration.ofSeconds(60));
+        assertThat(enforce.retryAfter(row(UNKNOWN).withProbeLease(LEASE), NOW)).isEqualTo(Duration.ofSeconds(8));
+        assertThat(enforce.retryAfter(unavailable(1), NOW)).isEqualTo(Duration.ofSeconds(1));
+        assertThat(enforce.retryAfter(row(HEALTHY), NOW)).isEqualTo(Duration.ofSeconds(1));
+    }
+
+    @Test
+    void aFailedProbeGivesARetryDelayOfTheWholeCoolDownItStarted() {
+        ProviderHealth failed = enforce.apply(unavailable(1).withProbeLease(LEASE),
+                new ProbeFinished(ProviderProbeResult.FAILED), NOW);
+
+        assertThat(enforce.retryAfter(failed, NOW)).isEqualTo(Duration.ofSeconds(60));
+    }
+
+    @Test
+    void theRetryDelayRoundsUpToWholeSecondsAndIsNeverBelowOne() {
+        assertThat(enforce.retryAfter(unavailable(1).withCoolDown(NOW.plusMillis(1_200), 2), NOW))
+                .isEqualTo(Duration.ofSeconds(2));
+        assertThat(enforce.retryAfter(unavailable(1).withCoolDown(NOW.plusMillis(200), 2), NOW))
+                .isEqualTo(Duration.ofSeconds(1));
+        assertThat(enforce.retryAfter(row(UNKNOWN).withProbeLease(NOW.plusMillis(200)), NOW))
+                .isEqualTo(Duration.ofSeconds(1));
+    }
+
+    @Test
+    void aCoolDownOrLeaseThatEndsExactlyNowNoLongerSetsTheRetryDelay() {
+        ProviderHealth coolDownJustOver = unavailable(1).withCoolDown(NOW, 2).withProbeLease(LEASE);
+
+        assertThat(enforce.retryAfter(coolDownJustOver, NOW)).isEqualTo(Duration.ofSeconds(8));
+        assertThat(enforce.retryAfter(row(UNKNOWN).withProbeLease(NOW), NOW)).isEqualTo(Duration.ofSeconds(1));
+    }
+
     // --- settings ------------------------------------------------------------------------------------------------
 
     @ParameterizedTest

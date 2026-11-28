@@ -5,6 +5,9 @@ package io.github.stevdrey.dokene.tenant.security;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.migrationConnection;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.authentication;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.csrf;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
@@ -21,7 +24,9 @@ import io.github.stevdrey.dokene.audit.security.AuditRequestFilter;
 import io.github.stevdrey.dokene.integration.testsupport.MetaCallbacks;
 import io.github.stevdrey.dokene.integration.testsupport.WebhookSigning;
 import io.github.stevdrey.dokene.messaging.application.ProviderHealthReader;
+import io.github.stevdrey.dokene.messaging.application.ProviderReachabilityProbe;
 import io.github.stevdrey.dokene.messaging.domain.MessagingProviderKey;
+import io.github.stevdrey.dokene.messaging.domain.ProviderProbeResult;
 import io.github.stevdrey.dokene.tenant.TenantTestSupport;
 import io.github.stevdrey.dokene.tenant.application.TenantContextProvider;
 import io.github.stevdrey.dokene.tenant.domain.IdentityId;
@@ -37,6 +42,7 @@ import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -47,10 +53,17 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.IntStream;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -66,9 +79,12 @@ import org.springframework.security.authentication.UsernamePasswordAuthenticatio
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.TestPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.context.WebApplicationContext;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -79,12 +95,14 @@ import tools.jackson.databind.json.JsonMapper;
  * loopback server that answers like the synthetic fixtures in {@code contracts/whatsapp} and counts every request, so
  * each refusal can prove it reached the provider zero times. Only the AI provider is the deterministic fake. The inbox
  * sweeper is off, so every callback must be applied by the inline step of the request that delivered it.
+ *
+ * <p>Provider health runs in its default {@code enforce} mode (ADR 0038), so the gate and the recovery probe are real
+ * too. Every test starts from a fresh {@code HEALTHY} row, because the one health row is shared by every test on the
+ * database. {@link WhenProviderHealthIsOnlyObserved} runs the same journey in {@code observe} mode.
  */
 @SpringBootTest(properties = {"dokene.ai.provider=fake", "dokene.messaging.outbound.enabled=true",
         "dokene.messaging.send-timeout=3s", "dokene.integration.whatsapp.graph.timeout=2s",
-        "dokene.integration.whatsapp.webhook.inbox.enabled=false",
-        // Provider health is only observed here (ADR 0038): the state is tracked and no send is refused or probed.
-        "dokene.messaging.provider-health.mode=observe"})
+        "dokene.integration.whatsapp.webhook.inbox.enabled=false"})
 // Close the context after the class, so nothing cached keeps pointing at the Graph stub once it stops.
 @DirtiesContext
 @ExtendWith(OutputCaptureExtension.class)
@@ -94,10 +112,13 @@ class ApprovedSendJourneyIntegrationTest {
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String TOKEN_REF = "wa-token";
     /** Tenant secrets are keyed by tenant id at startup, so every test draws a pre-registered tenant id. */
-    private static final List<TenantId> TENANT_IDS = IntStream.range(0, 12).mapToObj(i -> TenantId.random()).toList();
+    private static final List<TenantId> TENANT_IDS = IntStream.range(0, 40).mapToObj(i -> TenantId.random()).toList();
     private static final AtomicInteger NEXT_TENANT = new AtomicInteger();
     private static final AtomicInteger NEXT_CUSTOMER = new AtomicInteger();
     private static final GraphStub GRAPH = GraphStub.start();
+    /** Every tag a provider health meter may carry (ADR 0038): the provider key and closed enum values. */
+    private static final String[] HEALTH_METER_TAGS = {"provider", "state", "kind", "from", "to", "operation", "mode",
+            "decision", "reason", "result"};
 
     @DynamicPropertySource
     static void configure(DynamicPropertyRegistry registry) throws Exception {
@@ -129,6 +150,8 @@ class ApprovedSendJourneyIntegrationTest {
     @Autowired TenantContextProvider contexts;
     @Autowired ProviderHealthReader providerHealth;
     @Autowired MeterRegistry meters;
+    /** The real Graph probe, spied so a test can watch the calling thread or script a probe that learns nothing. */
+    @MockitoSpyBean ProviderReachabilityProbe probe;
 
     private MockMvc mvc;
     private Workspace workspace;
@@ -138,6 +161,10 @@ class ApprovedSendJourneyIntegrationTest {
         mvc = MockMvcBuilders.webAppContextSetup(webApplicationContext)
                 .addFilters(auditRequestFilter).apply(springSecurity()).build();
         GRAPH.sendReply = GraphStub.Reply.ACCEPTED;
+        GRAPH.numberListStatus = 200;
+        GRAPH.duringNumberList = () -> { };
+        GRAPH.duringSend = () -> { };
+        storeProviderHealth("HEALTHY", "now()");
         workspace = workspace();
     }
 
@@ -338,79 +365,6 @@ class ApprovedSendJourneyIntegrationTest {
         assertProblem(stale, 409, "STALE_VERSION");
     }
 
-    /** covers: spec 0023 AC-3, AC-12, AC-13, AC-17 (issue 471): the thread from a Graph answer to the shared row. */
-    @Test
-    void serverErrorsMoveTheSharedProviderStateToUnavailableAndBackWithoutRefusingASend(CapturedOutput output)
-            throws Exception {
-        mapTemplate("GENERAL_FOLLOW_UP");
-        storeProviderHealth("HEALTHY", "now()");
-        double tripsBefore = transitions("DEGRADED", "UNAVAILABLE");
-        List<Message> sent = new ArrayList<>();
-        List<Customer> customers = new ArrayList<>();
-        List<String> states = new ArrayList<>();
-
-        GRAPH.sendReply = GraphStub.Reply.SERVER_ERROR;
-        for (String name : List.of("Rosa Mena", "Iván Soto", "Lucía Paz", "Óscar Gil")) {
-            customers.add(dueCustomer(name));
-            sent.add(approvedManualMessage(customers.getLast()));
-            MockHttpServletResponse response = send(workspace.operator, sent.getLast(), "send-" + UUID.randomUUID());
-            // Never refused: the fourth send goes out although the state is already UNAVAILABLE.
-            assertThat(response.getStatus()).isEqualTo(201);
-            assertThat(body(response).path("outcomeUnknown").asBoolean()).isTrue();
-            states.add(providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name());
-        }
-        GRAPH.sendReply = GraphStub.Reply.ACCEPTED;
-        for (String name : List.of("Inés Lara", "Raúl Cano")) {
-            customers.add(dueCustomer(name));
-            sent.add(approvedManualMessage(customers.getLast()));
-            MockHttpServletResponse response = send(workspace.operator, sent.getLast(), "send-" + UUID.randomUUID());
-            assertThat(body(response).path("status").asString()).isEqualTo("SENT");
-            states.add(providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name());
-        }
-
-        // Three outages in a row trip the state; in observe mode an accepted send then stands in for the probe.
-        assertThat(states).containsExactly("DEGRADED", "DEGRADED", "UNAVAILABLE", "UNAVAILABLE", "DEGRADED",
-                "HEALTHY");
-        assertThat(GRAPH.sends(workspace)).isEqualTo(6);
-        assertThat(transitions("DEGRADED", "UNAVAILABLE") - tripsBefore).isEqualTo(1);
-        // An uncertain send stays uncertain through every health state: nothing here sent it again or resolved it.
-        for (Message uncertain : sent.subList(0, 4)) {
-            JsonNode detail = uncertain.read(this);
-            assertThat(detail.path("status").asString()).isEqualTo("SENDING");
-            assertThat(detail.path("outcomeUnknown").asBoolean()).isTrue();
-        }
-
-        // The row, the meters and the log lines carry closed values only.
-        List<String> identifiers = new ArrayList<>(List.of(workspace.tenant.id().value().toString(),
-                workspace.phoneNumberId(), workspace.wabaId(), token(workspace.tenant.id())));
-        sent.forEach(message -> identifiers.add(message.id.toString()));
-        customers.forEach(customer -> identifiers.add(customer.phone));
-        String row;
-        try (Connection connection = migrationConnection();
-                var result = connection.createStatement().executeQuery(
-                        "SELECT row_to_json(h)::text FROM dokene.provider_health h")) {
-            assertThat(result.next()).isTrue();
-            row = result.getString(1);
-        }
-        List<String> healthLogLines = output.getAll().lines()
-                .filter(line -> line.contains("Provider health")).toList();
-        assertThat(healthLogLines).filteredOn(line -> line.contains("to=UNAVAILABLE")).isNotEmpty()
-                .allSatisfy(line -> assertThat(line).contains("provider=META_WHATSAPP", "from=DEGRADED",
-                        "event=SIGNAL_OUTAGE"));
-        for (String identifier : identifiers) {
-            assertThat(row).doesNotContain(identifier);
-            assertThat(healthLogLines).noneMatch(line -> line.contains(identifier));
-        }
-        assertThat(meters.getMeters()).extracting(Meter::getId)
-                .filteredOn(id -> id.getName().startsWith("dokene.messaging.provider.health"))
-                .isNotEmpty().allSatisfy(id -> {
-                    assertThat(id.getTags()).extracting(Tag::getKey)
-                            .isSubsetOf("provider", "state", "kind", "from", "to", "operation");
-                    assertThat(id.getTag("provider")).isEqualTo("META_WHATSAPP");
-                });
-        assertThat(meters.find("dokene.messaging.provider.health.state").gauges()).hasSize(4);
-    }
-
     /** covers: spec 0023 AC-14 (issue 471): a health write that cannot run never changes the send's outcome. */
     @Test
     void aBusyHealthRowLeavesAnAcceptedSendSentAndCountsTheLostSignal() throws Exception {
@@ -458,6 +412,481 @@ class ApprovedSendJourneyIntegrationTest {
         }
     }
 
+    // --- provider health gate in enforce mode (issue 472) -------------------------------------------------------
+
+    /**
+     * covers: spec 0023 AC-4, AC-5, AC-6, AC-8, AC-9, AC-12, AC-17 (issue 472): an outage trips the state, the next
+     * send is refused with no trace on the message, and one read only probe recovers with no manual step.
+     */
+    @Test
+    void anOutageRefusesTheNextSendCleanlyAndOneProbeRecoversIt(CapturedOutput output) throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        List<Message> uncertain = new ArrayList<>();
+        List<Customer> customers = new ArrayList<>();
+        List<String> states = new ArrayList<>();
+        GRAPH.sendReply = GraphStub.Reply.SERVER_ERROR;
+        for (String name : List.of("Rosa Mena", "Iván Soto", "Lucía Paz")) {
+            customers.add(dueCustomer(name));
+            uncertain.add(approvedManualMessage(customers.getLast()));
+            MockHttpServletResponse response = send(workspace.operator, uncertain.getLast(),
+                    "send-" + UUID.randomUUID());
+            assertThat(response.getStatus()).isEqualTo(201);
+            assertThat(body(response).path("outcomeUnknown").asBoolean()).isTrue();
+            states.add(healthState());
+        }
+        assertThat(states).containsExactly("DEGRADED", "DEGRADED", "UNAVAILABLE");
+        customers.add(dueCustomer("Óscar Gil"));
+        Message held = approvedManualMessage(customers.getLast());
+        String etag = held.etag(this);
+        String key = "send-" + UUID.randomUUID();
+        int probesBefore = probes();
+
+        // Inside the cool down: refused before anything is claimed, and Meta hears nothing.
+        MockHttpServletResponse refused = send(workspace.operator, held, key);
+
+        assertProblem(refused, 503, "PROVIDER_UNAVAILABLE");
+        assertThat(Integer.parseInt(refused.getHeader("Retry-After"))).isBetween(1, 30);
+        JsonNode untouched = held.read(this);
+        assertThat(untouched.path("status").asString()).isEqualTo("APPROVED");
+        assertEmptyArray(untouched, "attempts");
+        assertThat(held.etag(this)).isEqualTo(etag);
+        assertThat(sendIdempotencyRows(held)).isZero();
+        assertThat(GRAPH.sends(workspace)).isEqualTo(3);
+        assertThat(probes()).isEqualTo(probesBefore);
+
+        // Meta is back and the cool down is over: the same request probes once, then sends.
+        GRAPH.sendReply = GraphStub.Reply.ACCEPTED;
+        endCoolDown();
+        List<String> stateWhenThePostArrived = new CopyOnWriteArrayList<>();
+        GRAPH.duringSend = () -> stateWhenThePostArrived.add(storedHealth().path("state").asString());
+
+        MockHttpServletResponse recovered = send(workspace.operator, held, key);
+
+        assertThat(recovered.getStatus()).as(recovered.getContentAsString()).isEqualTo(201);
+        assertThat(body(recovered).path("status").asString()).isEqualTo("SENT");
+        assertThat(probes()).isEqualTo(probesBefore + 1);
+        assertThat(GRAPH.reads(workspace.wabaId, "/phone_numbers").getLast().authorization())
+                .isEqualTo("Bearer " + token(workspace.tenant.id()));
+        assertThat(GRAPH.sends(workspace)).isEqualTo(4);
+        // The passed probe is the first recovery success and the accepted send is the second.
+        assertThat(stateWhenThePostArrived).containsExactly("DEGRADED");
+        assertThat(healthState()).isEqualTo("HEALTHY");
+
+        // An uncertain send stays uncertain through the trip, the probe and the recovery: one POST each, never two.
+        for (Message message : uncertain) {
+            JsonNode detail = message.read(this);
+            assertThat(detail.path("status").asString()).isEqualTo("SENDING");
+            assertThat(detail.path("outcomeUnknown").asBoolean()).isTrue();
+            assertThat(detail.path("attempts")).hasSize(1);
+        }
+
+        // The row, the meters and the log lines carry closed values only.
+        List<String> identifiers = new ArrayList<>(List.of(workspace.tenant.id().value().toString(),
+                workspace.phoneNumberId(), workspace.wabaId(), token(workspace.tenant.id()), held.id.toString()));
+        uncertain.forEach(message -> identifiers.add(message.id.toString()));
+        customers.forEach(customer -> identifiers.add(customer.phone));
+        String row = storedHealth().toString();
+        List<String> healthLogLines = output.getAll().lines()
+                .filter(line -> line.contains("Provider health")).toList();
+        assertThat(healthLogLines).anyMatch(line -> line.contains("to=UNAVAILABLE") && line.contains("SIGNAL_OUTAGE"))
+                .anyMatch(line -> line.contains("from=UNAVAILABLE") && line.contains("event=PROBE_PASSED"));
+        for (String identifier : identifiers) {
+            assertThat(row).doesNotContain(identifier);
+            assertThat(healthLogLines).noneMatch(line -> line.contains(identifier));
+        }
+        assertThat(meters.getMeters()).extracting(Meter::getId)
+                .filteredOn(id -> id.getName().startsWith("dokene.messaging.provider.health"))
+                .isNotEmpty().allSatisfy(id -> {
+                    assertThat(id.getTags()).extracting(Tag::getKey).isSubsetOf(HEALTH_METER_TAGS);
+                    assertThat(id.getTag("provider")).isEqualTo("META_WHATSAPP");
+                });
+        assertThat(healthCounter("refusals", "reason", "COOL_DOWN")).isPositive();
+        assertThat(healthCounter("probes", "result", "PASSED")).isPositive();
+        assertThat(healthCounter("decisions", "mode", "enforce", "decision", "PROBE")).isPositive();
+    }
+
+    /** covers: spec 0023 AC-5, AC-6, AC-8 (issue 472): a failed probe refuses and each one backs off further. */
+    @Test
+    void aFailedProbeRefusesWithoutSendingAndStartsALongerCoolDown() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message message = approvedManualMessage(dueCustomer("Elena Rojas"));
+        storeUnavailable("now() - interval '1 second'", 1);
+        int probesBefore = probes();
+
+        GRAPH.numberListStatus = 500;
+        MockHttpServletResponse failed = send(workspace.operator, message, "send-" + UUID.randomUUID());
+        assertProblem(failed, 503, "PROVIDER_UNAVAILABLE");
+        assertThat(failed.getHeader("Retry-After")).isEqualTo("60");
+        assertThat(probes()).isEqualTo(probesBefore + 1);
+
+        // Inside the cool down that probe started, nobody probes again.
+        MockHttpServletResponse cooling = send(workspace.operator, message, "send-" + UUID.randomUUID());
+        assertProblem(cooling, 503, "PROVIDER_UNAVAILABLE");
+        assertThat(Integer.parseInt(cooling.getHeader("Retry-After"))).isBetween(1, 60);
+        assertThat(probes()).isEqualTo(probesBefore + 1);
+
+        // A redirect is not an answer either: the probe fails again and the cool down doubles.
+        endCoolDown();
+        GRAPH.numberListStatus = 302;
+        MockHttpServletResponse redirected = send(workspace.operator, message, "send-" + UUID.randomUUID());
+        assertProblem(redirected, 503, "PROVIDER_UNAVAILABLE");
+        assertThat(redirected.getHeader("Retry-After")).isEqualTo("120");
+        assertThat(probes()).isEqualTo(probesBefore + 2);
+
+        assertThat(healthState()).isEqualTo("UNAVAILABLE");
+        assertThat(GRAPH.sends(workspace)).isZero();
+        JsonNode untouched = message.read(this);
+        assertThat(untouched.path("status").asString()).isEqualTo("APPROVED");
+        assertEmptyArray(untouched, "attempts");
+    }
+
+    /** covers: spec 0023 AC-5, AC-6 (issue 472): any 4xx answer shows Meta is there, and a 429 passes as DEGRADED. */
+    @Test
+    void aProbeAnsweredWithAClientErrorPassesAndTheSameRequestSends() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message first = approvedManualMessage(dueCustomer("Pablo Vega"));
+        Message second = approvedManualMessage(dueCustomer("Sara Luna"));
+        int probesBefore = probes();
+
+        storeProviderHealth("UNKNOWN", "NULL");
+        GRAPH.numberListStatus = 401;
+        assertThat(body(send(workspace.operator, first, "send-" + UUID.randomUUID())).path("status").asString())
+                .isEqualTo("SENT");
+        assertThat(healthState()).isEqualTo("HEALTHY");
+
+        storeProviderHealth("UNKNOWN", "NULL");
+        GRAPH.numberListStatus = 429;
+        List<String> stateWhenThePostArrived = new CopyOnWriteArrayList<>();
+        GRAPH.duringSend = () -> stateWhenThePostArrived.add(storedHealth().path("state").asString());
+        assertThat(body(send(workspace.operator, second, "send-" + UUID.randomUUID())).path("status").asString())
+                .isEqualTo("SENT");
+        assertThat(stateWhenThePostArrived).containsExactly("DEGRADED");
+
+        assertThat(probes()).isEqualTo(probesBefore + 2);
+        assertThat(GRAPH.sends(workspace)).isEqualTo(2);
+    }
+
+    /** covers: spec 0023 AC-6 (issue 472): no network exchange means no result, no state change and a free lease. */
+    @Test
+    void aProbeThatLearnsNothingRefusesForOneSecondAndFreesTheLease() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message message = approvedManualMessage(dueCustomer("Diego Mora"));
+        storeProviderHealth("UNKNOWN", "NULL");
+        doReturn(ProviderProbeResult.NO_RESULT).when(probe).probe(any(), any());
+
+        MockHttpServletResponse refused = send(workspace.operator, message, "send-" + UUID.randomUUID());
+
+        assertProblem(refused, 503, "PROVIDER_UNAVAILABLE");
+        assertThat(refused.getHeader("Retry-After")).isEqualTo("1");
+        JsonNode row = storedHealth();
+        assertThat(row.path("state").asString()).isEqualTo("UNKNOWN");
+        assertThat(row.path("probe_lease_until").isNull()).isTrue();
+        assertThat(GRAPH.sends(workspace)).isZero();
+    }
+
+    /**
+     * covers: spec 0023 AC-7 (issue 472): one probe at a time, a live lease refuses, an expired lease is taken again
+     * and the late result of the probe that lost its lease is discarded.
+     */
+    @Test
+    void onlyOneRequestProbesAtATimeAndAResultWhoseLeaseWasLostIsDiscarded() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message first = approvedManualMessage(dueCustomer("Alma Ríos"));
+        Message second = approvedManualMessage(dueCustomer("Bruno Paz"));
+        Message third = approvedManualMessage(dueCustomer("Clara Sol"));
+        storeProviderHealth("UNKNOWN", "NULL");
+        int probesBefore = probes();
+        CountDownLatch firstProbeArrived = new CountDownLatch(1);
+        CountDownLatch releaseFirstProbe = new CountDownLatch(1);
+        AtomicInteger numberLists = new AtomicInteger();
+        GRAPH.duringNumberList = () -> {
+            if (numberLists.incrementAndGet() == 1) {
+                firstProbeArrived.countDown();
+                try {
+                    // Shorter than the Graph timeout of this class, so the held probe still gets its answer.
+                    releaseFirstProbe.await(1500, TimeUnit.MILLISECONDS);
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+        };
+
+        try (ExecutorService requests = Executors.newVirtualThreadPerTaskExecutor()) {
+            Future<MockHttpServletResponse> probing = requests.submit(
+                    () -> send(workspace.operator, first, "send-" + UUID.randomUUID()));
+            assertThat(firstProbeArrived.await(10, TimeUnit.SECONDS)).isTrue();
+
+            // A second sender finds the live lease: refused for at most the lease time, and no second GET.
+            MockHttpServletResponse waiting = send(workspace.operator, second, "send-" + UUID.randomUUID());
+            assertProblem(waiting, 503, "PROVIDER_UNAVAILABLE");
+            assertThat(Integer.parseInt(waiting.getHeader("Retry-After"))).isBetween(1, 10);
+            assertThat(probes()).isEqualTo(probesBefore + 1);
+
+            // The lease runs out while the first probe is still waiting: the next sender takes it and recovers.
+            expireProbeLease();
+            assertThat(body(send(workspace.operator, third, "send-" + UUID.randomUUID())).path("status").asString())
+                    .isEqualTo("SENT");
+            assertThat(probes()).isEqualTo(probesBefore + 2);
+
+            releaseFirstProbe.countDown();
+            MockHttpServletResponse late = probing.get(10, TimeUnit.SECONDS);
+            assertProblem(late, 503, "PROVIDER_UNAVAILABLE");
+            assertThat(late.getHeader("Retry-After")).isEqualTo("1");
+        }
+
+        assertThat(healthState()).isEqualTo("HEALTHY");
+        assertThat(GRAPH.sends(workspace)).isEqualTo(1);
+        for (Message unsent : List.of(first, second)) {
+            JsonNode detail = unsent.read(this);
+            assertThat(detail.path("status").asString()).isEqualTo("APPROVED");
+            assertEmptyArray(detail, "attempts");
+        }
+    }
+
+    /** covers: spec 0023 AC-10 (issue 472): a send existing policy refuses keeps its code and never probes. */
+    @Test
+    void aSendThatPolicyRefusesKeepsItsCodeRunsNoProbeAndTakesNoLease() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message message = approvedManualMessage(dueCustomer("Irene Cruz"));
+        storeProviderHealth("UNKNOWN", "NULL");
+        outbound(false);
+        int probesBefore = probes();
+
+        assertProblem(send(workspace.operator, message, "send-" + UUID.randomUUID()), 409,
+                "OUTBOUND_DISABLED_FOR_TENANT");
+
+        assertThat(probes()).isEqualTo(probesBefore);
+        JsonNode row = storedHealth();
+        assertThat(row.path("state").asString()).isEqualTo("UNKNOWN");
+        assertThat(row.path("probe_lease_until").isNull()).isTrue();
+        assertThat(GRAPH.sends(workspace)).isZero();
+    }
+
+    /**
+     * covers: spec 0023 AC-5, AC-10 (issue 472): after a passed probe the whole policy runs again, so a message that
+     * changed meanwhile gets its policy code, and the probe result stands for the next sender.
+     */
+    @Test
+    void aMessageThatChangedWhileTheProbeRanGetsItsPolicyCodeAndTheProbeResultStands() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message message = approvedManualMessage(dueCustomer("Hugo Leal"));
+        storeProviderHealth("UNKNOWN", "NULL");
+        int probesBefore = probes();
+        GRAPH.duringNumberList = () -> migrate(
+                "UPDATE dokene.outbound_messages SET version = version + 1 WHERE id = '" + message.id + "'");
+
+        assertProblem(send(workspace.operator, message, "send-" + UUID.randomUUID()), 409, "STALE_VERSION");
+
+        assertThat(probes()).isEqualTo(probesBefore + 1);
+        assertThat(healthState()).isEqualTo("HEALTHY");
+        assertThat(GRAPH.sends(workspace)).isZero();
+    }
+
+    /**
+     * covers: spec 0023 AC-11 (issue 472): while Meta is being called, for the probe or for the send, the request
+     * holds no transaction, no row lock on the customer, the message or the health row, and no advisory lock.
+     */
+    @Test
+    void noLockIsHeldWhileTheProbeOrTheSendTalksToMeta() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Customer customer = dueCustomer("Julia Abad");
+        Message message = approvedManualMessage(customer);
+        storeProviderHealth("UNKNOWN", "NULL");
+        List<String> lockedDuringProbe = new CopyOnWriteArrayList<>();
+        List<String> lockedDuringSend = new CopyOnWriteArrayList<>();
+        AtomicReference<Boolean> transactionOpenDuringProbe = new AtomicReference<>();
+        doAnswer(call -> {
+            transactionOpenDuringProbe.set(TransactionSynchronizationManager.isActualTransactionActive());
+            return call.callRealMethod();
+        }).when(probe).probe(any(), any());
+        GRAPH.duringNumberList = () -> lockedDuringProbe.addAll(heldLocks(customer, message));
+        GRAPH.duringSend = () -> lockedDuringSend.addAll(heldLocks(customer, message));
+
+        assertThat(body(send(workspace.operator, message, "send-" + UUID.randomUUID())).path("status").asString())
+                .isEqualTo("SENT");
+
+        assertThat(transactionOpenDuringProbe).hasValue(false);
+        assertThat(lockedDuringProbe).isEmpty();
+        assertThat(lockedDuringSend).isEmpty();
+    }
+
+    /** covers: spec 0023 AC-14 (issue 472): in enforce mode a health row that cannot be read refuses the send. */
+    @Test
+    void anUnreadableHealthRowRefusesTheSendWithoutReachingMeta() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        Message message = approvedManualMessage(dueCustomer("Karla Ibarra"));
+        int probesBefore = probes();
+        double storeUnavailableBefore = healthCounter("refusals", "reason", "STORE_UNAVAILABLE");
+        double readFailuresBefore = healthCounter("store.failures", "operation", "READ");
+
+        MockHttpServletResponse refused;
+        migrate("REVOKE SELECT ON TABLE dokene.provider_health FROM dokene_runtime");
+        try {
+            refused = send(workspace.operator, message, "send-" + UUID.randomUUID());
+        } finally {
+            migrate("GRANT SELECT ON TABLE dokene.provider_health TO dokene_runtime");
+        }
+
+        assertProblem(refused, 503, "PROVIDER_UNAVAILABLE");
+        assertThat(refused.getHeader("Retry-After")).isEqualTo("5");
+        assertThat(GRAPH.sends(workspace)).isZero();
+        assertThat(probes()).isEqualTo(probesBefore);
+        JsonNode untouched = message.read(this);
+        assertThat(untouched.path("status").asString()).isEqualTo("APPROVED");
+        assertEmptyArray(untouched, "attempts");
+        assertThat(healthCounter("refusals", "reason", "STORE_UNAVAILABLE") - storeUnavailableBefore).isEqualTo(1);
+        assertThat(healthCounter("store.failures", "operation", "READ") - readFailuresBefore).isPositive();
+    }
+
+    /**
+     * covers: spec 0023 AC-3, AC-17 (issue 472): throttling only ever degrades, so nobody is refused and another
+     * tenant's send still goes out.
+     */
+    @Test
+    void repeatedThrottlingOnlyDegradesAndAnotherTenantStillSends() throws Exception {
+        mapTemplate("GENERAL_FOLLOW_UP");
+        GRAPH.sendReply = GraphStub.Reply.THROTTLED;
+        for (String name : List.of("Lola Marín", "Mateo Gil", "Nuria Sanz", "Omar Vidal")) {
+            Message throttled = approvedManualMessage(dueCustomer(name));
+            MockHttpServletResponse response = send(workspace.operator, throttled, "send-" + UUID.randomUUID());
+            assertThat(response.getStatus()).as(response.getContentAsString()).isEqualTo(201);
+            assertThat(body(response).path("attempts")).hasSize(1);
+            assertThat(healthState()).isEqualTo("DEGRADED");
+        }
+        Workspace throttledTenant = workspace;
+
+        workspace = workspace();
+        mapTemplate("GENERAL_FOLLOW_UP");
+        GRAPH.sendReply = GraphStub.Reply.ACCEPTED;
+        Message other = approvedManualMessage(dueCustomer("Paula Rey"));
+
+        assertThat(body(send(workspace.operator, other, "send-" + UUID.randomUUID())).path("status").asString())
+                .isEqualTo("SENT");
+        assertThat(GRAPH.sends(throttledTenant)).isEqualTo(4);
+        assertThat(GRAPH.sends(workspace)).isEqualTo(1);
+        assertThat(healthState()).isEqualTo("DEGRADED");
+    }
+
+    /** The same journey with provider health only observed: the state is tracked and no send is refused or probed. */
+    @Nested
+    @TestPropertySource(properties = "dokene.messaging.provider-health.mode=observe")
+    class WhenProviderHealthIsOnlyObserved {
+
+        /** covers: spec 0023 AC-3, AC-12, AC-13, AC-17 (issue 471): the thread from a Graph answer to the shared row. */
+        @Test
+        void serverErrorsMoveTheSharedProviderStateToUnavailableAndBackWithoutRefusingASend(CapturedOutput output)
+                throws Exception {
+            mapTemplate("GENERAL_FOLLOW_UP");
+            storeProviderHealth("HEALTHY", "now()");
+            double tripsBefore = transitions("DEGRADED", "UNAVAILABLE");
+            List<Message> sent = new ArrayList<>();
+            List<Customer> customers = new ArrayList<>();
+            List<String> states = new ArrayList<>();
+
+            GRAPH.sendReply = GraphStub.Reply.SERVER_ERROR;
+            for (String name : List.of("Rosa Mena", "Iván Soto", "Lucía Paz", "Óscar Gil")) {
+                customers.add(dueCustomer(name));
+                sent.add(approvedManualMessage(customers.getLast()));
+                MockHttpServletResponse response = send(workspace.operator, sent.getLast(), "send-" + UUID.randomUUID());
+                // Never refused: the fourth send goes out although the state is already UNAVAILABLE.
+                assertThat(response.getStatus()).isEqualTo(201);
+                assertThat(body(response).path("outcomeUnknown").asBoolean()).isTrue();
+                states.add(providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name());
+            }
+            GRAPH.sendReply = GraphStub.Reply.ACCEPTED;
+            for (String name : List.of("Inés Lara", "Raúl Cano")) {
+                customers.add(dueCustomer(name));
+                sent.add(approvedManualMessage(customers.getLast()));
+                MockHttpServletResponse response = send(workspace.operator, sent.getLast(), "send-" + UUID.randomUUID());
+                assertThat(body(response).path("status").asString()).isEqualTo("SENT");
+                states.add(providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name());
+            }
+
+            // Three outages in a row trip the state; in observe mode an accepted send then stands in for the probe.
+            assertThat(states).containsExactly("DEGRADED", "DEGRADED", "UNAVAILABLE", "UNAVAILABLE", "DEGRADED",
+                    "HEALTHY");
+            assertThat(GRAPH.sends(workspace)).isEqualTo(6);
+            assertThat(transitions("DEGRADED", "UNAVAILABLE") - tripsBefore).isEqualTo(1);
+            // An uncertain send stays uncertain through every health state: nothing here sent it again or resolved it.
+            for (Message uncertain : sent.subList(0, 4)) {
+                JsonNode detail = uncertain.read(ApprovedSendJourneyIntegrationTest.this);
+                assertThat(detail.path("status").asString()).isEqualTo("SENDING");
+                assertThat(detail.path("outcomeUnknown").asBoolean()).isTrue();
+            }
+
+            // The row, the meters and the log lines carry closed values only.
+            List<String> identifiers = new ArrayList<>(List.of(workspace.tenant.id().value().toString(),
+                    workspace.phoneNumberId(), workspace.wabaId(), token(workspace.tenant.id())));
+            sent.forEach(message -> identifiers.add(message.id.toString()));
+            customers.forEach(customer -> identifiers.add(customer.phone));
+            String row;
+            try (Connection connection = migrationConnection();
+                    var result = connection.createStatement().executeQuery(
+                            "SELECT row_to_json(h)::text FROM dokene.provider_health h")) {
+                assertThat(result.next()).isTrue();
+                row = result.getString(1);
+            }
+            List<String> healthLogLines = output.getAll().lines()
+                    .filter(line -> line.contains("Provider health")).toList();
+            assertThat(healthLogLines).filteredOn(line -> line.contains("to=UNAVAILABLE")).isNotEmpty()
+                    .allSatisfy(line -> assertThat(line).contains("provider=META_WHATSAPP", "from=DEGRADED",
+                            "event=SIGNAL_OUTAGE"));
+            for (String identifier : identifiers) {
+                assertThat(row).doesNotContain(identifier);
+                assertThat(healthLogLines).noneMatch(line -> line.contains(identifier));
+            }
+            assertThat(meters.getMeters()).extracting(Meter::getId)
+                    .filteredOn(id -> id.getName().startsWith("dokene.messaging.provider.health"))
+                    .isNotEmpty().allSatisfy(id -> {
+                        assertThat(id.getTags()).extracting(Tag::getKey)
+                                .isSubsetOf(HEALTH_METER_TAGS);
+                        assertThat(id.getTag("provider")).isEqualTo("META_WHATSAPP");
+                    });
+            assertThat(meters.find("dokene.messaging.provider.health.state").gauges()).hasSize(4);
+        }
+
+        /**
+         * covers: spec 0023 AC-13 (issue 472): no send is refused or probed, and the counter records what enforce
+         * would have decided.
+         */
+        @Test
+        void aSendWhileUnavailableStillGoesOutUnprobedAndCountsWhatEnforceWouldDecide() throws Exception {
+            mapTemplate("GENERAL_FOLLOW_UP");
+            Message message = approvedManualMessage(dueCustomer("Quique Lara"));
+            storeUnavailable("now() + interval '5 minutes'", 1);
+            double refusesBefore = healthCounter("decisions", "mode", "observe", "decision", "REFUSE");
+            int probesBefore = probes();
+
+            assertThat(body(send(workspace.operator, message, "send-" + UUID.randomUUID())).path("status")
+                    .asString()).isEqualTo("SENT");
+
+            assertThat(probes()).isEqualTo(probesBefore);
+            assertThat(healthCounter("decisions", "mode", "observe", "decision", "REFUSE") - refusesBefore)
+                    .isEqualTo(1);
+            assertThat(meters.find("dokene.messaging.provider.health.refusals").counters()).isEmpty();
+        }
+
+        /** covers: spec 0023 AC-13 (issue 472): a health store failure never refuses a send in observe mode. */
+        @Test
+        void anUnreadableHealthRowStillSends() throws Exception {
+            mapTemplate("GENERAL_FOLLOW_UP");
+            Message message = approvedManualMessage(dueCustomer("Rita Soler"));
+            double readFailuresBefore = healthCounter("store.failures", "operation", "READ");
+
+            JsonNode sent;
+            migrate("REVOKE SELECT ON TABLE dokene.provider_health FROM dokene_runtime");
+            try {
+                sent = body(send(workspace.operator, message, "send-" + UUID.randomUUID()));
+            } finally {
+                migrate("GRANT SELECT ON TABLE dokene.provider_health TO dokene_runtime");
+            }
+
+            assertThat(sent.path("status").asString()).isEqualTo("SENT");
+            assertThat(GRAPH.sends(workspace)).isEqualTo(1);
+            assertThat(healthCounter("store.failures", "operation", "READ") - readFailuresBefore).isPositive();
+        }
+    }
+
     /** Sets the one shared health row directly, as an operator would under the migration role. */
     private void storeProviderHealth(String state, String lastSignalAt) throws Exception {
         try (Connection connection = migrationConnection(); var statement = connection.createStatement()) {
@@ -469,6 +898,99 @@ class ApprovedSendJourneyIntegrationTest {
                     WHERE provider = 'META_WHATSAPP'
                     """.formatted(state, lastSignalAt));
         }
+    }
+
+    private void storeUnavailable(String coolDownUntil, int coolDownStep) {
+        migrate("""
+                UPDATE dokene.provider_health
+                SET state = 'UNAVAILABLE', state_changed_at = now(), last_signal_at = now(),
+                    last_signal_kind = 'OUTAGE', consecutive_outage_signals = 3, first_outage_signal_at = now(),
+                    consecutive_successes = 0, cool_down_until = %s, cool_down_step = %d, probe_lease_until = NULL
+                WHERE provider = 'META_WHATSAPP'
+                """.formatted(coolDownUntil, coolDownStep));
+    }
+
+    /** Time passes by moving the stored cool down end, never by sleeping. */
+    private void endCoolDown() {
+        migrate("UPDATE dokene.provider_health SET cool_down_until = now() - interval '1 second'");
+    }
+
+    private void expireProbeLease() {
+        migrate("UPDATE dokene.provider_health SET probe_lease_until = now() - interval '1 second'");
+    }
+
+    /** One statement under the migration role. Also called from the Graph stub's thread, so it never throws checked. */
+    private static void migrate(String sql) {
+        try (Connection connection = migrationConnection(); var statement = connection.createStatement()) {
+            statement.execute(sql);
+        } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    /** The one health row as stored, read past the application. */
+    private static JsonNode storedHealth() {
+        try (Connection connection = migrationConnection();
+                var result = connection.createStatement().executeQuery(
+                        "SELECT row_to_json(h)::text FROM dokene.provider_health h")) {
+            assertThat(result.next()).isTrue();
+            return JSON.readTree(result.getString(1));
+        } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+        }
+    }
+
+    private String healthState() {
+        return providerHealth.read(MessagingProviderKey.META_WHATSAPP).state().name();
+    }
+
+    /** How many times Meta was asked for this workspace's number list: the ownership proof, then each probe. */
+    private int probes() {
+        return GRAPH.reads(workspace.wabaId, "/phone_numbers").size();
+    }
+
+    private double healthCounter(String meter, String... tags) {
+        String[] all = new String[tags.length + 2];
+        all[0] = "provider";
+        all[1] = "META_WHATSAPP";
+        System.arraycopy(tags, 0, all, 2, tags.length);
+        return meters.counter("dokene.messaging.provider.health." + meter, all).count();
+    }
+
+    private int sendIdempotencyRows(Message message) throws SQLException {
+        try (Connection connection = migrationConnection()) {
+            return TenantSecurityIntegrationFixture.queryInt(connection,
+                    "SELECT count(*) FROM dokene.outbound_message_idempotency_keys WHERE message_id = ? "
+                            + "AND operation = 'SEND'", message.id);
+        }
+    }
+
+    /**
+     * Which of the send flow's locks another session finds taken right now: the customer, message and health rows
+     * (tried with NOWAIT) and any advisory lock, which is how the idempotency key and the send budget are locked.
+     */
+    private static List<String> heldLocks(Customer customer, Message message) {
+        List<String> held = new ArrayList<>();
+        Map<String, String> rows = Map.of(
+                "customer", "SELECT 1 FROM dokene.customers WHERE id = '" + customer.id + "' FOR UPDATE NOWAIT",
+                "message", "SELECT 1 FROM dokene.outbound_messages WHERE id = '" + message.id + "' FOR UPDATE NOWAIT",
+                "health", "SELECT 1 FROM dokene.provider_health FOR UPDATE NOWAIT");
+        try (Connection connection = migrationConnection()) {
+            for (Map.Entry<String, String> row : rows.entrySet()) {
+                try (var statement = connection.createStatement()) {
+                    statement.execute(row.getValue());
+                } catch (SQLException locked) {
+                    held.add(row.getKey() + ":" + locked.getSQLState());
+                }
+            }
+            if (TenantSecurityIntegrationFixture.queryInt(connection,
+                    "SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND granted") > 0) {
+                held.add("advisory");
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+        }
+        return held;
     }
 
     private double transitions(String from, String to) {
@@ -807,7 +1329,7 @@ class ApprovedSendJourneyIntegrationTest {
      * APPROVED with two body parameters, and answers sends with a scripted reply while counting them per phone id.
      */
     static final class GraphStub {
-        enum Reply { ACCEPTED, SERVER_ERROR }
+        enum Reply { ACCEPTED, SERVER_ERROR, THROTTLED }
 
         record Request(String phoneNumberId, String authorization, String body) {
         }
@@ -824,6 +1346,11 @@ class ApprovedSendJourneyIntegrationTest {
         final List<Read> reads = new CopyOnWriteArrayList<>();
         final List<Request> sends = new CopyOnWriteArrayList<>();
         volatile Reply sendReply = Reply.ACCEPTED;
+        /** When not 200, the status every phone number list read gets, which is also what the health probe reads. */
+        volatile int numberListStatus = 200;
+        /** Run while a phone number list read, or a send, is in flight and before it is answered. */
+        volatile Runnable duringNumberList = () -> { };
+        volatile Runnable duringSend = () -> { };
 
         private GraphStub(HttpServer server) {
             this.server = server;
@@ -834,6 +1361,8 @@ class ApprovedSendJourneyIntegrationTest {
                 HttpServer server = HttpServer.create(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0), 0);
                 GraphStub stub = new GraphStub(server);
                 server.createContext("/v23.0/", stub::handle);
+                // One thread per exchange: a test may hold one answer back while Meta keeps answering others.
+                server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
                 server.start();
                 return stub;
             } catch (IOException exception) {
@@ -865,6 +1394,16 @@ class ApprovedSendJourneyIntegrationTest {
             try (exchange) {
                 if (path.endsWith("/phone_numbers") || path.endsWith("/message_templates")) {
                     reads.add(new Read(path, authorization));
+                    if (path.endsWith("/phone_numbers")) {
+                        duringNumberList.run();
+                        if (numberListStatus != 200) {
+                            if (numberListStatus == 302) {
+                                exchange.getResponseHeaders().set("Location", baseUrl() + "/elsewhere");
+                            }
+                            reply(exchange, numberListStatus, "{\"error\":{\"message\":\"Scripted\",\"code\":1}}");
+                            return;
+                        }
+                    }
                     // Only the business account in the path answers, and only to its own tenant's credential.
                     String wabaId = path.substring(0, path.indexOf('/'));
                     List<String> owned = owners.entrySet().stream()
@@ -888,7 +1427,11 @@ class ApprovedSendJourneyIntegrationTest {
                 } else if (path.endsWith("/messages") && "POST".equals(exchange.getRequestMethod())) {
                     String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                     sends.add(new Request(path.substring(0, path.indexOf('/')), authorization, body));
-                    if (sendReply == Reply.SERVER_ERROR) {
+                    duringSend.run();
+                    if (sendReply == Reply.THROTTLED) {
+                        reply(exchange, 429, "{\"error\":{\"message\":\"Rate limit hit\",\"type\":"
+                                + "\"OAuthException\",\"code\":130429,\"fbtrace_id\":\"SYNTHETIC-TRACE\"}}");
+                    } else if (sendReply == Reply.SERVER_ERROR) {
                         reply(exchange, 500, "{\"error\":{\"message\":\"An unknown error occurred\",\"type\":"
                                 + "\"OAuthException\",\"code\":1,\"fbtrace_id\":\"SYNTHETIC-TRACE\"}}");
                     } else {

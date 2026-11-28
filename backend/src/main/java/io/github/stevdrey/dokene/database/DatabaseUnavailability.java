@@ -42,6 +42,11 @@ public class DatabaseUnavailability {
         this.retryAfterSeconds = RetryAfter.seconds(retryAfter);
     }
 
+    /** The fixed delay every database-outage answer carries (ADR 0029), for a caller that shapes its own refusal. */
+    public Duration retryAfter() {
+        return Duration.ofSeconds(retryAfterSeconds);
+    }
+
     /** True when the failure, or anything it wraps, means no database connection was available. */
     public boolean isCause(Throwable failure) {
         return outage(failure).isPresent();

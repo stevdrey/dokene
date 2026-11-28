@@ -6,11 +6,13 @@ import io.github.stevdrey.dokene.database.DatabaseUnavailability;
 import io.github.stevdrey.dokene.http.UnexpectedFailures;
 import io.github.stevdrey.dokene.messaging.api.MessagingApiContract.MessagingProblem;
 import io.github.stevdrey.dokene.messaging.domain.MessagingErrorCode;
+import io.github.stevdrey.dokene.messaging.domain.MessagingProviderUnavailableException;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRateLimitedException;
 import io.github.stevdrey.dokene.messaging.domain.MessagingRefusedException;
 import io.github.stevdrey.dokene.ratelimit.RetryAfter;
 import io.github.stevdrey.dokene.tenant.application.TenantAccessDeniedException;
 import jakarta.servlet.http.HttpServletResponse;
+import java.time.Duration;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -39,11 +41,16 @@ public class MessagingExceptionHandler {
     /** The tenant send rate (ADR 0023 §4.4): the closed problem plus {@code Retry-After} in whole seconds. */
     @ExceptionHandler(MessagingRateLimitedException.class)
     ResponseEntity<MessagingProblem> rateLimited(MessagingRateLimitedException throttled) {
-        MessagingProblem body = MessagingProblem.of(throttled.code());
-        return ResponseEntity.status(HttpStatus.valueOf(body.status()))
-                .header(HttpHeaders.RETRY_AFTER, String.valueOf(RetryAfter.seconds(throttled.retryAfter())))
-                .contentType(MediaType.parseMediaType(MessagingApiContract.PROBLEM_MEDIA_TYPE))
-                .body(body);
+        return problemWithRetryAfter(throttled.code(), throttled.retryAfter());
+    }
+
+    /**
+     * The provider health refusal (ADR 0038): {@code 503 PROVIDER_UNAVAILABLE} plus {@code Retry-After}. The send was
+     * not attempted, so the caller may send the same message again after the delay.
+     */
+    @ExceptionHandler(MessagingProviderUnavailableException.class)
+    ResponseEntity<MessagingProblem> providerUnavailable(MessagingProviderUnavailableException unavailable) {
+        return problemWithRetryAfter(unavailable.code(), unavailable.retryAfter());
     }
 
     @ExceptionHandler(TenantAccessDeniedException.class)
@@ -69,6 +76,15 @@ public class MessagingExceptionHandler {
             throw failure;
         }
         return problem(MessagingErrorCode.INTERNAL_ERROR);
+    }
+
+    private static ResponseEntity<MessagingProblem> problemWithRetryAfter(MessagingErrorCode code,
+            Duration retryAfter) {
+        MessagingProblem body = MessagingProblem.of(code);
+        return ResponseEntity.status(HttpStatus.valueOf(body.status()))
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(RetryAfter.seconds(retryAfter)))
+                .contentType(MediaType.parseMediaType(MessagingApiContract.PROBLEM_MEDIA_TYPE))
+                .body(body);
     }
 
     private static ResponseEntity<MessagingProblem> problem(MessagingErrorCode code) {
