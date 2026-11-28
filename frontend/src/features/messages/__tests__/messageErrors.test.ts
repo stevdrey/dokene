@@ -114,6 +114,15 @@ describe('messageLabels', () => {
     expect(errorCodeSentence('APPROVAL_INVALIDATED')).toBe('La aprobación ya no es válida. Revisa el mensaje de nuevo.');
   });
 
+  // covers: spec 0023 AC-16
+  it('tells the operator a provider outage left the message unsent, still approved and sendable again shortly', () => {
+    const sentence = errorCodeSentence('PROVIDER_UNAVAILABLE');
+
+    expect(sentence).toContain('no se envió');
+    expect(sentence).toContain('sigue aprobado');
+    expect(sentence).toContain('Inténtalo de nuevo en unos minutos');
+  });
+
   it('falls back to the code in parentheses for an unknown code', () => {
     expect(errorCodeSentence('SOMETHING_NEW')).toBe('No se pudo completar la acción (SOMETHING_NEW).');
   });

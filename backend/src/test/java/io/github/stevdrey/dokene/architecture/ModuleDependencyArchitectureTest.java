@@ -11,6 +11,7 @@ import com.tngtech.archunit.core.domain.JavaAccess;
 import com.tngtech.archunit.core.domain.JavaCall;
 import com.tngtech.archunit.core.domain.JavaClass;
 import com.tngtech.archunit.core.domain.JavaClasses;
+import com.tngtech.archunit.core.domain.properties.HasName;
 import com.tngtech.archunit.core.domain.properties.HasOwner;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
 import com.tngtech.archunit.core.importer.ImportOption;
@@ -111,6 +112,15 @@ class ModuleDependencyArchitectureTest {
                     OutboundDispatchService.class, MessagingProvider.class))
             .because("issue 139: a webhook only reports delivery; it can never create, approve or send a message");
 
+    private static final ArchRule PROVIDER_HEALTH_NEVER_SENDS = noClasses().that()
+            .haveSimpleNameContaining("ProviderHealth").or().haveSimpleNameContaining("ReachabilityProbe")
+            .should().dependOnClassesThat().areAssignableTo(MessagingProvider.class)
+            .orShould().callMethodWhere(JavaCall.Predicates.target(HasName.Predicates.name("post"))
+                    .and(JavaCall.Predicates.target(HasOwner.Predicates.With.owner(
+                            JavaClass.Predicates.simpleName("GraphApiHttp")))))
+            .because("ADR 0038: the health gate, its store and the recovery probe only read; no code path of the "
+                    + "health feature reaches the send port or posts to the provider");
+
     private static final ArchRule RATE_LIMIT_PRIMITIVES_STAY_NEUTRAL = noClasses().that()
             .resideInAPackage(ROOT + ".ratelimit..")
             .should().dependOnClassesThat(
@@ -192,6 +202,23 @@ class ModuleDependencyArchitectureTest {
     @Test
     void membershipsAreWrittenOnlyByKnownUseCases() {
         MEMBERSHIPS_ARE_WRITTEN_ONLY_BY_KNOWN_USE_CASES.check(production);
+    }
+
+    @Test
+    void providerHealthNeverReachesTheSendPortOrPostsToTheProvider() {
+        PROVIDER_HEALTH_NEVER_SENDS.check(production);
+    }
+
+    /** Negative proof (ADR 0038): the send adapter itself, which does post, is reported once the rule looks at it. */
+    @Test
+    void aClassThatPostsToTheProviderFailsTheProviderHealthRule() {
+        ArchRule sameRuleOverTheSendAdapter = noClasses().that().haveSimpleName("GraphApiMessagingProvider")
+                .should().dependOnClassesThat().areAssignableTo(MessagingProvider.class)
+                .orShould().callMethodWhere(JavaCall.Predicates.target(HasName.Predicates.name("post"))
+                        .and(JavaCall.Predicates.target(HasOwner.Predicates.With.owner(
+                                JavaClass.Predicates.simpleName("GraphApiHttp")))));
+
+        assertThat(sameRuleOverTheSendAdapter.evaluate(production).hasViolation()).isTrue();
     }
 
     @Test

@@ -4,7 +4,11 @@ package io.github.stevdrey.dokene.tenant.security;
 
 import io.github.stevdrey.dokene.messaging.application.MessagingProvider;
 import io.github.stevdrey.dokene.messaging.application.OutboundSendCommand;
+import io.github.stevdrey.dokene.messaging.application.ProviderHealthGate;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.SenderRevision;
+import io.github.stevdrey.dokene.messaging.domain.MessagingProviderKey;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSendResult;
+import io.github.stevdrey.dokene.tenant.application.TenantContext;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.Supplier;
@@ -45,6 +49,26 @@ final class ScriptedMessagingProvider implements MessagingProvider {
         @Primary
         ScriptedMessagingProvider scriptedMessagingProvider() {
             return new ScriptedMessagingProvider();
+        }
+
+        /**
+         * A scripted provider reports no health signals and has no Graph endpoint to probe, and the one health row is
+         * shared by every test class on the database. These suites test other parts of the send flow, so their gate
+         * is always open. The real gate runs in ApprovedSendJourneyIntegrationTest.
+         */
+        @Bean
+        @Primary
+        ProviderHealthGate openProviderHealthGate() {
+            return new ProviderHealthGate() {
+                @Override
+                public Admission admit(MessagingProviderKey provider, Pass pass) {
+                    return Admission.ALLOW;
+                }
+
+                @Override
+                public void probe(MessagingProviderKey provider, TenantContext member, SenderRevision sender) {
+                }
+            };
         }
     }
 }

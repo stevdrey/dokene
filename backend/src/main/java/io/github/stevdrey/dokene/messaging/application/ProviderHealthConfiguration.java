@@ -4,7 +4,10 @@ package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.messaging.domain.MessagingProviderKey;
 import io.github.stevdrey.dokene.messaging.domain.ProviderHealthPolicy;
+import io.github.stevdrey.dokene.messaging.domain.ProviderHealthPolicy.RefusalReason;
+import io.github.stevdrey.dokene.messaging.domain.ProviderHealthSettings.Mode;
 import io.github.stevdrey.dokene.messaging.domain.ProviderHealthState;
+import io.github.stevdrey.dokene.messaging.domain.ProviderProbeResult;
 import io.github.stevdrey.dokene.messaging.domain.ProviderSignalKind;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.springframework.beans.factory.ObjectProvider;
@@ -38,6 +41,18 @@ class ProviderHealthConfiguration {
 
             @Override
             public void storeFailure(MessagingProviderKey provider, StoreOperation operation) {
+            }
+
+            @Override
+            public void decision(MessagingProviderKey provider, Mode mode, GateDecision decision) {
+            }
+
+            @Override
+            public void refusal(MessagingProviderKey provider, RefusalReason reason) {
+            }
+
+            @Override
+            public void probe(MessagingProviderKey provider, ProviderProbeResult result) {
             }
         };
     }

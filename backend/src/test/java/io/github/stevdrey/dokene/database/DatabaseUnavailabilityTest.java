@@ -85,6 +85,11 @@ class DatabaseUnavailabilityTest {
     }
 
     @Test
+    void givesACallerTheSameWholeSecondDelayItsOwnAnswerCarries() {
+        assertThat(unavailability.retryAfter()).isEqualTo(Duration.ofSeconds(5));
+    }
+
+    @Test
     void logsOnlyTheInnermostConnectionFailureClass(CapturedOutput output) {
         unavailability.log(new CannotCreateTransactionException("Could not open JPA EntityManager for transaction",
                 new JDBCConnectionException("Unable to acquire JDBC Connection",

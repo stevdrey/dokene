@@ -123,8 +123,9 @@ dokene:
     send-rate-per-tenant-per-minute: ${DOKENE_MESSAGING_SEND_RATE_PER_TENANT_PER_MINUTE:30}
     send-timeout: ${DOKENE_MESSAGING_SEND_TIMEOUT:10s}
     provider-health:
-      # Provider health tracking (ADR 0038). mode is enforce or observe; observe tracks the state and never refuses
-      # or probes a send. Values outside their bounds, or a probe-lease not longer than the Graph timeout, stop startup.
+      # Provider health gate (ADR 0038). mode is enforce or observe. enforce refuses a send with 503 PROVIDER_UNAVAILABLE
+      # while the provider is unavailable and recovers through one read only probe; observe tracks the state and never
+      # refuses or probes a send. Values outside their bounds, or a probe-lease not longer than the Graph timeout, stop startup.
       mode: ${DOKENE_MESSAGING_PROVIDER_HEALTH_MODE:enforce}
       outage-threshold: ${DOKENE_MESSAGING_PROVIDER_HEALTH_OUTAGE_THRESHOLD:3}
       outage-window: ${DOKENE_MESSAGING_PROVIDER_HEALTH_OUTAGE_WINDOW:2m}

@@ -1,11 +1,15 @@
 // ABOUTME: Manual dispatch (issue 138): claim (T6, T7, the attempt row) in one transaction, call the provider outside
 // ABOUTME: any transaction, then record the outcome (T8 to T11) in a second one. Never resends on its own.
+// ABOUTME: The provider health gate (ADR 0038) is the last policy step of the claim and may refuse or probe first.
 package io.github.stevdrey.dokene.messaging.application;
 
 import io.github.stevdrey.dokene.customer.application.CustomerRepository;
 import io.github.stevdrey.dokene.customer.domain.Customer;
 import io.github.stevdrey.dokene.customer.domain.CustomerId;
 import io.github.stevdrey.dokene.followup.application.FollowUpTouchRecorder;
+import io.github.stevdrey.dokene.messaging.application.ProviderHealthGate.Admission;
+import io.github.stevdrey.dokene.messaging.application.ProviderHealthGate.Pass;
+import io.github.stevdrey.dokene.messaging.domain.ApprovalFingerprint.SenderRevision;
 import io.github.stevdrey.dokene.messaging.domain.MessageEventType;
 import io.github.stevdrey.dokene.messaging.domain.MessageOperation;
 import io.github.stevdrey.dokene.messaging.domain.MessagingProviderKey;
@@ -36,6 +40,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /**
@@ -59,6 +64,7 @@ public class OutboundDispatchService {
     private final TenantContextProvider contexts;
     private final MessageAuditPort audit;
     private final ProviderHealthRecorder health;
+    private final ProviderHealthGate healthGate;
     private final TransactionTemplate transactions;
     private final Clock clock;
 
@@ -66,7 +72,7 @@ public class OutboundDispatchService {
             CustomerRepository customers, SendPolicyGate gate, MessagingProvider provider,
             FollowUpTouchRecorder touches, MessageCommandSupport support, CurrentMembershipAuthorizer members,
             TenantContextProvider contexts, MessageAuditPort audit, ProviderHealthRecorder health,
-            PlatformTransactionManager transactionManager, Clock clock) {
+            ProviderHealthGate healthGate, PlatformTransactionManager transactionManager, Clock clock) {
         this.messages = Objects.requireNonNull(messages);
         this.idempotency = Objects.requireNonNull(idempotency);
         this.customers = Objects.requireNonNull(customers);
@@ -78,6 +84,7 @@ public class OutboundDispatchService {
         this.contexts = Objects.requireNonNull(contexts);
         this.audit = Objects.requireNonNull(audit);
         this.health = Objects.requireNonNull(health);
+        this.healthGate = Objects.requireNonNull(healthGate);
         this.transactions = new TransactionTemplate(Objects.requireNonNull(transactionManager));
         this.clock = Objects.requireNonNull(clock);
     }
@@ -86,6 +93,10 @@ public class OutboundDispatchService {
      * T6 to T11 for one operator request. A deterministic refusal happens before anything is written and before any
      * provider call. Once the attempt row is committed, every provider answer is a {@code created} result carrying
      * the message's new state (ADR 0023 §4.4); a replay of the same key returns the current state instead.
+     *
+     * <p>When the provider's health is unknown or its cool down is over, the first pass through the policy writes
+     * nothing and rolls back, the read only probe runs with no lock held, and a passed probe lets this same request
+     * run the whole policy once more (ADR 0038). A request never probes twice.
      */
     public CommandResult send(SendMessageCommand command) {
         Objects.requireNonNull(command, "Command is required");
@@ -97,11 +108,22 @@ public class OutboundDispatchService {
         support.require(TenantPermission.MESSAGE_SEND);
         TenantContext context = support.currentContext();
 
-        Claim claim = transactions.execute(status -> claim(context, command.messageId(), ifMatch, key));
+        Claim claim = transactions.execute(
+                status -> claim(context, command.messageId(), ifMatch, key, Pass.FIRST, status));
+        if (claim instanceof Claim.NeedsProbe(TenantContext member, SenderRevision sender)) {
+            healthGate.probe(MessagingProviderKey.META_WHATSAPP, member, sender);
+            // From the start again: locks, every policy step, the rate check and the health check. The message, the
+            // approval or the budget may have changed while the probe ran.
+            claim = transactions.execute(
+                    status -> claim(context, command.messageId(), ifMatch, key, Pass.AFTER_PROBE, status));
+        }
         if (claim instanceof Claim.Replayed(CommandResult replayed)) {
             return replayed;
         }
-        Claim.Started started = (Claim.Started) claim;
+        if (!(claim instanceof Claim.Started started)) {
+            // The gate refuses a second probe itself, so this is a broken gate and nothing was claimed.
+            throw new IllegalStateException("The provider health gate asked for a second probe");
+        }
         ProviderCall call = call(started);
         try {
             CommandResult recorded = transactions.execute(status -> record(started, call.result()));
@@ -121,8 +143,15 @@ public class OutboundDispatchService {
         }
     }
 
-    private sealed interface Claim permits Claim.Replayed, Claim.Started {
+    private sealed interface Claim permits Claim.Replayed, Claim.Started, Claim.NeedsProbe {
         record Replayed(CommandResult result) implements Claim {
+        }
+
+        /**
+         * Nothing was claimed and the transaction rolled back, so no send lock is held. {@code member} and
+         * {@code sender} are what the policy just read; the probe uses that tenant's credential for that sender.
+         */
+        record NeedsProbe(TenantContext member, SenderRevision sender) implements Claim {
         }
 
         /** {@code member} is the membership as re-read under the lock; it authorized and is attributed the send. */
@@ -160,7 +189,8 @@ public class OutboundDispatchService {
     }
 
     /** One transaction: idempotency, customer then message lock, the full send policy, T6, T7 and the attempt row. */
-    private Claim claim(TenantContext context, UUID messageId, long ifMatch, String key) {
+    private Claim claim(TenantContext context, UUID messageId, long ifMatch, String key, Pass pass,
+            TransactionStatus transaction) {
         UUID tenantId = context.tenantId().value();
         String fingerprint = RequestFingerprint.of(MessageOperation.SEND,
                 List.of(messageId.toString(), Long.toString(ifMatch)));
@@ -193,6 +223,12 @@ public class OutboundDispatchService {
         messages.acquireSendBudgetLock(tenantId);
         Instant now = clock.instant();
         gate.requireRateBudget(tenantId, now);
+        // The last policy step, before the first write (ADR 0038): a refusal raises and rolls back, so the message
+        // keeps its state, its version and its attempt count, and the tenant's send rate counts nothing.
+        if (healthGate.admit(MessagingProviderKey.META_WHATSAPP, pass) == Admission.PROBE) {
+            transaction.setRollbackOnly();
+            return new Claim.NeedsProbe(member, send.expectedSender());
+        }
         Transition requested = message.requestSend(member.membershipId().value(), now);
         OutboundMessage queued = messages.update(message, requested.next());
         messages.appendEvent(requested.event());

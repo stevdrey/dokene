@@ -85,7 +85,9 @@ const ERROR_CODE_SENTENCES = {
   FORBIDDEN: 'No tienes permiso para esta acción.',
   NOT_FOUND: 'Este mensaje ya no está disponible.',
   INVALID_INPUT: 'Revisa los datos e intenta de nuevo.',
-  PROVIDER_UNAVAILABLE: 'El proveedor de mensajería no está disponible.',
+  // The send was refused before it was attempted (ADR 0038), so the message keeps its approval and can be sent again.
+  PROVIDER_UNAVAILABLE:
+    'WhatsApp no está disponible en este momento. Tu mensaje no se envió y sigue aprobado. Inténtalo de nuevo en unos minutos.',
   OUTBOUND_DISABLED_GLOBALLY: 'Los envíos están desactivados en la plataforma.',
   OUTBOUND_DISABLED_FOR_TENANT: 'Los envíos están desactivados para este espacio de trabajo.',
   INTEGRATION_DISABLED: 'La integración de mensajería está desactivada.',

@@ -154,7 +154,16 @@ Send policy bounds:
 | `dokene.messaging.send-timeout` | 10s | Past the deadline the provider call is interrupted and its outcome is unknown |
 | `dokene.messaging.outbound.enabled` | false | `OUTBOUND_DISABLED_GLOBALLY` for every tenant while off; bound once at startup, so a change needs a restart (spec 0008) |
 
-Provider health tracking ([ADR 0038](../adr/0038-provider-health-gate.md), issue 471). Each finished Graph send exchange gives one signal (`SUCCESS`, `THROTTLED` or `OUTAGE`), recorded after the send's own outcome is committed into the one shared row `dokene.provider_health`. The row holds a state (`HEALTHY`, `DEGRADED`, `UNAVAILABLE`, `UNKNOWN`), counters and times, and no tenant or message data. Sends are not refused or probed yet; that arrives with issue 472. Until then the default `enforce` mode leaves the state at `UNKNOWN`, and `observe` lets send results move it.
+Provider health tracking ([ADR 0038](../adr/0038-provider-health-gate.md), issue 471). Each finished Graph send exchange gives one signal (`SUCCESS`, `THROTTLED` or `OUTAGE`), recorded after the send's own outcome is committed into the one shared row `dokene.provider_health`. The row holds a state (`HEALTHY`, `DEGRADED`, `UNAVAILABLE`, `UNKNOWN`), counters and times, and no tenant or message data.
+
+The health gate (issue 472) is the last step of the send policy, after the tenant rate check and before the claim. In the default `enforce` mode:
+
+- `HEALTHY` or `DEGRADED` with a recent signal: the send goes on as before.
+- `UNAVAILABLE` inside its cool down, or a probe in flight: `503 PROVIDER_UNAVAILABLE` with `Retry-After`. Nothing is claimed, so the message stays `APPROVED` with the same version, no attempt is recorded, the idempotency key is not used up and the tenant send rate counts nothing. The same request can be sent again after the delay.
+- `UNKNOWN`, or `UNAVAILABLE` with the cool down over: the request first runs one read only probe (a `GET` of the tenant's own phone number list, bounded by `dokene.integration.whatsapp.graph.timeout`) with no send lock held. HTTP 200 or any 4xx passes it, and 429 passes it as `DEGRADED`. A 3xx or 5xx answer, a timeout or a connection failure fails it and starts a longer cool down. A passed probe lets that same request run the whole send policy once more and send. Only one probe runs at a time across instances, under a lease stored in the row.
+- A health row that cannot be read or written refuses the send with the same `503` and the database outage `Retry-After`.
+
+A send that an earlier policy step refuses keeps its own code and never probes. A message whose outcome is unknown stays `SENDING` through every health state; the gate never sends it again. In `observe` mode no send is refused or probed, send results move the state on their own, and `dokene.messaging.provider.health.decisions` with `mode=observe` shows what `enforce` would have decided. An automatic sender must treat `503 PROVIDER_UNAVAILABLE` with `Retry-After` from the send route as "not attempted, try later", never as a failed attempt.
 
 | Property | Default | Meaning |
 | --- | --- | --- |
@@ -167,7 +176,7 @@ Provider health tracking ([ADR 0038](../adr/0038-provider-health-gate.md), issue
 | `dokene.messaging.provider-health.cool-down-max` | 5m | Cap of the cool down (up to 1h). |
 | `dokene.messaging.provider-health.probe-lease` | 10s | How long one probe holds the lease (at most 1m, and longer than `dokene.integration.whatsapp.graph.timeout`). |
 
-A value outside its bounds stops startup. Meters: `dokene.messaging.provider.health.state` (gauge, 1 for the current state), `.signals`, `.transitions` and `.store.failures`, tagged only with the provider key and closed enum values.
+A value outside its bounds stops startup. Meters: `dokene.messaging.provider.health.state` (gauge, 1 for the current state), `.signals`, `.transitions`, `.store.failures` (`operation`: `READ`, `RECORD`, `LEASE`, `RESULT`), `.decisions` (`mode`, `decision`: `ALLOW`, `REFUSE`, `PROBE`), `.refusals` (`reason`: `COOL_DOWN`, `PROBE_IN_FLIGHT`, `PROBE_FAILED`, `NO_CREDENTIAL`, `REPROBE`, `STORE_UNAVAILABLE`) and `.probes` (`result`: `PASSED`, `PASSED_THROTTLED`, `FAILED`, `NO_RESULT`), tagged only with the provider key and closed enum values.
 
 A disable or revocation that commits after the claim cannot retract a call already in flight; it stops later sends only. Application duplicate suppression is not proof of exactly-once delivery by the provider. Live sending is off by default: the global switch `dokene.messaging.outbound.enabled` and each tenant's switch must both be on (see [Disabling and re enabling outbound sending](#disabling-and-re-enabling-outbound-sending)); the template schema check (#218) is in place.
 
