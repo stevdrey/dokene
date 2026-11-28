@@ -40,3 +40,7 @@ The work ledger (A2) records claims, retries and exhaustion but leaves three dec
 - The backoff uses the absolute attempt number, so a requeued item starts near the cap. Requeues are rare, operator-driven and bounded.
 - Counts by state, oldest due age and metrics remain with B3 ([#462](https://github.com/stevdrey/dokene/issues/462)), and the dashboard remains with B4 ([#464](https://github.com/stevdrey/dokene/issues/464)). The recovery list is a bounded operator read, not a metric.
 - A release that does not know the two new audit event types cannot read a page that contains them (ADR 0006). Rollback is safe before the first recovery decision; after it, only roll forward.
+
+## Composed by ADR 0040
+
+[ADR 0040](0040-recurring-follow-up-scheduler.md) runs `FollowUpWorkProcessor.process` from a recurring scheduler that is disabled by default. It adds a budget admission port in front of each batch and supplies the Phase 4 handler, which only records the cycle and never calls `beginEffect`. Provider health still reads `UNKNOWN` until an adapter maps ADR 0038 onto `FollowUpProviderHealth`, and the scheduler stays disabled until that adapter exists.

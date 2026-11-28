@@ -148,6 +148,25 @@ dokene:
       claim-timeout: ${DOKENE_MESSAGING_RECOVERY_CLAIM_TIMEOUT:10m}
       batch-size: ${DOKENE_MESSAGING_RECOVERY_BATCH_SIZE:50}
       interval: ${DOKENE_MESSAGING_RECOVERY_INTERVAL:1m}
+  follow-up:
+    scheduler:
+      # Recurring candidate generation and work processing (issue 463, ADR 0040). Off by default; read once at startup,
+      # so changing a switch needs a restart. It never approves, creates or sends a message. Enable it only once the
+      # provider health (ADR 0038) and budget admission (issue 459) adapters are wired and the operator approved it.
+      enabled: ${DOKENE_FOLLOW_UP_SCHEDULER_ENABLED:false}
+      # Kill switches beneath the master switch: either stage can be stopped on its own; with both off, ticks list no
+      # tenant. In Phase 4, processing completes each due cycle for good (ADR 0040 "Enabling"): a later effectful
+      # handler never acts on it, so keep processing off until that is intended.
+      generation-enabled: ${DOKENE_FOLLOW_UP_SCHEDULER_GENERATION_ENABLED:true}
+      processing-enabled: ${DOKENE_FOLLOW_UP_SCHEDULER_PROCESSING_ENABLED:true}
+      interval: ${DOKENE_FOLLOW_UP_SCHEDULER_INTERVAL:1m}
+      tenants-per-tick: ${DOKENE_FOLLOW_UP_SCHEDULER_TENANTS_PER_TICK:50}
+      # At most dokene.follow-up.work.batch-size (default 20); startup fails otherwise while processing is enabled.
+      work-batch-size: ${DOKENE_FOLLOW_UP_SCHEDULER_WORK_BATCH_SIZE:10}
+      max-tick-duration: ${DOKENE_FOLLOW_UP_SCHEDULER_MAX_TICK_DURATION:30s}
+      shutdown-timeout: ${DOKENE_FOLLOW_UP_SCHEDULER_SHUTDOWN_TIMEOUT:30s}
+      # A label such as the pod name, recorded on claims; never tenant or personal data. Random when empty.
+      worker-id: ${DOKENE_FOLLOW_UP_SCHEDULER_WORKER_ID:}
   template:
     # How long provider approval evidence stays usable before an explicit refresh (ADR 0025).
     approval-max-age: ${DOKENE_TEMPLATE_APPROVAL_MAX_AGE:24h}
