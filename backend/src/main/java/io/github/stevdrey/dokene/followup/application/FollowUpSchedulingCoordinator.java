@@ -13,6 +13,7 @@ import java.util.Optional;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import org.slf4j.Logger;
@@ -66,6 +67,8 @@ public class FollowUpSchedulingCoordinator implements SmartLifecycle {
     private final AtomicReference<TenantId> cursor = new AtomicReference<>();
     private volatile boolean running;
     private volatile boolean stopping;
+    /** Counts stops, so a tick that outlived a timed-out stop never resumes after a later start. */
+    private final AtomicLong stops = new AtomicLong();
     private ScheduledExecutorService ticks;
 
     public FollowUpSchedulingCoordinator(FollowUpSchedulingTenants tenants, FollowUpCandidateGenerator generator,
@@ -103,7 +106,7 @@ public class FollowUpSchedulingCoordinator implements SmartLifecycle {
         public enum Outcome {
             /** The tick visited its page of tenants (possibly none). */
             RAN,
-            /** The master switch is off: nothing was read or written. */
+            /** The master switch, or both stage switches, are off: nothing was read or written. */
             DISABLED,
             /** The scheduler is stopping or stopped: nothing was read or written. */
             STOPPED,
@@ -120,13 +123,19 @@ public class FollowUpSchedulingCoordinator implements SmartLifecycle {
 
     /**
      * A tick on the scheduler's own thread. A throwable escaping it would silently cancel every later tick, so only a
-     * virtual machine error does; the processor has already recorded an unknown outcome for a handler's error.
+     * virtual machine error other than a stack overflow does, and only after it is logged; the processor has already
+     * recorded an unknown outcome for a handler's error.
      */
     void scheduledTick() {
         try {
             tick();
         } catch (VirtualMachineError fatal) {
-            throw fatal;
+            if (!(fatal instanceof StackOverflowError)) {
+                log.error("Follow-up scheduler stopped by a virtual machine error; no later tick runs until restart; "
+                        + "exceptionClass={}", fatal.getClass().getName());
+                throw fatal;
+            }
+            log.error("Follow-up scheduler tick failed; exceptionClass={}", fatal.getClass().getName());
         } catch (RuntimeException | Error exception) {
             log.error("Follow-up scheduler tick failed; exceptionClass={}", exception.getClass().getName());
         }
@@ -138,12 +147,14 @@ public class FollowUpSchedulingCoordinator implements SmartLifecycle {
      * @throws IllegalStateException when called inside a tenant scope
      */
     public TickSummary tick() {
-        if (!properties.enabled()) {
+        if (!properties.generationActive() && !properties.processingActive()) {
+            // Neither stage would do anything, so no tenant is listed and no maintenance capability is signed.
             return TickSummary.idle(TickSummary.Outcome.DISABLED);
         }
         if (contexts.currentTenantId().isPresent()) {
             throw new IllegalStateException("The follow-up scheduler must start without a tenant scope");
         }
+        long stopsAtStart = stops.get();
         if (stopping) {
             return TickSummary.idle(TickSummary.Outcome.STOPPED);
         }
@@ -152,13 +163,14 @@ public class FollowUpSchedulingCoordinator implements SmartLifecycle {
             return TickSummary.idle(TickSummary.Outcome.OVERLAPPING);
         }
         try {
-            return stopping ? TickSummary.idle(TickSummary.Outcome.STOPPED) : runTick();
+            return stopping || stops.get() != stopsAtStart ? TickSummary.idle(TickSummary.Outcome.STOPPED)
+                    : runTick(stopsAtStart);
         } finally {
             tickLock.unlock();
         }
     }
 
-    private TickSummary runTick() {
+    private TickSummary runTick(long stopsAtStart) {
         Instant deadline = clock.instant().plus(properties.maxTickDuration());
         List<TenantId> page;
         try {
@@ -171,7 +183,7 @@ public class FollowUpSchedulingCoordinator implements SmartLifecycle {
         Tally tally = new Tally();
         boolean cutShort = false;
         for (TenantId tenantId : page) {
-            if (stopping || !clock.instant().isBefore(deadline)) {
+            if (stopping || stops.get() != stopsAtStart || !clock.instant().isBefore(deadline)) {
                 cutShort = true;
                 break;
             }
@@ -280,6 +292,7 @@ public class FollowUpSchedulingCoordinator implements SmartLifecycle {
     @Override
     public synchronized void stop() {
         stopping = true;
+        stops.incrementAndGet();
         if (ticks != null) {
             ticks.shutdown();
             ticks = null;

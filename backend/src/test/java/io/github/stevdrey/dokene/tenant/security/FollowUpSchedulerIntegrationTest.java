@@ -8,6 +8,9 @@ import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegratio
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedMembership;
 import static io.github.stevdrey.dokene.tenant.security.TenantSecurityIntegrationFixture.seedTenant;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import io.github.stevdrey.dokene.audit.application.AuditExecutionContext;
 import io.github.stevdrey.dokene.audit.testsupport.MutableClock;
@@ -18,6 +21,7 @@ import io.github.stevdrey.dokene.customer.domain.ConsentStatus;
 import io.github.stevdrey.dokene.customer.domain.ContactChannel;
 import io.github.stevdrey.dokene.customer.domain.ContactIntentSource;
 import io.github.stevdrey.dokene.customer.domain.Customer;
+import io.github.stevdrey.dokene.followup.application.FollowUpCandidateGeneration;
 import io.github.stevdrey.dokene.followup.application.FollowUpCandidateGenerator;
 import io.github.stevdrey.dokene.followup.application.FollowUpCandidateProperties;
 import io.github.stevdrey.dokene.followup.application.FollowUpCandidateRepository;
@@ -286,16 +290,20 @@ class FollowUpSchedulerIntegrationTest {
             listed.addAll(page);
             return page;
         };
-        // Both stages off: each tick still rotates through the real V51 finder, cursor and limit included, but touches
-        // no tenant, so the other tenants of the shared database are left alone.
+        // Generation through a scan that records nothing and processing off: each tick still rotates through the real
+        // V51 finder, cursor and limit included, but touches no tenant, so the shared database is left alone.
+        FollowUpCandidateGenerator scanOnly = mock(FollowUpCandidateGenerator.class);
+        when(scanOnly.generate(any())).thenAnswer(invocation -> invocation.getArgument(0) == null ? null
+                : new FollowUpCandidateGeneration(invocation.getArgument(0), now,
+                        FollowUpCandidateGeneration.Outcome.SCANNED, List.of(), false));
         Clock clock = Clock.fixed(now, ZoneOffset.UTC);
         FollowUpWorkLedger ledger = ledger(clock);
-        FollowUpSchedulingCoordinator coordinator = new FollowUpSchedulingCoordinator(recording, generator(clock),
+        FollowUpSchedulingCoordinator coordinator = new FollowUpSchedulingCoordinator(recording, scanOnly,
                 ledger, new FollowUpWorkProcessor(ledger, retries,
                         new StaticListableBeanFactory().getBeanProvider(FollowUpProviderHealth.class), clock),
                 new RecordOnlyFollowUpWorkHandler(),
                 new StaticListableBeanFactory().getBeanProvider(FollowUpWorkAdmission.class), contexts,
-                new FollowUpSchedulerProperties(true, false, false, null, 2, 5, null, null, "rotation"),
+                new FollowUpSchedulerProperties(true, true, false, null, 2, 5, null, null, "rotation"),
                 workProperties(), clock);
 
         int visited = 0;

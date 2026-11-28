@@ -104,11 +104,14 @@ class FollowUpSchedulingCoordinatorTest {
     }
 
     @Test
-    void bothKillSwitchesOffStillRotatesButDoesNoWork() {
+    void bothKillSwitchesOffListsNoTenantAndDoesNoWork() {
         tenants(2);
 
-        coordinator(properties(true, false, false, 10, 5), null).tick();
+        assertThat(coordinator(properties(true, false, false, 10, 5), null).tick())
+                .isEqualTo(TickSummary.idle(Outcome.DISABLED));
 
+        // Neither stage would run, so the cross-tenant finder is not even asked.
+        assertThat(pagesAfter).isEmpty();
         verifyNoInteractions(generator, ledger, processor);
     }
 
@@ -358,6 +361,37 @@ class FollowUpSchedulingCoordinatorTest {
     }
 
     @Test
+    void aRestartAfterATimedOutStopNeverRevivesTheOldTick() throws Exception {
+        tenants(2);
+        CountDownLatch inside = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        when(generator.generate(any())).thenAnswer(invocation -> {
+            inside.countDown();
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue();
+            return new FollowUpCandidateGeneration(invocation.getArgument(0), NOW,
+                    FollowUpCandidateGeneration.Outcome.SCANNED, List.of(), false);
+        });
+        FollowUpSchedulingCoordinator coordinator = coordinator(new FollowUpSchedulerProperties(true, true, true,
+                null, 10, 5, null, Duration.ofMillis(50), null), null);
+        coordinator.start();
+
+        try (var executor = Executors.newSingleThreadExecutor()) {
+            Future<TickSummary> tick = executor.submit(coordinator::tick);
+            assertThat(inside.await(10, TimeUnit.SECONDS)).isTrue();
+            coordinator.stop();
+            // Restarted while the old tick is still in its first tenant.
+            coordinator.start();
+            release.countDown();
+
+            TickSummary summary = tick.get(10, TimeUnit.SECONDS);
+            assertThat(summary.tenantsVisited()).isEqualTo(1);
+            assertThat(summary.cutShort()).isTrue();
+        } finally {
+            coordinator.stop();
+        }
+    }
+
+    @Test
     void aRestartedSchedulerTicksAgainFromTheFirstTenant() {
         List<TenantId> all = tenants(3);
         FollowUpSchedulingCoordinator coordinator = coordinator(properties(true, true, true, 2, 5), null);
@@ -404,6 +438,24 @@ class FollowUpSchedulingCoordinatorTest {
         coordinator.scheduledTick();
         coordinator.scheduledTick();
         verifyNoInteractions(generator, ledger, processor);
+    }
+
+    @Test
+    void aScheduledTickSurvivesAStackOverflowButLetsOtherVirtualMachineErrorsThrough() {
+        FollowUpSchedulingTenants overflowing = (after, limit) -> {
+            throw new StackOverflowError();
+        };
+        FollowUpSchedulingCoordinator survivor = new FollowUpSchedulingCoordinator(overflowing, generator, ledger,
+                processor, handler, admissions(null), contexts, properties(true, true, true, 10, 5), WORK, clock);
+        survivor.scheduledTick();
+        survivor.scheduledTick();
+
+        FollowUpSchedulingTenants exhausted = (after, limit) -> {
+            throw new OutOfMemoryError();
+        };
+        FollowUpSchedulingCoordinator fatal = new FollowUpSchedulingCoordinator(exhausted, generator, ledger,
+                processor, handler, admissions(null), contexts, properties(true, true, true, 10, 5), WORK, clock);
+        assertThatThrownBy(fatal::scheduledTick).isInstanceOf(OutOfMemoryError.class);
     }
 
 

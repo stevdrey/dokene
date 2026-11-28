@@ -154,7 +154,9 @@ dokene:
       # so changing a switch needs a restart. It never approves, creates or sends a message. Enable it only once the
       # provider health (ADR 0038) and budget admission (issue 459) adapters are wired and the operator approved it.
       enabled: ${DOKENE_FOLLOW_UP_SCHEDULER_ENABLED:false}
-      # Kill switches beneath the master switch: either stage can be stopped on its own.
+      # Kill switches beneath the master switch: either stage can be stopped on its own; with both off, ticks list no
+      # tenant. In Phase 4, processing completes each due cycle for good (ADR 0040 "Enabling"): a later effectful
+      # handler never acts on it, so keep processing off until that is intended.
       generation-enabled: ${DOKENE_FOLLOW_UP_SCHEDULER_GENERATION_ENABLED:true}
       processing-enabled: ${DOKENE_FOLLOW_UP_SCHEDULER_PROCESSING_ENABLED:true}
       interval: ${DOKENE_FOLLOW_UP_SCHEDULER_INTERVAL:1m}
