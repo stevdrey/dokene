@@ -217,6 +217,8 @@ Rules:
 - make retries explicit;
 - preserve a durable state machine for external messages.
 
+The recurring follow-up scheduler follows these rules. It is disabled by default. Each instance visits a bounded, rotating page of active tenants per tick. Candidates, claims and retries are coordinated in PostgreSQL, so it needs no leader election ([ADR 0040](../adr/0040-recurring-follow-up-scheduler.md)).
+
 ## Deployment evolution
 
 Early deployment may use Docker Compose or a simple platform deployment with:
