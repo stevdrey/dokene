@@ -62,14 +62,16 @@ class JdbcAdmissionStore implements AdmissionStore {
         });
     }
 
-    /** A rollback that fails says more about the connection than the failure that led to it, so it is the one raised. */
-    private static void undo(Connection connection, Savepoint savepoint, Exception failure) throws SQLException {
+    /**
+     * The first failure is the one raised. When the connection is lost the rollback fails as well, and the pool's
+     * "connection is closed" error carries no SQLSTATE, so raising it would hide the outage from the caller.
+     */
+    private static void undo(Connection connection, Savepoint savepoint, Exception failure) {
         try {
             connection.rollback(savepoint);
             connection.releaseSavepoint(savepoint);
         } catch (SQLException rollbackFailure) {
-            rollbackFailure.addSuppressed(failure);
-            throw rollbackFailure;
+            failure.addSuppressed(rollbackFailure);
         }
     }
 

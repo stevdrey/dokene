@@ -22,6 +22,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -415,6 +416,47 @@ class AdmissionBudgetIntegrationTest {
         assertThat(platformRows()).isEmpty();
     }
 
+    /** covers: AC-10. The connection dies after the switch check, so the first budget statement meets a dead session. */
+    @Test
+    void aConnectionLostInTheMiddleOfASendAdmissionIsRaisedAsADatabaseOutageAndNotDenied() throws SQLException {
+        sendSwitch = asked -> {
+            terminateBackend(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
+            return true;
+        };
+        AdmissionBudget budget = budget(settings(30, 500, 120, 25));
+
+        AtomicReference<AdmissionDecision> answered = new AtomicReference<>();
+        Throwable raised = raisedInsideATransaction(() -> {
+            answered.set(budget.admitSend(tenantA));
+            return answered.get();
+        });
+
+        assertThat(answered.get()).as("a lost connection must be raised, never answered").isNull();
+        assertThat(raised).isNotNull();
+        assertThat(database.isCause(raised)).isTrue();
+        assertThat(tenantRows(tenantA, "SEND")).isEmpty();
+        assertThat(platformRows()).isEmpty();
+        // The pool replaces the dead connection, and the budget locks died with the session.
+        sendSwitch = asked -> true;
+        assertThat(send(budget, tenantA)).isEqualTo(ADMITTED);
+    }
+
+    /** covers: AC-10. The connection is already gone when the admission opens its savepoint. */
+    @Test
+    void aConnectionLostBeforeACandidateAdmissionIsRaisedAsADatabaseOutageAndNotDenied() throws SQLException {
+        AdmissionBudget budget = budget(candidates(5));
+
+        Throwable raised = raisedInsideATransaction(() -> {
+            terminateBackend(jdbc.queryForObject("SELECT pg_backend_pid()", Integer.class));
+            return budget.admitCandidate(tenantA);
+        });
+
+        assertThat(raised).isNotNull();
+        assertThat(database.isCause(raised)).isTrue();
+        assertThat(tenantRows(tenantA, "CANDIDATE")).isEmpty();
+        assertThat(candidate(budget, tenantA)).isEqualTo(ADMITTED);
+    }
+
     @Test
     void anAdmissionDeletesItsTenantsDayOldRowsOfItsKindUpToTheBatch() throws SQLException {
         AdmissionProperties settings = new AdmissionProperties(null, new AdmissionProperties.Candidates(true, 200),
@@ -536,6 +578,39 @@ class AdmissionBudgetIntegrationTest {
             }
         });
         return contexts.callWithTenantId(tenant, transaction::get);
+    }
+
+    /** What the admission itself raised, read before the transaction ends on its dead connection. */
+    private Throwable raisedInsideATransaction(Supplier<AdmissionDecision> admission) {
+        AtomicReference<Throwable> raised = new AtomicReference<>();
+        try {
+            inTransaction(tenantA, status -> {
+                try {
+                    admission.get();
+                } catch (RuntimeException failure) {
+                    raised.set(failure);
+                    status.setRollbackOnly();
+                }
+                return null;
+            });
+        } catch (RuntimeException closing) {
+            // Ending a transaction on a dead connection can fail too. That is the caller's outage path, not the budget's.
+        }
+        return raised.get();
+    }
+
+    /** Ends one runtime session from another session of the same role, as a server side disconnect does. */
+    private static void terminateBackend(int pid) {
+        try (Connection killer = TenantSecurityIntegrationFixture.runtimeConnectionWithoutContext();
+                PreparedStatement terminate = killer.prepareStatement("SELECT pg_terminate_backend(?)")) {
+            terminate.setInt(1, pid);
+            try (ResultSet row = terminate.executeQuery()) {
+                row.next();
+                assertThat(row.getBoolean(1)).isTrue();
+            }
+        } catch (SQLException failure) {
+            throw new IllegalStateException(failure);
+        }
     }
 
     @FunctionalInterface
