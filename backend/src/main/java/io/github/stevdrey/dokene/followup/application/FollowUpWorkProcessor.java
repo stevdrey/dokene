@@ -127,6 +127,9 @@ public class FollowUpWorkProcessor {
                 }
                 throw fatal;
             }
+            // What the handler reported still says whether its dependency is down, even when it is recorded otherwise.
+            boolean reportedDependencyDown = result instanceof FollowUpWorkAttemptResult.Transient(var reported)
+                    && reported == FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE;
             if (lease.effectBegun && !(result instanceof FollowUpWorkAttemptResult.Completed
                     || result instanceof FollowUpWorkAttemptResult.OutcomeUnknown)) {
                 // A handler that began an external effect cannot report a failure without one: never retry it.
@@ -146,8 +149,7 @@ public class FollowUpWorkProcessor {
                 dependencyDown = true;
                 continue;
             }
-            dependencyDown = result instanceof FollowUpWorkAttemptResult.Transient(var failure)
-                    && failure == FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE;
+            dependencyDown = reportedDependencyDown;
         }
         RunSummary summary = new RunSummary(availability, claims.size(), tally.completed, tally.retryScheduled,
                 tally.exhausted, tally.recoveryRequired, tally.stale, tally.abandoned);

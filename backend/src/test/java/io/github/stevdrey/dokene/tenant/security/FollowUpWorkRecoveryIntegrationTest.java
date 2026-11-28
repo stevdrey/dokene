@@ -673,6 +673,49 @@ class FollowUpWorkRecoveryIntegrationTest {
     }
 
     @Test
+    void theLedgerNeverRetriesAMarkedAttemptThroughFail() throws Exception {
+        UUID item = oneItem();
+        FollowUpWorkClaim claim = ledger(now).claim(tenantA.id(), INSTANCE_A, 5).getFirst();
+        FollowUpWorkClaim marked = ledger(now).beginEffect(claim).orElseThrow();
+
+        // The public ledger API, not the processor: fail() matches nothing for a marked attempt.
+        assertThat(ledger(now).fail(marked, FollowUpWorkFailure.PROCESSING_ERROR, now.plus(INITIAL_BACKOFF)))
+                .isEqualTo(FollowUpWorkTransition.STALE);
+        assertThat(item(tenantA, item).state()).isEqualTo(FollowUpWorkState.CLAIMED);
+
+        assertNeverRetriedAndAwaitingResolution(item, now.plus(LEASE).plusSeconds(1));
+    }
+
+    @Test
+    void aMarkedClaimThatExhaustingLeavesBehindIsStillNeverTakenOver() throws Exception {
+        dueCustomer("Earlier marked customer", today.minusDays(2));
+        dueCustomer("Later marked customer", today.minusDays(1));
+        generate(tenantA);
+        assertThat(ledger(now).enqueue(tenantA.id())).isEqualTo(2);
+        for (FollowUpWorkClaim claim : ledger(now).claim(tenantA.id(), INSTANCE_A, 5)) {
+            assertThat(ledger(now).beginEffect(claim)).isPresent();
+        }
+
+        // With a batch of one, exhausting reaches only the first expired marked claim; the claim itself must still
+        // skip the second instead of taking it over.
+        Instant afterLease = now.plus(LEASE).plusSeconds(1);
+        FollowUpWorkLedger oneAtATime = new FollowUpWorkLedger(repository, contexts,
+                new FollowUpWorkProperties(1, LEASE, 3), transactionManager, Clock.fixed(afterLease, ZoneOffset.UTC));
+        assertThat(oneAtATime.claim(tenantA.id(), INSTANCE_B, 1)).isEmpty();
+        assertThat(contexts.callWithTenantId(tenantA.id(), () -> repository.findItems(tenantA.id(), 100)))
+                .extracting(FollowUpWorkItem::state)
+                .containsExactlyInAnyOrder(FollowUpWorkState.EXHAUSTED, FollowUpWorkState.CLAIMED);
+
+        // The next pass exhausts the second one as an unknown outcome too.
+        assertThat(oneAtATime.claim(tenantA.id(), INSTANCE_B, 1)).isEmpty();
+        assertThat(contexts.callWithTenantId(tenantA.id(), () -> repository.findItems(tenantA.id(), 100)))
+                .allSatisfy(work -> {
+                    assertThat(work.state()).isEqualTo(FollowUpWorkState.EXHAUSTED);
+                    assertThat(work.lastFailure()).contains(FollowUpWorkFailure.OUTCOME_UNKNOWN);
+                });
+    }
+
+    @Test
     void theRepositoryNeverRequeuesAMarkedAttemptEvenWhenItsRowRecordsASafeFailure() throws Exception {
         UUID item = oneItem();
         FollowUpWorkClaim claim = ledger(now).claim(tenantA.id(), INSTANCE_A, 5).getFirst();

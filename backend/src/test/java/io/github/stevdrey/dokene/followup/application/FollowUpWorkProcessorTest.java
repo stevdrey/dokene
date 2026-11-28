@@ -266,6 +266,30 @@ class FollowUpWorkProcessorTest {
     }
 
     @Test
+    void aDependencyReportedDownAfterAnEffectStillSparesTheRestOfTheBatch() {
+        FollowUpWorkClaim first = claim(1);
+        FollowUpWorkClaim waiting = claim(1);
+        when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(first, waiting));
+        when(ledger.beginEffect(first)).thenReturn(Optional.of(first));
+        when(ledger.requireRecovery(first, FollowUpWorkFailure.OUTCOME_UNKNOWN))
+                .thenReturn(FollowUpWorkTransition.EXHAUSTED);
+        when(ledger.fail(any(), any(), any())).thenReturn(FollowUpWorkTransition.RETRY_SCHEDULED);
+        List<FollowUpWorkClaim> handled = new ArrayList<>();
+
+        var summary = processor(FollowUpProviderHealth.Availability.HEALTHY).process(tenantId, WORKER, 5, lease -> {
+            handled.add(lease.claim());
+            assertThat(lease.beginEffect()).isTrue();
+            return new FollowUpWorkAttemptResult.Transient(FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE);
+        });
+
+        assertThat(handled).containsExactly(first);
+        assertThat(summary.recoveryRequired()).isEqualTo(1);
+        assertThat(summary.retryScheduled()).isEqualTo(1);
+        verify(ledger).requireRecovery(first, FollowUpWorkFailure.OUTCOME_UNKNOWN);
+        verify(ledger).fail(waiting, FollowUpWorkFailure.DEPENDENCY_UNAVAILABLE, NOW.plus(Duration.ofMinutes(1)));
+    }
+
+    @Test
     void aStaleClaimCannotBeginAnEffect() {
         FollowUpWorkClaim claim = claim(1);
         when(ledger.claim(tenantId, WORKER, 5)).thenReturn(List.of(claim));
